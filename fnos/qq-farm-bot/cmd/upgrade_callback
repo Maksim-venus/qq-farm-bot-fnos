@@ -1,0 +1,7 @@
+#!/bin/bash
+# 升级后：从旧版 Docker 数据卷 qq-farm-data / qq-farm-logs 迁移数据到 ${TRIM_PKGVAR}/data（不删除数据卷）
+. "$(dirname "$0")/common.sh"
+log_msg "upgrade_callback: ${TRIM_OLD_APPVER} -> ${TRIM_APPVER}"
+migrate_from_docker
+prepare_dirs
+exit 0

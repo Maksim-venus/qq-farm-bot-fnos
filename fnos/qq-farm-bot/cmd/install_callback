@@ -1,0 +1,7 @@
+#!/bin/bash
+# 安装完成后：准备数据目录；若存在旧版 Docker 数据卷（例如先卸载了 Docker 版再安装本版），自动复制过来
+. "$(dirname "$0")/common.sh"
+log_msg "install_callback: version=${TRIM_APPVER}"
+migrate_from_docker
+prepare_dirs
+exit 0

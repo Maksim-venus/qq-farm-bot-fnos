@@ -1,0 +1,109 @@
+#!/bin/bash
+# QQ 农场 飞牛原生包：start / stop / status
+# 服务只监听 ${TRIM_APPDEST}/app.sock（飞牛统一网关），不监听任何 TCP 端口。
+
+. "$(dirname "$0")/common.sh"
+
+start_app() {
+    if is_running; then
+        return 0
+    fi
+
+    local node_bin
+    node_bin="$(find_node)"
+    if [ -z "${node_bin}" ]; then
+        user_error "未找到 Node.js 运行环境，请先在应用中心安装 Node.js v22（nodejs_v22）。"
+        return 1
+    fi
+    if [ ! -f "${SERVER_DIR}/client.js" ]; then
+        user_error "应用文件不完整：缺少 ${SERVER_DIR}/client.js，请重新安装。"
+        return 1
+    fi
+
+    prepare_dirs
+    rotate_log
+    rm -f "${SOCKET_PATH}"
+
+    log_msg "Starting QQ 农场 ${TRIM_APPVER} (node: ${node_bin} $("${node_bin}" -v 2>/dev/null), user: $(app_user_exists && echo "${APP_USER}" || id -un))"
+    cd "${SERVER_DIR}" || return 1
+
+    # setsid：脱离生命周期脚本的进程组，避免脚本退出时被一并结束
+    run_as_app env \
+        NODE_ENV=production \
+        TZ="${TZ:-Asia/Shanghai}" \
+        QQ_FARM_SOCKET="${SOCKET_PATH}" \
+        QQ_FARM_GATEWAY_PREFIX="${GATEWAY_PREFIX}" \
+        QQ_FARM_DATA_DIR="${DATA_DIR}" \
+        QQ_FARM_ADMIN_ONLY="${QQ_FARM_ADMIN_ONLY:-1}" \
+        setsid "${node_bin}" client.js >> "${LOG_FILE}" 2>&1 < /dev/null &
+    local launcher=$!
+
+    # runuser 会 fork 子进程；记录真正的 node 进程 PID
+    local i pid=""
+    for i in $(seq 1 20); do
+        pid="$(pgrep -n -f "^${node_bin} client.js$" 2>/dev/null)"
+        [ -n "${pid}" ] && break
+        sleep 0.25
+    done
+    [ -z "${pid}" ] && pid="${launcher}"
+    echo "${pid}" > "${PID_FILE}"
+
+    # 等待 Socket 就绪（最多 20 秒），失败时给出可见错误
+    for i in $(seq 1 40); do
+        if [ -S "${SOCKET_PATH}" ]; then
+            log_msg "started, pid=${pid}, socket=${SOCKET_PATH}"
+            return 0
+        fi
+        if ! check_process "${pid}"; then
+            break
+        fi
+        sleep 0.5
+    done
+    if check_process "${pid}"; then
+        log_msg "WARN: 进程已启动但 20 秒内未创建 Socket，pid=${pid}"
+        return 0
+    fi
+    user_error "QQ 农场启动失败，请查看日志 ${LOG_FILE}"
+    rm -f "${PID_FILE}"
+    return 1
+}
+
+stop_app() {
+    local pid
+    pid="$(read_pid)"
+    if check_process "${pid}"; then
+        log_msg "Stopping pid=${pid}"
+        kill -TERM "${pid}" 2>/dev/null
+        local count=0
+        while check_process "${pid}" && [ "${count}" -lt 15 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+        if check_process "${pid}"; then
+            log_msg "send KILL to pid=${pid}"
+            kill -KILL "${pid}" 2>/dev/null
+        fi
+    fi
+    rm -f "${PID_FILE}" "${SOCKET_PATH}"
+    return 0
+}
+
+case "$1" in
+    start)
+        start_app || exit 1
+        exit 0
+        ;;
+    stop)
+        stop_app
+        exit 0
+        ;;
+    status)
+        if is_running; then
+            exit 0
+        fi
+        exit 3
+        ;;
+    *)
+        exit 1
+        ;;
+esac

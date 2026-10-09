@@ -57,3 +57,6 @@ cleanup.bat
 # Local protocol captures and generated runtime analysis
 protocol-captures/
 /docs/performance-analysis/
+
+# fnOS 打包输出
+fnos/out/

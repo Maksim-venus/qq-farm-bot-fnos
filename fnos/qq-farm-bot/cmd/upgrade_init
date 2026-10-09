@@ -1,0 +1,6 @@
+#!/bin/bash
+# 升级前：如果旧版是 Docker 包，先停止旧容器，避免与新版同时运行、继续占用 3007 端口
+. "$(dirname "$0")/common.sh"
+log_msg "upgrade_init: ${TRIM_OLD_APPVER} -> ${TRIM_APPVER}"
+stop_old_container
+exit 0

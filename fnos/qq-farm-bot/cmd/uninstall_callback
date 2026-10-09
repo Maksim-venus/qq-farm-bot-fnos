@@ -1,0 +1,5 @@
+#!/bin/bash
+# 卸载：只清理 Socket 与 PID；数据目录的保留/删除由飞牛应用中心处理
+. "$(dirname "$0")/common.sh"
+rm -f "${SOCKET_PATH}" "${PID_FILE}" 2>/dev/null
+exit 0

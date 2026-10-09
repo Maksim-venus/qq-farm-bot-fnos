@@ -1,0 +1,14 @@
+{
+    ".url": {
+        "qq-farm-bot.main": {
+            "title": "QQ 农场",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "",
+            "gatewayPrefix": "/app/qq-farm-bot",
+            "gatewaySocket": "app.sock",
+            "url": "/app/qq-farm-bot/",
+            "allUsers": false
+        }
+    }
+}

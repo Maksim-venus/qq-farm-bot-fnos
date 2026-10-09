@@ -3,7 +3,27 @@
 基于 Node.js 的 QQ 农场自动化工具，提供多账号挂机、农场与好友自动化、作物与超变图鉴、活动中心、商城、数据分析和 Web 控制面板。当前项目版本为 `20260928`，游戏协议版本为 `1.14.2.15_20260922`。
 
 > [!IMPORTANT]
-> 首次启动会创建默认管理员 `admin` / `admin`，Web 面板默认端口为 `3007`。对外部署后请立即修改密码，并避免将未加防护的管理端口直接暴露到公网。
+> 本仓库是面向 **飞牛 fnOS** 的分支（[Maksim-venus/qq-farm-bot-fnos](https://github.com/Maksim-venus/qq-farm-bot-fnos)，上游 [liyangpengs/qq-farm-bot](https://github.com/liyangpengs/qq-farm-bot)）。
+> 本分支已移除应用内管理员登录与改密功能，访问控制完全交给飞牛统一网关；源码/Docker 直接运行时 **没有任何登录校验**，Web 面板默认只绑定 `127.0.0.1:3007`，请勿暴露到局域网或公网。
+
+## 飞牛 fnOS 原生应用（本分支）
+
+飞牛原生 FPK（不使用 Docker、不开放任何端口），打包文件位于 [`fnos/`](fnos/)：
+
+- 服务只监听飞牛统一网关的 Unix Socket `${TRIM_APPDEST}/app.sock`，入口为 `/app/qq-farm-bot/`，不监听任何 TCP 端口。
+- 访问需要先登录飞牛；默认仅飞牛管理员可用（网关 Header `X-Trim-Isadmin`）。
+- 运行环境依赖应用中心的 Node.js v22（`nodejs_v22`），数据保存在 `${TRIM_PKGVAR}/data`（即 `/vol*/@appdata/qq-farm-bot/data`）。
+- 从旧版 Docker 包（V1.0.x）覆盖升级时，会自动停止旧容器并把 `qq-farm-data` / `qq-farm-logs` 数据卷复制到新数据目录（不删除原数据卷）。
+- 安装包从 [Releases](https://github.com/Maksim-venus/qq-farm-bot-fnos/releases) 下载，通过「应用中心 → 手动安装」安装。
+
+构建：
+
+```bash
+pnpm install
+fnos/build.sh            # 产物：fnos/out/qq-farm-bot_v1.1.0_native_x86.fpk 及 .sha256
+```
+
+部署与变更说明见 [`fnos/飞牛部署与变更说明.md`](fnos/飞牛部署与变更说明.md)。
 
 ## 项目截图
 |  |  |
@@ -21,7 +41,7 @@
 - 游戏账号可无限添加并独立运行，每个账号可单独配置种植、好友、自动化和执行间隔策略
 - 支持抓包 Code 登录、微信扫码登录和 QQ扫码登录
 - 支持账号启停、状态监控、实时日志和离线提醒
-- Web 面板只保留一个超级管理员，不提供注册、普通用户和租户隔离
+- Web 面板不再有独立的管理员账号；飞牛版由飞牛登录与网关负责访问控制
 
 ### 农场自动化
 
@@ -74,7 +94,7 @@
 - Socket.IO 实时状态与日志，全局使用单一暖白液态玻璃界面
 - PC 端使用固定侧栏，移动端使用顶部栏和底部导航，并针对常用操作完成响应式适配
 - 作物收益分析、策略预览、批量维护作物黑名单
-- 设置页统一管理游戏账号、自动化策略、运行环境、管理员密码和下线提醒
+- 设置页统一管理游戏账号、自动化策略、运行环境和下线提醒
 - 基于 `pushoo` 的实例级事件推送，可配置通知渠道和离线自动清理时间
 
 ## 技术栈
@@ -116,8 +136,7 @@ pnpm dev
 
 `pnpm dev` 会先构建前端，再启动后端服务。启动后访问：
 
-- 本机：`http://localhost:3007`
-- 局域网：`http://<服务器 IP>:3007`
+- 本机：`http://localhost:3007`（本分支默认只绑定 `127.0.0.1`，无登录校验）
 
 如需分别启动开发服务：
 
@@ -174,7 +193,7 @@ docker compose config
 docker compose down
 ```
 
-默认访问 `http://<服务器 IP>:3007`。修改根目录 `.env` 中的 `PORT` 后，可调整宿主机映射端口：
+本分支默认只映射到宿主机 `127.0.0.1:3007`（无登录校验）。修改根目录 `.env` 中的 `PORT` 后，可调整宿主机映射端口：
 
 ```dotenv
 PORT=3008
@@ -213,11 +232,10 @@ chmod +x ./qq-farm-bot
 
 ## 首次使用
 
-1. 打开 Web 面板，使用 `admin` / `admin` 登录。
-2. 进入“设置 → 系统设置”修改管理员密码。
-3. 如需使用 QQ 扫码登录，先部署并启动 [qq-miniapp-auth](https://github.com/liyangpengs/qq-miniapp-auth) 服务，再在“设置 → 系统设置 → 登录设置”开启 QQ 扫码登录，并填写 NapCat 接口地址和接口签名。
-4. 在设置页添加游戏账号，可使用有效 Code、微信扫码或 QQ扫码登录。
-5. 为账号配置种植、自动化和好友策略，并按需设置实例级下线提醒。
+1. 打开 Web 面板（飞牛版从桌面图标「QQ 农场」进入，无需额外登录）。
+2. 如需使用 QQ 扫码登录，先部署并启动 [qq-miniapp-auth](https://github.com/liyangpengs/qq-miniapp-auth) 服务，再在“设置 → 系统设置 → 登录设置”开启 QQ 扫码登录，并填写 NapCat 接口地址和接口签名。
+3. 在设置页添加游戏账号，可使用有效 Code、微信扫码或 QQ扫码登录。
+4. 为账号配置种植、自动化和好友策略，并按需设置实例级下线提醒。
 6. 启动账号，在概览页确认连接状态、农场数据和实时日志。
 
 Code 具有时效性；登录失败时应先重新获取 Code 或重新扫码。QQ 客户端被挤下线后，官方“重新登录”会签发新的 Code；可启动 QQFarmCodeHelper 的标准获取模式并开启自动同步，再点击官方“重新登录”，Helper 会更新匹配账号的 Code 并重新启动远程账号。协议监听模式只落盘抓包，永远不会自动上传 Code。
@@ -231,12 +249,17 @@ QQ 扫码登录依赖外部 [qq-miniapp-auth](https://github.com/liyangpengs/qq-
 | 变量 | 默认值 | 适用范围 | 说明 |
 | --- | --- | --- | --- |
 | `ADMIN_PORT` | `3007` | 源码、二进制 | Web 面板监听端口；Compose 容器内固定为 `3007` |
+| `ADMIN_HOST` | `127.0.0.1` | 源码、二进制 | Web 面板监听地址；Compose 容器内为 `0.0.0.0`，宿主机只映射到 `127.0.0.1` |
+| `QQ_FARM_SOCKET` | 空 | 飞牛原生包 | 设置后只监听该 Unix Socket，不监听 TCP |
+| `QQ_FARM_GATEWAY_PREFIX` | 空 | 飞牛原生包 | 飞牛统一网关前缀，如 `/app/qq-farm-bot` |
+| `QQ_FARM_DATA_DIR` | `core/data` | 飞牛原生包 | 数据目录 |
+| `QQ_FARM_ADMIN_ONLY` | `1` | 飞牛原生包 | 为 `1` 时仅允许飞牛管理员访问 |
 | `PORT` | `3007` | Docker Compose | 宿主机映射端口，从根目录 `.env` 读取 |
 | `TZ` | `Asia/Shanghai` | Docker Compose | 容器时区 |
 | `NODE_ENV` | `production` | Docker | Compose 当前固定为生产环境 |
 | `LOG_LEVEL` | `info` | 后端 | 服务端日志级别 |
 
-管理员账号不通过环境变量初始化。首次运行会自动创建 `admin` / `admin`，之后的管理员凭据保存在数据目录的 `admin.json` 中。项目不提供注册或新增管理员功能。
+本分支已移除管理员账号、登录页和改密功能（旧数据中的 `admin.json` 不再使用）。
 
 ### 种植策略
 

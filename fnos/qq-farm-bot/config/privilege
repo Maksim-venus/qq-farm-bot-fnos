@@ -1,0 +1,7 @@
+{
+    "defaults": {
+        "run-as": "root"
+    },
+    "username": "qq-farm-bot",
+    "groupname": "qq-farm-bot"
+}
