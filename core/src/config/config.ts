@@ -35,7 +35,6 @@ interface RuntimeConfig extends SystemConfig {
     friendCheckIntervalMin: number;
     friendCheckIntervalMax: number;
     adminPort: number;
-    adminPassword: string | undefined;
 }
 
 // ============ 设备预设 ============
@@ -207,7 +206,6 @@ const CONFIG: RuntimeConfig = {
     friendCheckIntervalMin: 12000,
     friendCheckIntervalMax: 15000,
     adminPort: Number(process.env.ADMIN_PORT),
-    adminPassword: process.env.ADMIN_PASSWORD,
 };
 
 function normalizeDeviceInfo(input: any): DeviceInfo {

@@ -1,6 +1,8 @@
 import catalog from '../../activity-data/pet-diary-2026090101.json';
 import assets from '../../activity-data/pet-diary-assets.json';
 
+const { gatewayPath } = require('../../config/fnos');
+
 const GROUP_ID = '2026090100';
 const PET_ID = '2026090101';
 const SEEDS_ID = '2026090102';
@@ -9,7 +11,7 @@ const DIAMOND_ID = '1004';
 const base = catalog.ActivityPetTreasureHuntBase[0];
 const fight = catalog.ActivityPetTreasureHuntFight[0];
 const refresh = catalog.ActivityPetTreasureCharmRefresh[0];
-const assetPaths = new Map(assets.map(entry => [entry.path.replace(/\/spriteFrame$/, ''), `/activity-assets/pet-diary/${entry.file}`]));
+const assetPaths = new Map(assets.map(entry => [entry.path.replace(/\/spriteFrame$/, ''), gatewayPath(`/activity-assets/pet-diary/${entry.file}`)]));
 
 // IDs and selectors come from mini-program 1.14.0.1's encoder, not response lengths.
 const OPERATIONS = {

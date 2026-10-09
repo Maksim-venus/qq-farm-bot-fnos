@@ -1,44 +1,13 @@
-import { useStorage } from '@vueuse/core'
-import axios from 'axios'
 import NProgress from 'nprogress'
 import { createRouter, createWebHistory } from 'vue-router'
+import { APP_BASE } from '@/utils/gateway'
 import { menuRoutes } from './menu'
 import 'nprogress/nprogress.css'
 
 NProgress.configure({ showSpinner: false })
 
-const adminToken = useStorage('admin_token', '')
-let validatedToken = ''
-let validatingPromise: Promise<boolean> | null = null
-
-async function ensureTokenValid() {
-  const token = String(adminToken.value || '').trim()
-  if (!token)
-    return false
-
-  if (validatedToken && validatedToken === token)
-    return true
-
-  if (validatingPromise)
-    return validatingPromise
-
-  validatingPromise = axios.get('/api/auth/validate', {
-    headers: { 'x-admin-token': token },
-    timeout: 6000,
-  }).then((res) => {
-    const ok = !!(res.data && res.data.ok)
-    if (ok)
-      validatedToken = token
-    return ok
-  }).catch(() => false).finally(() => {
-    validatingPromise = null
-  })
-
-  return validatingPromise
-}
-
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
+  history: createWebHistory(APP_BASE),
   routes: [
     {
       path: '/',
@@ -56,41 +25,15 @@ const router = createRouter({
       redirect: to => ({ name: 'game-mall', query: { ...to.query, tab: 'mystery' }, hash: to.hash }),
     },
     {
+      // 旧版登录页地址：访问控制已交给飞牛，直接回到首页
       path: '/login',
-      name: 'login',
-      component: () => import('@/views/Login.vue'),
+      redirect: '/',
     },
   ],
 })
 
-router.beforeEach(async (to, _from) => {
+router.beforeEach(() => {
   NProgress.start()
-
-  if (to.name === 'login') {
-    if (!adminToken.value) {
-      validatedToken = ''
-      return true
-    }
-    const valid = await ensureTokenValid()
-    if (valid)
-      return { name: 'dashboard' }
-    adminToken.value = ''
-    validatedToken = ''
-    return true
-  }
-
-  if (!adminToken.value) {
-    validatedToken = ''
-    return { name: 'login' }
-  }
-
-  const valid = await ensureTokenValid()
-  if (!valid) {
-    adminToken.value = ''
-    validatedToken = ''
-    return { name: 'login' }
-  }
-
   return true
 })
 

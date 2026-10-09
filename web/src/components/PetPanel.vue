@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type { DogFoodInfo, PetInfo } from '@/stores/pet'
-import { useStorage } from '@vueuse/core'
 import { NButton } from 'naive-ui/es/button'
 import { NInputNumber } from 'naive-ui/es/input-number'
 import { NModal } from 'naive-ui/es/modal'
@@ -37,7 +36,6 @@ const {
 } = storeToRefs(petStore)
 
 const useCounts = reactive<Record<number, number>>({})
-const tokenRef = useStorage('admin_token', '')
 const showProtectLogs = ref(false)
 
 const isConnected = computed(() => !!status.value?.connection?.connected)
@@ -240,7 +238,7 @@ watch(currentAccountId, () => {
         </NButton>
         <NButton
           circle quaternary size="small" title="刷新宠物信息" :loading="loading || statusLoading"
-          :disabled="!currentAccountId || !isConnected || !tokenRef" @click="refreshPetInfo"
+          :disabled="!currentAccountId || !isConnected" @click="refreshPetInfo"
         >
           <span class="i-carbon-renew" />
         </NButton>

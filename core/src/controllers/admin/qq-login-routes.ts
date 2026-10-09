@@ -3,8 +3,6 @@ import type { AdminContext } from './context';
 import { cancelLoginTask, createLoginTask, getMiniappCode, QQ_MINIAPP_APP_ID, queryLoginStatus } from '../../services/qq-login/service';
 export {};
 
-const { createAuthRequired } = require('./middleware');
-
 function publicTask(task: any) {
     return {
         task_id: task.taskId,
@@ -21,9 +19,7 @@ function sendError(res: Response, error: any, fallback: string): void {
     });
 }
 
-function mountQqLoginRoutes(app: Application, ctx: AdminContext): void {
-    app.use('/api/qq-login', createAuthRequired(ctx));
-
+function mountQqLoginRoutes(app: Application, _ctx: AdminContext): void {
     app.post('/api/qq-login/tasks', async (_req: Request, res: Response) => {
         try {
             const task = await createLoginTask();

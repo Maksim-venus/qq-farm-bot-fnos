@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { ActivityRulesDto } from '@/stores/activity-center'
+import { gatewayPath } from '@/utils/gateway'
 import ActivityRulesDialog from './ActivityRulesDialog.vue'
 
 defineProps<{
@@ -26,7 +27,7 @@ const emit = defineEmits<{ close: [] }>()
         </div>
         <span class="guide-arrow" aria-hidden="true">➜</span>
         <div class="guide-step">
-          <span class="guide-icon guide-icon--sand" aria-hidden="true"><img src="/activity-center/stellar/star-sand.png" alt=""></span>
+          <span class="guide-icon guide-icon--sand" aria-hidden="true"><img :src="gatewayPath('/activity-center/stellar/star-sand.png')" alt=""></span>
           <strong>星砂商店</strong>
           <small>兑换装扮</small>
         </div>

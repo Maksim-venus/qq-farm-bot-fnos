@@ -6,6 +6,7 @@ import ActivityShell from '@/components/activity/ActivityShell.vue'
 import { useAccountStore } from '@/stores/account'
 import { useFriendStore } from '@/stores/friend'
 import { usePetDiaryStore } from '@/stores/pet-diary'
+import { gatewayPath } from '@/utils/gateway'
 import PetMascot from './PetMascot.vue'
 import PetPaw from './PetPaw.vue'
 import PetSolarScene from './PetSolarScene.vue'
@@ -217,7 +218,7 @@ watch(pet, (value) => {
         </span>
         <details v-if="pet" ref="walletMenu" class="pet-wallet-menu">
           <summary :aria-label="`查看活动道具余额，累计获得 ${pet.hunt.luckyStarTotal} 幸运星`">
-            <img :src="luckyStars?.image || '/game-config/seed_images_named/seed_images/1029.png'" alt="">
+            <img :src="luckyStars?.image || gatewayPath('/game-config/seed_images_named/seed_images/1029.png')" alt="">
             <strong>{{ luckyStars?.known ? Number(luckyStars.count).toLocaleString() : '—' }}</strong>
             <svg class="pet-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>
           </summary>

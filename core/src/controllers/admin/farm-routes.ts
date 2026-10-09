@@ -11,15 +11,12 @@ const { getLevelExpProgress } = require('../../config/gameConfig');
 const store = require('../../models/store');
 
 const {
-    createAuthRequired,
     getAccId,
     handleApiError,
     resolveAccId,
 } = require('./middleware');
 
 function mountFarmRoutes(app: Application, ctx: AdminContext): void {
-    const authRequired = createAuthRequired(ctx);
-
     // API: 完整状态
     app.get('/api/status', async (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
@@ -152,7 +149,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
     });
 
     // API: 蔬菜黑名单
-    app.get('/api/plant-blacklist', authRequired, (req: Request, res: Response) => {
+    app.get('/api/plant-blacklist', (req: Request, res: Response) => {
         try {
             const accountId = getAccId(ctx, req);
             if (!accountId) return res.status(400).json({ ok: false, error: 'Missing accountId' });
@@ -164,7 +161,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
-    app.post('/api/plant-blacklist', authRequired, (req: Request, res: Response) => {
+    app.post('/api/plant-blacklist', (req: Request, res: Response) => {
         try {
             const accountId = getAccId(ctx, req);
             if (!accountId) return res.status(400).json({ ok: false, error: 'Missing accountId' });
@@ -192,7 +189,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
-    app.delete('/api/plant-blacklist/:seedId', authRequired, (req: Request, res: Response) => {
+    app.delete('/api/plant-blacklist/:seedId', (req: Request, res: Response) => {
         try {
             const accountId = getAccId(ctx, req);
             if (!accountId) return res.status(400).json({ ok: false, error: 'Missing accountId' });
@@ -219,7 +216,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
     });
 
     // API: 批量添加蔬菜黑名单
-    app.post('/api/plant-blacklist/batch', authRequired, (req: Request, res: Response) => {
+    app.post('/api/plant-blacklist/batch', (req: Request, res: Response) => {
         try {
             const accountId = getAccId(ctx, req);
             if (!accountId) return res.status(400).json({ ok: false, error: 'Missing accountId' });
@@ -248,7 +245,7 @@ function mountFarmRoutes(app: Application, ctx: AdminContext): void {
     });
 
     // API: 清空蔬菜黑名单
-    app.delete('/api/plant-blacklist', authRequired, (req: Request, res: Response) => {
+    app.delete('/api/plant-blacklist', (req: Request, res: Response) => {
         try {
             const accountId = getAccId(ctx, req);
             if (!accountId) return res.status(400).json({ ok: false, error: 'Missing accountId' });

@@ -2,6 +2,7 @@ import levels from '../../gameConfig/LandLevel.json';
 import upgradeCosts from '../../gameConfig/LandLevelNeed.json';
 
 const { getItemById, getSeedImageBySeedId } = require('../../config/gameConfig');
+const { gatewayPath } = require('../../config/fnos');
 const number = (value: any) => Number(value?.toString?.() ?? value) || 0;
 const amount = (value: any) => /^\d+$/.test(String(value)) ? String(value) : '0';
 
@@ -9,7 +10,7 @@ function levelInfo(level: number, buff?: any) {
     const config = levels.find(entry => entry.id === level);
     if (!config) return null;
     return {
-        level, name: config.level_name, image: `/land-assets/${level}.png`,
+        level, name: config.level_name, image: gatewayPath(`/land-assets/${level}.png`),
         yieldBonus: number(buff?.plant_yield_bonus ?? config.plant_yield_bonus) / 100,
         growthReduction: number(buff?.planting_time_reduction ?? config.planting_time_reduction) / 100,
         expBonus: number(buff?.plant_exp_bonus ?? config.plant_exp_bonus) / 100,

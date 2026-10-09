@@ -1,9 +1,9 @@
 import type { Socket } from 'socket.io-client'
-import { useStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { io } from 'socket.io-client'
 import { ref } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
+import { gatewayPath } from '@/utils/gateway'
 
 // Define interfaces for better type checking
 interface DailyGift {
@@ -38,7 +38,6 @@ export const useStatusStore = defineStore('status', () => {
   const realtimeConnected = ref(false)
   const realtimeLogsEnabled = ref(true)
   const currentRealtimeAccountId = ref('')
-  const tokenRef = useStorage('admin_token', '')
 
   let socket: Socket | null = null
   let statusRequestSequence = 0
@@ -94,13 +93,11 @@ export const useStatusStore = defineStore('status', () => {
     if (socket)
       return socket
 
+    // 飞牛网关：/app/qq-farm-bot/socket.io；访问控制由飞牛网关负责，不再携带令牌
     socket = io('/', {
-      path: '/socket.io',
+      path: gatewayPath('/socket.io'),
       autoConnect: false,
       transports: ['websocket'],
-      auth: {
-        token: tokenRef.value,
-      },
     })
 
     socket.on('connect', () => {
@@ -138,15 +135,11 @@ export const useStatusStore = defineStore('status', () => {
       loading.value = false
       error.value = ''
     }
-    if (!tokenRef.value)
-      return
-
     if (nextAccountId && (accountChanged || (!status.value && !loading.value)))
       void fetchStatus(nextAccountId)
 
     const client = ensureRealtimeSocket()
     client.auth = {
-      token: tokenRef.value,
       accountId: currentRealtimeAccountId.value || 'all',
     }
 

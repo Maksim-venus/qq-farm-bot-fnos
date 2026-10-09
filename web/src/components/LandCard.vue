@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { gatewayPath } from '@/utils/gateway'
 
 const props = withDefaults(defineProps<{
   land: any
@@ -266,7 +267,7 @@ function mutantBadgeClass(effect: { icon?: string }) {
 
 function mutantIconUrl(id: number) {
   const numericId = Number(id) || 0
-  return numericId > 0 ? `/game-config/seed_images_named/mutant/${numericId}.png` : ''
+  return numericId > 0 ? gatewayPath(`/game-config/seed_images_named/mutant/${numericId}.png`) : ''
 }
 
 function mutantIconName(effect: { icon?: string }) {

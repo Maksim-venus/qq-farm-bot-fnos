@@ -17,12 +17,10 @@ import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
-import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
 const route = useRoute()
 const accountStore = useAccountStore()
-const userStore = useUserStore()
 const settingStore = useSettingStore()
 const statusStore = useStatusStore()
 
@@ -1029,15 +1027,8 @@ async function saveAutomationSettings() {
 }
 
 // ==================== 系统设置 ====================
-const passwordSaving = ref(false)
 const offlineSaving = ref(false)
 const offlineTesting = ref(false)
-
-const passwordForm = ref({
-  old: '',
-  new: '',
-  confirm: '',
-})
 
 const localOffline = ref({
   channel: 'webhook',
@@ -1171,41 +1162,6 @@ function validateDingTalkWebhook(): string {
 watch(settings, () => {
   syncLocalOfflineSettings()
 }, { deep: true })
-
-async function handleChangePassword() {
-  if (!passwordForm.value.old || !passwordForm.value.new) {
-    showAlert('请填写完整', 'danger')
-    return
-  }
-  if (passwordForm.value.new !== passwordForm.value.confirm) {
-    showAlert('两次密码输入不一致', 'danger')
-    return
-  }
-  if (passwordForm.value.new.length < 6) {
-    showAlert('密码长度至少6位', 'danger')
-    return
-  }
-
-  passwordSaving.value = true
-  try {
-    const res = await userStore.changePassword(passwordForm.value.old, passwordForm.value.new)
-
-    if (res.ok) {
-      showAlert('密码修改成功，请重新登录', 'primary')
-      passwordForm.value = { old: '', new: '', confirm: '' }
-      setTimeout(() => {
-        userStore.logout()
-        window.location.href = '/login'
-      }, 1500)
-    }
-    else {
-      showAlert(`修改失败: ${res.error || '未知错误'}`, 'danger')
-    }
-  }
-  finally {
-    passwordSaving.value = false
-  }
-}
 
 async function handleSaveOffline() {
   const validationError = validateDingTalkWebhook()
@@ -1773,7 +1729,7 @@ async function handleResetSystemConfig() {
                       {{ item.name }} · {{ item.scope }}
                       <button
                         type="button"
-                        class="i-carbon-close text-amber-600 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+                        class="i-carbon-close text-amber-600 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100"
                         :title="`清除 ${item.name} 的土地限制`"
                         :aria-label="`清除 ${item.name} 的土地限制`"
                         @click="setBagSeedLandTypes(item.seedId, [])"
@@ -2087,7 +2043,7 @@ async function handleResetSystemConfig() {
 
                 <div
                   v-if="localLoginSettings.qqQrLogin"
-                  class="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-gray-200 bg-gray-50/70 p-4 sm:grid-cols-2 dark:border-gray-700 dark:bg-gray-900/30"
+                  class="grid grid-cols-1 mt-4 gap-3 border border-gray-200 rounded-lg bg-gray-50/70 p-4 sm:grid-cols-2 dark:border-gray-700 dark:bg-gray-900/30"
                 >
                   <BaseInput
                     v-model="localLoginSettings.napCatEndpoint"
@@ -2115,53 +2071,6 @@ async function handleResetSystemConfig() {
                 </div>
               </section>
 
-              <section class="farm-card rounded-lg p-4">
-                <div class="mb-4 flex items-start gap-3">
-                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-400">
-                    <span class="i-carbon-password text-xl" />
-                  </div>
-                  <div>
-                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
-                      修改管理员密码
-                    </h4>
-                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                      更新后台管理登录凭据
-                    </p>
-                  </div>
-                </div>
-
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <BaseInput
-                    v-model="passwordForm.old"
-                    label="当前密码"
-                    type="password"
-                    placeholder="当前管理员密码"
-                  />
-                  <BaseInput
-                    v-model="passwordForm.new"
-                    label="新密码"
-                    type="password"
-                    placeholder="至少 6 位"
-                  />
-                  <BaseInput
-                    v-model="passwordForm.confirm"
-                    label="确认新密码"
-                    type="password"
-                    placeholder="再次输入新密码"
-                  />
-                </div>
-
-                <div class="mt-3 flex items-center justify-end border-t pt-3 dark:border-gray-700">
-                  <BaseButton
-                    variant="primary"
-                    size="sm"
-                    :loading="passwordSaving"
-                    @click="handleChangePassword"
-                  >
-                    修改管理员密码
-                  </BaseButton>
-                </div>
-              </section>
 
               <section class="farm-card rounded-lg p-4">
                 <div class="mb-4 flex items-start gap-3">
@@ -2179,8 +2088,8 @@ async function handleResetSystemConfig() {
                 </div>
 
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div class="flex min-w-0 flex-col gap-1.5">
-                    <div class="flex min-h-6 items-center justify-between gap-2">
+                  <div class="min-w-0 flex flex-col gap-1.5">
+                    <div class="min-h-6 flex items-center justify-between gap-2">
                       <span class="text-sm text-gray-700 font-medium dark:text-gray-300">推送渠道</span>
                       <BaseButton
                         variant="text"

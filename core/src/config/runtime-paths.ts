@@ -26,6 +26,9 @@ function getAppRootForWritable(): string {
 }
 
 function getDataDir(): string {
+    // 飞牛原生包通过 QQ_FARM_DATA_DIR 指向 ${TRIM_PKGVAR}/data，安装目录保持只读
+    const override = String(process.env.QQ_FARM_DATA_DIR || '').trim();
+    if (override) return path.resolve(override);
     return path.join(getAppRootForWritable(), 'data');
 }
 
@@ -40,6 +43,7 @@ function getDataFile(filename: string): string {
 }
 
 function getShareFilePath(): string {
+    if (String(process.env.QQ_FARM_DATA_DIR || '').trim()) return path.join(getDataDir(), 'share.txt');
     return path.join(getAppRootForWritable(), 'share.txt');
 }
 

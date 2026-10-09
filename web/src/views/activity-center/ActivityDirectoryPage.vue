@@ -5,6 +5,7 @@ import { computed } from 'vue'
 import { activityHasGameplay } from '@/components/activity/gameplays'
 import { useAccountStore } from '@/stores/account'
 import { useActivityCenterStore } from '@/stores/activity-center'
+import { gatewayPath } from '@/utils/gateway'
 import PetMascot from './PetMascot.vue'
 import { useActivityClock } from './useActivityClock'
 
@@ -202,7 +203,7 @@ function openActivity(activity: ActivityDirectoryItemDto) {
         <span class="activity-entry__topline">
           <span class="activity-entry__icon">
             <PetMascot v-if="activity.gameplayKey === 'pet'" stage="puppy" class="activity-entry__pet" />
-            <img v-else-if="['wish', 'happy'].includes(activity.gameplayKey || '')" :src="`/activity-assets/autumn/${activity.gameplayKey}.png`" alt="" width="36" height="36" style="object-fit: contain">
+            <img v-else-if="['wish', 'happy'].includes(activity.gameplayKey || '')" :src="gatewayPath(`/activity-assets/autumn/${activity.gameplayKey}.png`)" alt="" width="36" height="36" style="object-fit: contain">
             <span v-else class="i-carbon-calendar" />
           </span>
           <span class="activity-entry__status">{{ activityStatusLabel(activity) }}</span>

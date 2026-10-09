@@ -8,6 +8,7 @@ import ActivityShell from '@/components/activity/ActivityShell.vue'
 import CommerceItemImage from '@/components/commerce/CommerceItemImage.vue'
 import { useAccountStore } from '@/stores/account'
 import { useToastStore } from '@/stores/toast'
+import { gatewayPath } from '@/utils/gateway'
 
 interface ActivityState {
   title: string
@@ -214,7 +215,7 @@ onUnmounted(() => {
         <div v-else class="autumn-body">
           <section class="hero">
             <div class="hero__art">
-              <img :src="`/activity-assets/autumn/${kind}.png`" alt="" width="84" height="84">
+              <img :src="gatewayPath(`/activity-assets/autumn/${kind}.png`)" alt="" width="84" height="84">
             </div>
             <div class="hero__copy">
               <span class="hero__eyebrow">2026 秋 · 限时活动 · {{ dates }}</span>

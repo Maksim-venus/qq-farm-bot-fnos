@@ -11,10 +11,11 @@ const express = require('express');
 
 const { CONFIG } = require('../../config/config');
 const { getResourcePath } = require('../../config/runtime-paths');
+const { GATEWAY_PREFIX, stripGatewayPrefix, getListenSocketPath, isAdminOnly } = require('../../config/fnos');
 const { createModuleLogger } = require('../../services/logger');
 
 const { createAdminContext } = require('./context');
-const { mountAuthRoutes } = require('./auth-routes');
+const { mountSystemRoutes } = require('./system-routes');
 const { mountAccountRoutes } = require('./account-routes');
 const { mountFarmRoutes } = require('./farm-routes');
 const { mountFriendRoutes } = require('./friend-routes');
@@ -22,6 +23,7 @@ const { mountActivityCenterRoutes } = require('./activity-center-routes');
 const { mountCommerceRoutes } = require('./commerce-routes');
 const { mountWxLoginRoutes } = require('./wx-login-routes');
 const { mountQqLoginRoutes } = require('./qq-login-routes');
+const { getGatewayUser } = require('./middleware');
 const {
     setupSocketIO,
     emitRealtimeStatus: _emitStatus,
@@ -40,6 +42,25 @@ function startAdminServer(dataProvider: any): void {
 
     const app = express();
     app.set('trust proxy', true);
+    app.disable('x-powered-by');
+
+    // 飞牛统一网关保留 /app/qq-farm-bot 前缀转发，进入路由前统一剥离
+    app.use((req: any, _res: any, next: any) => {
+        const stripped = stripGatewayPrefix(req.url);
+        if (stripped !== null) req.url = stripped;
+        next();
+    });
+
+    // 飞牛网关已校验 NAS 登录态；默认仅允许飞牛管理员访问
+    app.use((req: any, res: any, next: any) => {
+        if (!isAdminOnly()) return next();
+        const user = getGatewayUser(req);
+        if (user.isAdmin) return next();
+        const message = '仅飞牛管理员可以使用 QQ 农场';
+        if (req.path.startsWith('/api')) return res.status(403).json({ ok: false, error: message });
+        return res.status(403).type('text/plain; charset=utf-8').send(message);
+    });
+
     app.use(express.json());
 
     ctx.app = app;
@@ -55,7 +76,7 @@ function startAdminServer(dataProvider: any): void {
         }
 
         res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, PUT');
-        res.header('Access-Control-Allow-Headers', 'Content-Type, x-account-id, x-admin-token, x-proxy-api-key, x-proxy-api-url, x-proxy-app-id');
+        res.header('Access-Control-Allow-Headers', 'Content-Type, x-account-id, x-proxy-api-key, x-proxy-api-url, x-proxy-app-id');
         res.header('Access-Control-Allow-Credentials', 'true');
         res.header('Access-Control-Max-Age', '86400');
 
@@ -73,7 +94,7 @@ function startAdminServer(dataProvider: any): void {
     app.use('/game-config', express.static(getResourcePath('gameConfig')));
 
     // Mount route modules
-    mountAuthRoutes(app, ctx);
+    mountSystemRoutes(app, ctx);
     mountWxLoginRoutes(app, ctx);
     mountQqLoginRoutes(app, ctx);
     mountFarmRoutes(app, ctx);
@@ -94,9 +115,33 @@ function startAdminServer(dataProvider: any): void {
         }
     });
 
-    const port: number = CONFIG.adminPort || 3007;
-    ctx.server = app.listen(port, '0.0.0.0', () => {
-        adminLogger.info('admin panel started', { url: `http://localhost:${port}`, port });
+    const socketPath: string = getListenSocketPath();
+    if (socketPath) {
+        // 飞牛原生包：只监听统一网关的 Unix Socket，不开放任何 TCP 端口
+        try {
+            fs.rmSync(socketPath, { force: true });
+        } catch (e: any) {
+            adminLogger.warn('failed to remove stale socket', { socketPath, error: e?.message });
+        }
+        ctx.server = app.listen(socketPath, () => {
+            adminLogger.info('admin panel started', { socket: socketPath, gatewayPrefix: GATEWAY_PREFIX || '/' });
+        });
+        const cleanup = () => {
+            try { fs.rmSync(socketPath, { force: true }); } catch { /* ignore */ }
+        };
+        process.once('exit', cleanup);
+    } else {
+        // 本地开发：仅绑定回环地址
+        const port: number = CONFIG.adminPort || 3007;
+        const host: string = String(process.env.ADMIN_HOST || '127.0.0.1');
+        ctx.server = app.listen(port, host, () => {
+            adminLogger.info('admin panel started', { url: `http://${host}:${port}`, port });
+        });
+    }
+    ctx.server.on('error', (err: any) => {
+        adminLogger.error('admin server error', { error: err?.message || String(err) });
+        process.exitCode = 1;
+        setTimeout(() => process.exit(1), 200);
     });
 
     // Setup Socket.IO

@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { getResourcePath } = require('./runtime-paths');
 const { isSellConditionSatisfied } = require('./sell-conditions');
+const { gatewayPath } = require('./fnos');
 
 interface RoleLevelItem {
     level: number;
@@ -426,7 +427,7 @@ function getAllSeeds(): SeedInfo[] {
 function getMappedSeedImage(targetId: number): string {
     const id = Number(targetId) || 0;
     if (id <= 0) return '';
-    return `/game-config/seed_images_named/seed_images/${id}.png`;
+    return gatewayPath(`/game-config/seed_images_named/seed_images/${id}.png`);
 }
 
 function getSeedImageBySeedId(seedId: number): string {
@@ -438,7 +439,7 @@ function getItemImageById(itemId: number): string {
     if (id <= 0) return '';
 
     // 直接按ID返回
-    return `/game-config/seed_images_named/seed_images/${id}.png`;
+    return gatewayPath(`/game-config/seed_images_named/seed_images/${id}.png`);
 }
 
 function getItemById(itemId: number): ItemInfo | undefined {

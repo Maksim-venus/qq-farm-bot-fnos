@@ -1,14 +1,9 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import type { AdminContext } from './context';
 export {};
 
-const crypto = require('node:crypto');
 const store = require('../../models/store');
 const { normalizeAccountRef, resolveAccountId } = require('../../services/account-resolver');
-
-interface AuthenticatedRequest extends Request {
-    adminToken?: string;
-}
 
 function getClientIp(req: Request): string {
     const cfIp = req.headers['cf-connecting-ip'];
@@ -24,18 +19,34 @@ function getClientIp(req: Request): string {
     return String(address || 'unknown').replace(/^::ffff:/, '');
 }
 
-const issueToken = (): string => crypto.randomBytes(24).toString('hex');
+interface GatewayUser {
+    uid: string;
+    username: string;
+    isAdmin: boolean;
+    viaGateway: boolean;
+}
 
-function createAuthRequired(ctx: AdminContext) {
-    return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
-        const token = String(req.headers['x-admin-token'] || '');
-        if (!token || !ctx.tokens.has(token)) {
-            res.status(401).json({ ok: false, error: 'Unauthorized' });
-            return;
-        }
-        req.adminToken = token;
-        next();
+function headerText(value: unknown): string {
+    return String(Array.isArray(value) ? value[0] : (value ?? '')).trim();
+}
+
+/** 读取飞牛统一网关转发的用户信息（X-Trim-Userid / X-Trim-Username / X-Trim-Isadmin）。 */
+function getGatewayUserFromHeaders(headers: Record<string, any> = {}): GatewayUser {
+    const uid = headerText(headers['x-trim-userid']);
+    const username = headerText(headers['x-trim-username']);
+    const isAdminRaw = headerText(headers['x-trim-isadmin']).toLowerCase();
+    const viaGateway = !!(uid || username || isAdminRaw);
+    return {
+        uid,
+        username,
+        // 没有网关 Header（本地开发直连）时视为管理员
+        isAdmin: viaGateway ? isAdminRaw === 'true' : true,
+        viaGateway,
     };
+}
+
+function getGatewayUser(req: Request): GatewayUser {
+    return getGatewayUserFromHeaders(req.headers as any);
 }
 
 function getAccountList(ctx: AdminContext): any[] {
@@ -65,7 +76,7 @@ function isGatewayProtocolError(err: any): boolean {
     return String(err?.name || '') === 'GatewayError'
         || typeof err?.errorMessage === 'string'
         || typeof err?.error_message === 'string'
-        || /^(?:[\w-]+\.)+[\w-]+(?:\s+.*?)?\bcode=\d+(?:\s|$)/.test(message);
+        || /^(?:[\w-]+\.)+[\w-]+(?:\s+(?:\S.*?)??)?\bcode=\d+(?:\s|$)/.test(message);
 }
 
 function getProtocolErrorMessage(err: any): string {
@@ -125,8 +136,8 @@ function buildKnownFriendGidSettings(accountId: string): {
 
 module.exports = {
     getClientIp,
-    issueToken,
-    createAuthRequired,
+    getGatewayUser,
+    getGatewayUserFromHeaders,
     getAccountList,
     getAccountIds,
     isSoftRuntimeError,

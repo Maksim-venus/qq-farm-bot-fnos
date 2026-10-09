@@ -7,7 +7,9 @@ export {};
 const { Server } = require('socket.io');
 const SocketIOServer = Server;
 
+const { GATEWAY_PREFIX, isAdminOnly } = require('../../config/fnos');
 const {
+    getGatewayUserFromHeaders,
     resolveAccId,
 } = require('./middleware');
 
@@ -56,27 +58,23 @@ function applySocketSubscription(ctx: AdminContext, socket: any, accountRef: str
 }
 
 function setupSocketIO(ctx: AdminContext): void {
+    // 飞牛统一网关保留 /app/qq-farm-bot 前缀转发，Socket.IO 直接监听带前缀的路径
     ctx.io = new SocketIOServer(ctx.server as any, {
-        path: '/socket.io',
+        path: `${GATEWAY_PREFIX}/socket.io`,
         cors: {
             origin: '*',
             methods: ['GET', 'POST'],
-            allowedHeaders: ['x-admin-token', 'x-account-id'],
+            allowedHeaders: ['x-account-id'],
         },
     });
 
+    // 访问控制交给飞牛网关；这里只按网关 Header 做管理员限制
     ctx.io.use((socket: any, next: (err?: Error) => void) => {
-        const authToken = socket.handshake.auth && socket.handshake.auth.token
-            ? String(socket.handshake.auth.token)
-            : '';
-        const headerToken = socket.handshake.headers && socket.handshake.headers['x-admin-token']
-            ? String(socket.handshake.headers['x-admin-token'])
-            : '';
-        const token = authToken || headerToken;
-        if (!token || !ctx.tokens.has(token)) {
-            return next(new Error('Unauthorized'));
+        const user = getGatewayUserFromHeaders(socket.handshake.headers || {});
+        if (isAdminOnly() && !user.isAdmin) {
+            return next(new Error('仅飞牛管理员可以使用 QQ 农场'));
         }
-        socket.data.adminToken = token;
+        socket.data.gatewayUser = user;
         return next();
     });
 

@@ -11,7 +11,8 @@ services:
     container_name: qq-farm-bot
     restart: unless-stopped
     ports:
-      - "${PORT:-3007}:3007"
+      # 本分支没有登录校验：只映射到宿主机回环地址
+      - "127.0.0.1:${PORT:-3007}:3007"
     volumes:
       - qq-farm-data:/app/core/data
       - qq-farm-logs:/app/core/data/logs
@@ -19,6 +20,7 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       - NODE_ENV=production
       - ADMIN_PORT=3007
+      - ADMIN_HOST=0.0.0.0
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3007/api/game-version"]
       interval: 30s

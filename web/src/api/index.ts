@@ -1,12 +1,13 @@
 import { useStorage } from '@vueuse/core'
 import axios from 'axios'
 import { useToastStore } from '@/stores/toast'
+import { APP_BASE } from '@/utils/gateway'
 
-const tokenRef = useStorage('admin_token', '')
 const accountIdRef = useStorage('current_account_id', '')
 
 const api = axios.create({
-  baseURL: '/',
+  // 飞牛网关前缀（/app/qq-farm-bot/）；'/api/...' 会自动拼接到该前缀下
+  baseURL: APP_BASE,
   timeout: 10000,
 })
 
@@ -35,10 +36,6 @@ export function getApiErrorMessage(error: unknown, fallback = '请求失败'): s
 }
 
 api.interceptors.request.use((config) => {
-  const token = tokenRef.value
-  if (token) {
-    config.headers['x-admin-token'] = token
-  }
   const accountId = accountIdRef.value
   if (accountId && !config.headers.has('x-account-id')) {
     config.headers.set('x-account-id', accountId)
@@ -77,13 +74,9 @@ api.interceptors.response.use((response) => {
   const skipToast = error.config?.skipErrorToast
 
   if (error.response) {
-    if (error.response.status === 401) {
-      // Avoid redirect loop or multiple redirects
-      if (!window.location.pathname.includes('/login')) {
-        tokenRef.value = ''
-        window.location.href = '/login'
-        toast.warning('登录已过期，请重新登录')
-      }
+    if (error.response.status === 403) {
+      if (!skipToast)
+        toast.error(getApiErrorMessage(error, '没有访问权限'))
     }
     else if (error.response.status >= 500) {
       const backendError = getApiErrorMessage(error, '')

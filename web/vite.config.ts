@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
 import vue from '@vitejs/plugin-vue'
 import { visualizer } from 'rollup-plugin-visualizer'
@@ -13,7 +14,12 @@ export default defineConfig(({ mode }) => {
   const analyzeBuild = mode === 'analyze'
   const compressedBuild = mode === 'compressed'
 
+  // 飞牛原生包构建时传入 VITE_BASE=/app/qq-farm-bot/（统一网关前缀），本地开发保持 /
+  const rawBase = String(process.env.VITE_BASE || '/').trim() || '/'
+  const base = `/${rawBase.replace(/^\/+|\/+$/g, '')}/`.replace(/^\/\/$/, '/')
+
   return {
+    base,
     plugins: [
       vue(),
       UnoCSS() as any,
