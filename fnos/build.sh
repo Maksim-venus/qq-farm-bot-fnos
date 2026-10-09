@@ -14,7 +14,7 @@ FNPACK_URL="https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64"
 
 manifest_get() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "${TEMPLATE}/manifest" | head -n 1; }
 APP_VERSION="$(manifest_get version)"
-DISPLAY_VERSION="${DISPLAY_VERSION:-v1.1.0}"
+DISPLAY_VERSION="${DISPLAY_VERSION:-v1.1.1}"
 FPK_NAME="qq-farm-bot_${DISPLAY_VERSION}_native_x86.fpk"
 
 echo "==> 1/5 安装依赖"
@@ -48,6 +48,8 @@ cp -a "${ROOT}/core/src/proto" "${SERVER}/core/src/proto"
 cp -a "${ROOT}/core/src/utils/tsdk.wasm" "${ROOT}/core/src/utils/tsdk-wx.wasm" "${SERVER}/core/src/utils/"
 cp -a "${ROOT}/web/dist" "${SERVER}/web/dist"
 cp -a "${ROOT}/package.json" "${SERVER}/package.json"
+# 标记为飞牛原生包：服务端检测到该文件后绝不监听 TCP
+echo "fnOS native package: TCP listening is disabled, gateway unix socket only." > "${SERVER}/core/FNOS_NATIVE"
 # 去掉 source map / 声明文件，减小体积
 find "${SERVER}/core/dist" \( -name '*.map' -o -name '*.d.ts' \) -delete
 

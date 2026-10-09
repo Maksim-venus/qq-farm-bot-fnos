@@ -3,6 +3,7 @@ import type { PetItem, PetTreasure } from '@/stores/pet-diary'
 import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { usePetDiaryStore } from '@/stores/pet-diary'
+import { imageOrPlaceholder } from '@/utils/image-fallback'
 import PetEscortLandscape from './PetEscortLandscape.vue'
 
 const props = defineProps<{ now: number }>()
@@ -198,7 +199,7 @@ defineExpose({ open })
             <section class="escort-charm-current">
               <h3>当前锦囊</h3>
               <article v-for="charm in pet.charms.equipped" :key="charm.id" class="escort-charm-row">
-                <img :src="charm.image" alt="">
+                <img :src="imageOrPlaceholder(charm.image)" alt="">
                 <div>
                   <strong>{{ charm.name }}</strong>
                   <p>{{ charm.shortDescription }}</p>
@@ -310,7 +311,7 @@ defineExpose({ open })
           <template v-if="pet.charms.canChoose">
             <article v-for="charm in pet.charms.equipped" :key="charm.id" class="escort-charm-row escort-charm-choice">
               <span class="escort-current-ribbon">当前</span>
-              <img :src="charm.image" alt="">
+              <img :src="imageOrPlaceholder(charm.image)" alt="">
               <div>
                 <strong>{{ charm.name }}</strong>
                 <p>{{ charm.description }}</p>
@@ -321,7 +322,7 @@ defineExpose({ open })
               </button>
             </article>
             <article v-for="charm in charmChoices" :key="charm.id" class="escort-charm-row escort-charm-choice">
-              <img :src="charm.image" alt="">
+              <img :src="imageOrPlaceholder(charm.image)" alt="">
               <div>
                 <strong>{{ charm.name }}</strong>
                 <p>{{ charm.description }}</p>
@@ -350,7 +351,7 @@ defineExpose({ open })
             {{ refreshHint }}
           </p>
           <article v-for="charm in allCharms" :key="charm.id" class="escort-charm-row">
-            <img :src="charm.image" alt="">
+            <img :src="imageOrPlaceholder(charm.image)" alt="">
             <div>
               <strong>
                 {{ charm.name }}

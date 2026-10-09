@@ -424,9 +424,29 @@ function getAllSeeds(): SeedInfo[] {
     }));
 }
 
+// 本地实际存在的种子/道具图片 ID。游戏新增、尚未收录的道具不返回地址，
+// 由前端显示占位图，避免 /game-config/... 404。目录读取失败时保持旧行为。
+let seedImageIds: Set<number> | null | undefined;
+function hasSeedImage(id: number): boolean {
+    if (seedImageIds === undefined) {
+        try {
+            const dir = getResourcePath('gameConfig', 'seed_images_named', 'seed_images');
+            seedImageIds = new Set(
+                fs.readdirSync(dir)
+                    .map((name: string) => /^(\d+)\.png$/i.exec(name)?.[1])
+                    .filter(Boolean)
+                    .map(Number),
+            );
+        } catch {
+            seedImageIds = null;
+        }
+    }
+    return seedImageIds === null || seedImageIds.has(id);
+}
+
 function getMappedSeedImage(targetId: number): string {
     const id = Number(targetId) || 0;
-    if (id <= 0) return '';
+    if (id <= 0 || !hasSeedImage(id)) return '';
     return gatewayPath(`/game-config/seed_images_named/seed_images/${id}.png`);
 }
 
@@ -438,8 +458,8 @@ function getItemImageById(itemId: number): string {
     const id = Number(itemId) || 0;
     if (id <= 0) return '';
 
-    // 直接按ID返回
-    return gatewayPath(`/game-config/seed_images_named/seed_images/${id}.png`);
+    // 按 ID 返回本地图片；没有对应文件时返回空串（前端显示占位图）
+    return getMappedSeedImage(id);
 }
 
 function getItemById(itemId: number): ItemInfo | undefined {

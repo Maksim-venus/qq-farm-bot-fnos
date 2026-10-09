@@ -43,6 +43,20 @@ function getListenSocketPath(): string {
     return String(process.env.QQ_FARM_SOCKET || '').trim();
 }
 
+/**
+ * 飞牛原生包中禁止任何 TCP 监听：cmd/main 设置 QQ_FARM_NO_TCP=1，
+ * 打包脚本还会在 core/ 下放置 FNOS_NATIVE 标记文件（即使环境变量丢失也生效）。
+ */
+function isTcpForbidden(): boolean {
+    const raw = String(process.env.QQ_FARM_NO_TCP || '').trim().toLowerCase();
+    if (raw === '1' || raw === 'true' || raw === 'yes') return true;
+    try {
+        return require('node:fs').existsSync(require('node:path').join(__dirname, '../../FNOS_NATIVE'));
+    } catch {
+        return false;
+    }
+}
+
 /** 网关已校验飞牛登录态；默认仅允许飞牛管理员使用（QQ_FARM_ADMIN_ONLY=0 可关闭）。 */
 function isAdminOnly(): boolean {
     const raw = String(process.env.QQ_FARM_ADMIN_ONLY ?? '1').trim().toLowerCase();
@@ -54,5 +68,6 @@ module.exports = {
     gatewayPath,
     stripGatewayPrefix,
     getListenSocketPath,
+    isTcpForbidden,
     isAdminOnly,
 };

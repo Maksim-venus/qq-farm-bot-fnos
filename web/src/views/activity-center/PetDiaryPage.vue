@@ -7,6 +7,7 @@ import { useAccountStore } from '@/stores/account'
 import { useFriendStore } from '@/stores/friend'
 import { usePetDiaryStore } from '@/stores/pet-diary'
 import { gatewayPath } from '@/utils/gateway'
+import { imageOrPlaceholder } from '@/utils/image-fallback'
 import PetMascot from './PetMascot.vue'
 import PetPaw from './PetPaw.vue'
 import PetSolarScene from './PetSolarScene.vue'
@@ -372,7 +373,7 @@ watch(pet, (value) => {
                   <span>今日锦囊</span>
                 </h3>
                 <div v-for="charm in pet.charms.equipped" :key="charm.id" class="pet-charm">
-                  <img :src="charm.image" :alt="charm.name">
+                  <img :src="imageOrPlaceholder(charm.image)" :alt="charm.name">
                   <div>
                     <strong>{{ charm.name }} <small>已生效</small></strong>
                     <p>{{ charm.description }}</p>

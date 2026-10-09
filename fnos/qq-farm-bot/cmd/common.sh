@@ -120,12 +120,23 @@ docker_volume_path() {
 
 stop_old_container() {
     command -v docker >/dev/null 2>&1 || return 0
+    docker inspect "${OLD_CONTAINER}" >/dev/null 2>&1 || return 0
     if [ "$(docker inspect -f '{{.State.Running}}' "${OLD_CONTAINER}" 2>/dev/null)" = "true" ]; then
         log_msg "停止旧版 Docker 容器 ${OLD_CONTAINER}（不删除容器和数据卷）"
         docker stop "${OLD_CONTAINER}" >> "${LOG_FILE}" 2>&1 || true
     fi
     # unless-stopped 的容器被手动停止后不会随 Docker 重启自动拉起；再关掉重启策略以防万一
     docker update --restart=no "${OLD_CONTAINER}" >> "${LOG_FILE}" 2>&1 || true
+}
+
+# 3007 仍被占用时记录占用进程（本应用不监听 TCP，通常是旧 Docker 容器或其他程序）
+warn_port_3007() {
+    command -v ss >/dev/null 2>&1 || return 0
+    local line
+    line="$(ss -ltnpH 2>/dev/null | awk '$4 ~ /:3007$/' | head -n 1)"
+    if [ -n "${line}" ]; then
+        log_msg "WARN: 3007 端口仍被占用（不是 QQ 农场原生版）：${line}"
+    fi
 }
 
 # 从旧版 Docker 数据卷迁移数据（只复制，不删除原数据卷）

@@ -2,6 +2,7 @@ import { createPinia } from 'pinia'
 import { createApp } from 'vue'
 import { getApiErrorMessage } from '@/api'
 import { useToastStore } from '@/stores/toast'
+import { installImageFallback } from '@/utils/image-fallback'
 import App from './App.vue'
 import router from './router'
 import '@unocss/reset/tailwind.css'
@@ -41,5 +42,8 @@ window.onerror = (message, _source, _lineno, _colno, error) => {
     return
   toast.error(`系统错误: ${getApiErrorMessage(error || message, String(message))}`)
 }
+
+// 图片加载失败（404/空地址）时显示占位图
+installImageFallback()
 
 app.mount('#app')

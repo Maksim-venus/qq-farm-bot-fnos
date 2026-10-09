@@ -11,7 +11,7 @@ const express = require('express');
 
 const { CONFIG } = require('../../config/config');
 const { getResourcePath } = require('../../config/runtime-paths');
-const { GATEWAY_PREFIX, stripGatewayPrefix, getListenSocketPath, isAdminOnly } = require('../../config/fnos');
+const { GATEWAY_PREFIX, stripGatewayPrefix, getListenSocketPath, isAdminOnly, isTcpForbidden } = require('../../config/fnos');
 const { createModuleLogger } = require('../../services/logger');
 
 const { createAdminContext } = require('./context');
@@ -130,6 +130,10 @@ function startAdminServer(dataProvider: any): void {
             try { fs.rmSync(socketPath, { force: true }); } catch { /* ignore */ }
         };
         process.once('exit', cleanup);
+    } else if (isTcpForbidden()) {
+        // 飞牛原生包缺少 Socket 配置时直接退出，绝不回退到 TCP 端口
+        adminLogger.error('QQ_FARM_SOCKET 未设置，飞牛原生包禁止监听 TCP，服务退出');
+        process.exit(1);
     } else {
         // 本地开发：仅绑定回环地址
         const port: number = CONFIG.adminPort || 3007;

@@ -23,6 +23,8 @@ start_app() {
     prepare_dirs
     rotate_log
     rm -f "${SOCKET_PATH}"
+    # 旧版 Docker 容器如仍在运行（会继续占用 3007），每次启动都把它停掉
+    stop_old_container
 
     log_msg "Starting QQ 农场 ${TRIM_APPVER} (node: ${node_bin} $("${node_bin}" -v 2>/dev/null), user: $(app_user_exists && echo "${APP_USER}" || id -un))"
     cd "${SERVER_DIR}" || return 1
@@ -32,6 +34,7 @@ start_app() {
         NODE_ENV=production \
         TZ="${TZ:-Asia/Shanghai}" \
         QQ_FARM_SOCKET="${SOCKET_PATH}" \
+        QQ_FARM_NO_TCP=1 \
         QQ_FARM_GATEWAY_PREFIX="${GATEWAY_PREFIX}" \
         QQ_FARM_DATA_DIR="${DATA_DIR}" \
         QQ_FARM_ADMIN_ONLY="${QQ_FARM_ADMIN_ONLY:-1}" \
@@ -52,6 +55,7 @@ start_app() {
     for i in $(seq 1 40); do
         if [ -S "${SOCKET_PATH}" ]; then
             log_msg "started, pid=${pid}, socket=${SOCKET_PATH}"
+            warn_port_3007
             return 0
         fi
         if ! check_process "${pid}"; then
