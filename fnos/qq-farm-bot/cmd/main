@@ -9,14 +9,8 @@ start_app() {
         return 0
     fi
 
-    local node_bin
-    node_bin="$(find_node)"
-    if [ -z "${node_bin}" ]; then
-        user_error "未找到 Node.js 运行环境，请先在应用中心安装 Node.js v22（nodejs_v22）。"
-        return 1
-    fi
-    if [ ! -f "${SERVER_DIR}/client.js" ]; then
-        user_error "应用文件不完整：缺少 ${SERVER_DIR}/client.js，请重新安装。"
+    if [ ! -x "${APP_BIN}" ] || [ ! -f "${SERVER_DIR}/bin/worker.js" ]; then
+        user_error "应用文件不完整：缺少 ${APP_BIN} 或 worker.js，请重新安装。"
         return 1
     fi
 
@@ -26,7 +20,7 @@ start_app() {
     # 旧版 Docker 容器如仍在运行（会继续占用 3007），每次启动都把它停掉
     stop_old_container
 
-    log_msg "Starting QQ 农场 ${TRIM_APPVER} (node: ${node_bin} $("${node_bin}" -v 2>/dev/null), user: $(app_user_exists && echo "${APP_USER}" || id -un))"
+    log_msg "Starting QQ 农场 ${TRIM_APPVER} (bin: ${APP_BIN}, user: $(app_user_exists && echo "${APP_USER}" || id -un))"
     cd "${SERVER_DIR}" || return 1
 
     # setsid：脱离生命周期脚本的进程组，避免脚本退出时被一并结束
@@ -38,13 +32,16 @@ start_app() {
         QQ_FARM_GATEWAY_PREFIX="${GATEWAY_PREFIX}" \
         QQ_FARM_DATA_DIR="${DATA_DIR}" \
         QQ_FARM_ADMIN_ONLY="${QQ_FARM_ADMIN_ONLY:-1}" \
-        setsid "${node_bin}" client.js >> "${LOG_FILE}" 2>&1 < /dev/null &
+        QQ_FARM_RESOURCE_DIR="${SERVER_DIR}/resources" \
+        QQ_FARM_WEB_DIR="${SERVER_DIR}/web/dist" \
+        QQ_FARM_WORKER_SCRIPT="${SERVER_DIR}/bin/worker.js" \
+        setsid "${APP_BIN}" >> "${LOG_FILE}" 2>&1 < /dev/null &
     local launcher=$!
 
-    # runuser 会 fork 子进程；记录真正的 node 进程 PID
+    # runuser 会 fork 子进程；记录真正的服务进程 PID
     local i pid=""
     for i in $(seq 1 20); do
-        pid="$(pgrep -n -f "^${node_bin} client.js$" 2>/dev/null)"
+        pid="$(pgrep -n -f "^${APP_BIN}$" 2>/dev/null)"
         [ -n "${pid}" ] && break
         sleep 0.25
     done

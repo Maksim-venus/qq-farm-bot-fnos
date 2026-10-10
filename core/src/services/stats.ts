@@ -2,8 +2,10 @@ export {};
 const path = require('node:path');
 const fs = require('node:fs');
 const { getSystemDateKey } = require('../utils/utils');
+const { getDataDir } = require('../config/runtime-paths');
 function getStatsFilePath(accountId: string): string {
-    const dataDir: string = process.env.FARM_DATA_DIR || path.join(__dirname, '../../data');
+    // 与账号、配置使用同一数据目录（飞牛下为 QQ_FARM_DATA_DIR），不再写入安装目录
+    const dataDir: string = process.env.FARM_DATA_DIR || getDataDir();
     return path.join(dataDir, 'stats', `${accountId}.json`);
 }
 

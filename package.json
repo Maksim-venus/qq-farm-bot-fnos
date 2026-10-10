@@ -1,4 +1,4 @@
- {
+{
   "name": "qq-farm-bot-ui",
   "version": "20260928",
   "packageManager": "pnpm@10.30.2",
@@ -18,5 +18,9 @@
     "package:mac": "pnpm build && pnpm -C core build:mac",
     "package:release": "pnpm build && pnpm -C core build:release",
     "install:all": "pnpm install -r --prod=false"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.3",
+    "postject": "1.0.0-alpha.6"
   }
 }

@@ -1,4 +1,5 @@
 export {};
+const { isSea } = require('../config/runtime-paths');
 const { createScheduler } = require('../services/scheduler');
 
 const DEFAULT_API_CALL_TIMEOUT_MS = 10000;
@@ -78,7 +79,8 @@ function createWorkerManager(options: WorkerManagerOptions) {
     }
 
     function createForkWorker(account: any): any {
-        if ((processRef as any).pkg) {
+        // pkg / Node SEA 可执行文件不能直接运行 worker 脚本：以 FARM_WORKER=1 重新启动自身
+        if ((processRef as any).pkg || isSea) {
             return fork(mainEntryPath, [], {
                 execPath: processRef.execPath,
                 stdio: ['inherit', 'inherit', 'inherit', 'ipc'],

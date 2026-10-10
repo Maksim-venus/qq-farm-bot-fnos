@@ -51,7 +51,12 @@ function isTcpForbidden(): boolean {
     const raw = String(process.env.QQ_FARM_NO_TCP || '').trim().toLowerCase();
     if (raw === '1' || raw === 'true' || raw === 'yes') return true;
     try {
-        return require('node:fs').existsSync(require('node:path').join(__dirname, '../../FNOS_NATIVE'));
+        const fs = require('node:fs');
+        const path = require('node:path');
+        return [
+            path.join(__dirname, '../../FNOS_NATIVE'),
+            path.join(path.dirname(process.execPath), 'FNOS_NATIVE'),
+        ].some((file: string) => fs.existsSync(file));
     } catch {
         return false;
     }

@@ -10,7 +10,7 @@ const path = require('node:path');
 const express = require('express');
 
 const { CONFIG } = require('../../config/config');
-const { getResourcePath } = require('../../config/runtime-paths');
+const { getResourcePath, getWebDistDir } = require('../../config/runtime-paths');
 const { GATEWAY_PREFIX, stripGatewayPrefix, getListenSocketPath, isAdminOnly, isTcpForbidden } = require('../../config/fnos');
 const { createModuleLogger } = require('../../services/logger');
 
@@ -84,7 +84,7 @@ function startAdminServer(dataProvider: any): void {
         next();
     });
 
-    const webDist = path.join(__dirname, '../../../../web/dist');
+    const webDist = getWebDistDir(path.join(__dirname, '../../../../web/dist'));
     if (fs.existsSync(webDist)) {
         app.use(express.static(webDist));
     } else {

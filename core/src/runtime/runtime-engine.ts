@@ -4,6 +4,7 @@ const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const store = require('../models/store');
 const { updateRuntimeConfig, getRuntimeConfig, getDefaultSystemConfig } = require('../config/config');
+const { getWorkerScriptPath } = require('../config/runtime-paths');
 const { sendPushooMessage } = require('../services/push');
 const { createDataProvider } = require('./data-provider');
 const { createReloginReminderService } = require('./relogin-reminder');
@@ -29,7 +30,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
     const isRunningFromSource = __dirname.includes(`${path.sep}src${path.sep}`);
     const fileExt = isRunningFromSource ? '.ts' : '.js';
     const mainEntryPath = options.mainEntryPath || path.join(__dirname, `../../client${fileExt}`);
-    const workerScriptPath = options.workerScriptPath || path.join(__dirname, `../core/worker${fileExt}`);
+    const workerScriptPath = options.workerScriptPath || getWorkerScriptPath(path.join(__dirname, `../core/worker${fileExt}`));
     const runtimeMode = String(options.runtimeMode || processRef.env.FARM_RUNTIME_MODE || 'thread').toLowerCase();
     const onStatusSync = typeof options.onStatusSync === 'function' ? options.onStatusSync : null;
     const onLog = typeof options.onLog === 'function' ? options.onLog : null;

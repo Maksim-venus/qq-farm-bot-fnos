@@ -7,7 +7,9 @@ PKG_VAR="${TRIM_PKGVAR:-/var/apps/${APP_NAME}/var}"
 APP_USER="${TRIM_USERNAME:-qq-farm-bot}"
 APP_GROUP="${TRIM_GROUPNAME:-${APP_USER}}"
 
-SERVER_DIR="${APP_DEST}/server/core"
+SERVER_DIR="${APP_DEST}/server"
+# 后端为 Node 单文件可执行程序（SEA，内置官方 Node.js 22），不依赖系统 Node.js
+APP_BIN="${SERVER_DIR}/bin/qq-farm-bot"
 DATA_DIR="${PKG_VAR}/data"
 LOG_FILE="${PKG_VAR}/app.log"
 PID_FILE="${PKG_VAR}/app.pid"
@@ -31,20 +33,6 @@ user_error() {
     if [ -n "${TRIM_TEMP_LOGFILE}" ]; then
         echo "$*" > "${TRIM_TEMP_LOGFILE}"
     fi
-}
-
-find_node() {
-    local candidate
-    for candidate in \
-        /var/apps/nodejs_v22/target/bin/node \
-        /var/apps/nodejs_v24/target/bin/node \
-        /var/apps/nodejs_v20/target/bin/node; do
-        if [ -x "${candidate}" ]; then
-            echo "${candidate}"
-            return 0
-        fi
-    done
-    command -v node 2>/dev/null
 }
 
 app_user_exists() {
