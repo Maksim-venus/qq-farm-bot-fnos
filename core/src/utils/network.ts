@@ -851,8 +851,17 @@ function handleNotify(msg: any): void {
 // 官方 QQ 抓包（会话版本 1.14.0.4_20260911）的字段存在性：device_info 只写 client_version 和
 // sys_software，report_data 显式写出全部空字符串字段，extra 显式为空。protobufjs 按调用方是否
 // 赋值决定是否写默认值，所以这里必须保持字段集合与官方一致，不能只留非默认值。
+// QQ 1.15 separates player authentication from the farm scene login.
+// Keep explicit older QQ profiles and the verified WeChat profile on Login.
+function usesPlayerSceneLogin(): boolean {
+    if (isWechatPlatform()) return false;
+    const version = /^(\d+)\.(\d+)/.exec(getClientVersion());
+    return !!version && (Number(version[1]) > 1 || (Number(version[1]) === 1 && Number(version[2]) >= 15));
+}
+
 function buildLoginBody(): Buffer {
-    return Buffer.from(types.LoginRequest.encode(types.LoginRequest.create({
+    const requestType = usesPlayerSceneLogin() ? types.PlayerLoginRequest : types.LoginRequest;
+    return Buffer.from(requestType.encode(requestType.create({
         sharer_id: toLong(0),
         sharer_open_id: '',
         device_info: getLoginDeviceInfo(),
@@ -875,8 +884,7 @@ function buildLoginBody(): Buffer {
 
 async function sendLogin(context: ConnectionContext, onLoginSuccess?: () => void): Promise<void> {
     const body = buildLoginBody();
-
-    await sendMsg(context, 'gamepb.userpb.UserService', 'Login', body, {
+    await sendMsg(context, 'gamepb.userpb.UserService', usesPlayerSceneLogin() ? 'PlayerLogin' : 'Login', body, {
         expectedErrorCodes: new Set(),
         // 登录不走排队器（此时还没 online），按保命流量记账。
         requestClass: 'critical',
@@ -893,7 +901,7 @@ async function sendLogin(context: ConnectionContext, onLoginSuccess?: () => void
 
         let reply: any;
         try {
-            reply = types.LoginReply.decode(bodyBytes!);
+            reply = (usesPlayerSceneLogin() ? types.PlayerLoginReply : types.LoginReply).decode(bodyBytes!);
         } catch (e: any) {
             log('登录', `解码失败: ${e.message}`);
             return;
@@ -957,6 +965,15 @@ async function sendLogin(context: ConnectionContext, onLoginSuccess?: () => void
             // 登录引导阶段串行完成普通请求，避免和后续活动、背包初始化同时挤入 Gateway。
             await fetchUserSettings();
             if (!isCurrentConnection(context)) return;
+            if (usesPlayerSceneLogin()) {
+                const sceneBody = types.PlayerSceneLoginRequest.encode({ global_scene_id: 1 }).finish();
+                const sceneResponse = await sendMsgAsync('gamepb.globalscenepb.GlobalSceneService', 'PlayerSceneLogin', sceneBody);
+                if (!isCurrentConnection(context)) return;
+                const scene = types.PlayerSceneLoginReply.decode(sceneResponse.body);
+                if (scene.global_scene_id !== 1 || !scene.farm_scene_ext_data?.length) {
+                    throw new Error('农场场景登录回包不完整');
+                }
+            }
             if (onLoginSuccess) await onLoginSuccess();
         } catch (e: any) {
             logWarn('登录', `登录初始化失败: ${e.message}`);
