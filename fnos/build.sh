@@ -15,7 +15,7 @@ FNPACK_URL="https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64"
 
 manifest_get() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "${TEMPLATE}/manifest" | head -n 1; }
 APP_VERSION="$(manifest_get version)"
-DISPLAY_VERSION="${DISPLAY_VERSION:-v1.2.1}"
+DISPLAY_VERSION="${DISPLAY_VERSION:-v1.2.2}"
 FPK_NAME="qq-farm-bot_${DISPLAY_VERSION}_native_x86.fpk"
 
 echo "==> 1/5 安装依赖"
