@@ -1,4 +1,5 @@
 import config from '../activity-data/milk-tea-20261015.json';
+import { normalizeMilkTeaWork } from './milk-tea-work';
 
 export {};
 
@@ -165,7 +166,7 @@ async function getMilkTeaActivity(page = 'shop', input: any = {}) {
             result.work = plain(types.MilkTeaOperateReply, { milk_tea_get_work_page: value }).milk_tea_get_work_page;
             delete result.work.hire_subscribe_qq_jump_url;
             delete result.work.hire_subscribe_template_id;
-            result.interactions = config.MilkTeaInteractionType;
+            Object.assign(result, normalizeMilkTeaWork(result.work));
         }
         if (page === 'rank' || page === 'logs') {
             const today = Math.floor((now + 8 * 3600) / 86400) * 86400 - 8 * 3600;
@@ -222,10 +223,10 @@ async function perform(action: string, input: any) {
         }
         params = { fruit_uids: [...ids] };
     } else if (action === 'hire') {
-        const index = integer(input.slotIndex, 0, 1);
         const level = config.MilkTeaStoreLevelConfig.find(v => v.level === toNum(state.shop.level));
-        if (index >= (level?.employee_slot_count || 0)) fail('雇佣位置尚未解锁');
-        if ((state.shop.slots || []).some((v: any) => toNum(v.slot_index) === index && toNum(v.end_at) > getServerTimeSec())) fail('该位置已有员工');
+        const index = Array.from({ length: level?.employee_slot_count || 0 }, (_, slot) => slot)
+            .find(slot => !(state.shop.slots || []).some((v: any) => toNum(v.slot_index) === slot && toNum(v.end_at) > getServerTimeSec()));
+        if (index === undefined) fail('员工位置已满');
         const target = String(input.targetGid);
         const candidate = [...(state.hire.friends || []), ...(state.hire.robots || [])].find(v => String(v.friend?.gid) === target);
         if (!candidate || toNum(candidate.state) !== 0 || toNum(candidate.rehire_available_at) > getServerTimeSec()) fail('该员工当前不可雇佣');
@@ -249,6 +250,8 @@ async function perform(action: string, input: any) {
         const shift = state.work.my_shift;
         const kind = integer(input.interactionType, 1, 5);
         if (!shift || state.work.interact_done || toNum(shift.end_at) <= getServerTimeSec() || toNum(shift.interact_count) >= toNum(shift.interact_limit)) fail('当前班次不可互动');
+        if (String(input.expectedShiftId || '') !== String(shift.shift_id)) fail('班次已变化，请刷新后重新选择');
+        if (!state.interactions.find((value: any) => value.interaction_id === kind)?.ready) fail('工作事项数据不完整，请刷新后重试');
         params = { target_gid: String(shift.employer.gid), interaction_type: kind };
     } else if (action === 'hireSetting') {
         if (typeof input.disabled !== 'boolean') fail('雇佣设置无效');

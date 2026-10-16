@@ -791,6 +791,15 @@ async function handleApiCall(msg: any): Promise<void> {
             case 'getIllustratedSnapshot':
                 result = await require('../services/illustrated').getIllustratedSnapshot();
                 break;
+            case 'claimIllustratedRewards':
+                result = await require('../services/illustrated').claimIllustratedRewards(args[0]);
+                break;
+            case 'getSolarCalendar':
+                result = await require('../services/solar-calendar').getSolarCalendar();
+                break;
+            case 'operateSolarCalendar':
+                result = await require('../services/solar-calendar').operateSolarCalendar(args[0], args[1]);
+                break;
             case 'getFriends':
                 result = await getFriendsList(args[0] === true, 'normal', args[1] === true);
                 break;
@@ -903,6 +912,9 @@ async function handleApiCall(msg: any): Promise<void> {
                 break;
             case 'fertilizeOwnLand':
                 result = await fertilizeOwnLand(args[0], args[1]);
+                break;
+            case 'fertilizeAllOwnLands':
+                result = await require('../services/farm').fertilizeAllOwnLands(args[0]);
                 break;
             case 'buyFertilizer': {
                 const fertilizerType = args[0] || 'organic';
