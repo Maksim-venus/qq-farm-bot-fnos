@@ -18,6 +18,14 @@ import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/ac
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 
+const fertilizerLandTypeOptions = [
+  { label: '紫金土地', value: 'purple-gold' },
+  { label: '金土地', value: 'gold' },
+  { label: '黑土地', value: 'black' },
+  { label: '红土地', value: 'red' },
+  { label: '普通土地', value: 'normal' },
+]
+
 const router = useRouter()
 const route = useRoute()
 const accountStore = useAccountStore()
@@ -833,14 +841,6 @@ watch(() => [
 // ==================== 自动控制 ====================
 const allFertilizerLandTypes = ['purple-gold', 'gold', 'black', 'red', 'normal']
 
-const fertilizerLandTypeOptions = [
-  { label: '紫金土地', value: 'purple-gold' },
-  { label: '金土地', value: 'gold' },
-  { label: '黑土地', value: 'black' },
-  { label: '红土地', value: 'red' },
-  { label: '普通土地', value: 'normal' },
-]
-
 function normalizeFertilizerLandTypes(input: unknown) {
   const source = Array.isArray(input) ? input : allFertilizerLandTypes
   const normalized: string[] = []
@@ -1415,15 +1415,9 @@ async function handleResetSystemConfig() {
 </script>
 
 <template>
-  <div class="settings-page">
-    <div class="mb-4">
-      <h1 class="text-2xl text-gray-900 font-bold dark:text-gray-100">
-        设置
-      </h1>
-    </div>
-
-    <div class="border farm-card border-gray-200 rounded-2xl bg-white shadow-md dark:border-gray-700 dark:bg-gray-800">
-      <div class="border-b border-gray-200 px-4 pt-2 dark:border-gray-700">
+  <div class="settings-page page-stack">
+    <div class="settings-content">
+      <div class="page-tabs">
         <NTabs :value="activeTab" type="line" @update:value="setActiveTab">
           <NTab v-for="tab in tabs" :key="tab.key" :name="tab.key">
             <span class="inline-flex items-center gap-2">
@@ -1434,7 +1428,7 @@ async function handleResetSystemConfig() {
         </NTabs>
       </div>
 
-      <div class="p-4">
+      <div class="settings-body">
         <!-- 账号管理 -->
         <div v-if="activeTab === 'account'" class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

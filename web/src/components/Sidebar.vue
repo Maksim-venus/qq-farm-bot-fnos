@@ -8,6 +8,7 @@ import { useRoute } from 'vue-router'
 import api from '@/api'
 import AccountModal from '@/components/AccountModal.vue'
 import RemarkModal from '@/components/RemarkModal.vue'
+import BrandMark from '@/components/ui/BrandMark.vue'
 import { menuRoutes } from '@/router/menu'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
@@ -189,7 +190,7 @@ const displayName = computed(() => {
   const liveName = status.value?.status?.name
   if (liveName && liveName !== '未登录') {
     // 如果有备注，显示为"昵称（备注）"
-    if (acc.name) {
+    if (acc.name && acc.name !== liveName) {
       return `${liveName} (${acc.name})`
     }
     return liveName
@@ -198,7 +199,7 @@ const displayName = computed(() => {
   // 2. 其次显示账号存储的备注名称 (name)
   if (acc.name) {
     // 如果有同步的昵称，显示为"昵称（备注）"
-    if (acc.nick) {
+    if (acc.nick && acc.nick !== acc.name) {
       return `${acc.nick} (${acc.name})`
     }
     return acc.name
@@ -288,7 +289,7 @@ watch(isSidebarCollapsed, closeFlyouts)
       <NTooltip :disabled="!isSidebarCollapsed" placement="right" :show-arrow="false" :theme-overrides="sidebarTooltipTheme">
         <template #trigger>
           <div class="sidebar-brand__identity min-w-0 flex items-center gap-2.5">
-            <span class="brand-mark i-carbon-sprout" />
+            <BrandMark class="brand-mark" :size="28" />
             <span v-show="!isSidebarCollapsed" class="min-w-0 truncate text-sm font-semibold font-display">
               QQ农场智能助手
             </span>
