@@ -7,8 +7,9 @@
 #       可用 APP_VERSION=v1.2.5 覆盖。
 #   内部版本（manifest version，飞牛应用中心据此判断升级）= 构建日期（Asia/Shanghai）YYYY.M.D，不补零，
 #       例如 2026.10.19；可用 FPK_VERSION=2026.10.19 覆盖。必须高于模板 manifest 记录的上次发布版本。
-#       同一天再次发布：飞牛未公开说明是否支持第 4 段（如 2026.10.19.1），默认拒绝与上次发布相同的内部版本，
-#       确需同日重发时请用 FPK_VERSION 显式指定（风险见变更说明），本地测试可设 ALLOW_NOT_NEWER=1。
+#       同一天再次发布：用 FPK_VERSION 显式加第 4 段，如 FPK_VERSION=2026.10.19.1（V1.2.6 即如此）。
+#       比较按数字逐段进行（缺少的段视为 0），所以 2026.10.19 < 2026.10.19.1 < 2026.10.20；
+#       飞牛应用中心对第 4 段的处理未经官方确认（见变更说明）。本地测试可设 ALLOW_NOT_NEWER=1 跳过检查。
 # 依赖：Node.js 20+、pnpm 10、curl；fnpack 不在 PATH 时自动下载官方 1.2.3 Linux x86 版本
 # 后端打包为 Node 单文件可执行程序（SEA，见 fnos/sea/build-sea.sh），安装包不依赖飞牛 Node.js
 set -euo pipefail
