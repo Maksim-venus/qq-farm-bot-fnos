@@ -322,7 +322,7 @@ watch(isSidebarCollapsed, closeFlyouts)
             class="sidebar-control w-full flex items-center gap-3 overflow-hidden px-3 py-2.5"
             :aria-label="isSidebarCollapsed ? `飞牛用户：${nasUserStore.user?.username || '飞牛用户'}` : undefined"
           >
-            <div class="farm-avatar-ring relative h-9 w-9 shrink-0 overflow-hidden rounded-full shadow-md" style="background: var(--ui-primary); padding: 2px;">
+            <div class="farm-avatar-ring relative h-9 w-9 shrink-0 overflow-hidden rounded-full shadow-md" style="background: var(--ui-primary-fill); padding: 2px;">
               <div class="h-full w-full flex items-center justify-center overflow-hidden rounded-full bg-gray-200 dark:bg-gray-600">
                 <div class="i-carbon-user-avatar text-xl text-gray-500 dark:text-gray-300" />
               </div>
