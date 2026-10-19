@@ -2,10 +2,13 @@
 # 构建 QQ 农场飞牛原生 FPK
 #
 # 用法：fnos/build.sh [输出目录]        （默认 ./fnos/out）
-# 版本：manifest version = 构建日期（Asia/Shanghai）YYYY.M.D，例如 2026.10.19；
-#       可用 FPK_VERSION=2026.10.19 覆盖。各段为不补零的整数（飞牛按数字逐段比较，见变更说明「版本号规则」）。
-#       同一天再次发布：飞牛未公开说明是否支持第 4 段（如 2026.10.19.1），默认拒绝与上次发布相同的版本，
-#       确需同日重发时请用 FPK_VERSION 显式指定（风险见变更说明）。
+# 版本（见变更说明「版本号规则」）：
+#   显示版本 V1.x.y：用于 Release 标题/tag/文件名，默认取 fnos/VERSION（上次发布）并把补丁号加 1，
+#       可用 APP_VERSION=v1.2.5 覆盖。
+#   内部版本（manifest version，飞牛应用中心据此判断升级）= 构建日期（Asia/Shanghai）YYYY.M.D，不补零，
+#       例如 2026.10.19；可用 FPK_VERSION=2026.10.19 覆盖。必须高于模板 manifest 记录的上次发布版本。
+#       同一天再次发布：飞牛未公开说明是否支持第 4 段（如 2026.10.19.1），默认拒绝与上次发布相同的内部版本，
+#       确需同日重发时请用 FPK_VERSION 显式指定（风险见变更说明），本地测试可设 ALLOW_NOT_NEWER=1。
 # 依赖：Node.js 20+、pnpm 10、curl；fnpack 不在 PATH 时自动下载官方 1.2.3 Linux x86 版本
 # 后端打包为 Node 单文件可执行程序（SEA，见 fnos/sea/build-sea.sh），安装包不依赖飞牛 Node.js
 set -euo pipefail
@@ -18,21 +21,37 @@ GATEWAY_BASE="/app/qq-farm-bot/"
 FNPACK_URL="https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64"
 
 manifest_get() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "${TEMPLATE}/manifest" | head -n 1; }
-LAST_VERSION="$(manifest_get version)"   # 仓库中记录的上一次发布版本
+# 显示版本 V1.x.y
+LAST_DISPLAY_VERSION="$(tr -d '[:space:]' < "${ROOT}/fnos/VERSION" 2>/dev/null || true)"   # 上一次发布的显示版本
+if [ -n "${APP_VERSION:-}" ]; then
+    DISPLAY_VERSION="v${APP_VERSION#[vV]}"
+elif [[ "${LAST_DISPLAY_VERSION}" =~ ^[vV]([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+    DISPLAY_VERSION="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+else
+    echo "无法从 fnos/VERSION 推算显示版本，请用 APP_VERSION=v1.x.y 指定" >&2
+    exit 1
+fi
+if ! [[ "${DISPLAY_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "显示版本格式无效：${DISPLAY_VERSION}（应为 v1.x.y）" >&2
+    exit 1
+fi
+
+# 内部版本 = 构建日期
+LAST_VERSION="$(manifest_get version)"   # 模板 manifest 中记录的上一次发布的内部版本
 APP_VERSION="${FPK_VERSION:-$(TZ=Asia/Shanghai date '+%Y.%-m.%-d')}"
 if ! [[ "${APP_VERSION}" =~ ^[1-9][0-9]*(\.(0|[1-9][0-9]*)){2,3}$ ]]; then
-    echo "版本号格式无效：${APP_VERSION}（应为不补零的数字段，如 2026.10.19）" >&2
+    echo "内部版本格式无效：${APP_VERSION}（应为不补零的数字段，如 2026.10.19）" >&2
     exit 1
 fi
 # 飞牛按数字逐段比较：新版本必须大于已发布版本，否则应用中心不会执行升级
 version_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1)" = "$1" ]; }
 if [ -n "${LAST_VERSION}" ] && ! version_gt "${APP_VERSION}" "${LAST_VERSION}" && [ "${ALLOW_NOT_NEWER:-0}" != "1" ]; then
-    echo "版本 ${APP_VERSION} 不高于上次发布的 ${LAST_VERSION}，飞牛应用中心不会把它当作升级。" >&2
+    echo "内部版本 ${APP_VERSION} 不高于上次发布的 ${LAST_VERSION}，飞牛应用中心不会把它当作升级。" >&2
     echo "如只是本地测试，可设置 ALLOW_NOT_NEWER=1；正式发布请换用更高的版本号。" >&2
     exit 1
 fi
-FPK_NAME="qq-farm-bot_${APP_VERSION}_native_x86.fpk"
-echo "==> 版本 ${APP_VERSION}（上次发布 ${LAST_VERSION:-无}）"
+FPK_NAME="qq-farm-bot_${DISPLAY_VERSION}_native_x86.fpk"
+echo "==> 显示版本 ${DISPLAY_VERSION}（上次 ${LAST_DISPLAY_VERSION:-无}），内部版本 ${APP_VERSION}（上次 ${LAST_VERSION:-无}）"
 
 echo "==> 1/5 安装依赖"
 cd "${ROOT}"
@@ -46,7 +65,7 @@ echo "==> 3/5 组装应用目录"
 rm -rf "${OUT_DIR}/stage" "${OUT_DIR}/deploy" "${OUT_DIR}/sea-work"
 mkdir -p "${STAGE}"
 cp -a "${TEMPLATE}/." "${STAGE}/"
-# 写入本次构建版本
+# 写入本次构建的内部版本
 sed -i "s/^version[[:space:]]*=.*/version               = ${APP_VERSION}/" "${STAGE}/manifest"
 rm -f "${STAGE}/wizard/.gitkeep"
 SERVER="${STAGE}/app/server"
@@ -74,6 +93,7 @@ cp -a "${ROOT}/web/dist" "${SERVER}/web/dist"
 UPSTREAM_COMMIT="$(git -C "${ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)"
 cat > "${SERVER}/BUILD_INFO" <<INFO
 app_version=${APP_VERSION}
+display_version=${DISPLAY_VERSION}
 bot_version=$(node -p "require('${ROOT}/core/package.json').version")
 source_commit=${UPSTREAM_COMMIT}
 runtime=node-sea ${NODE_SEA_VERSION} linux-x64
@@ -101,5 +121,5 @@ mv -f "${BUILT}" "${OUT_DIR}/${FPK_NAME}"
 echo "==> 5/5 计算 SHA-256"
 cd "${OUT_DIR}"
 sha256sum "${FPK_NAME}" | tee "${FPK_NAME}.sha256"
-echo "完成：${OUT_DIR}/${FPK_NAME}（版本 ${APP_VERSION}）"
-echo "发布后请把 fnos/qq-farm-bot/manifest 的 version 更新为 ${APP_VERSION}，作为下次构建的比较基准。"
+echo "完成：${OUT_DIR}/${FPK_NAME}（${DISPLAY_VERSION}，内部版本 ${APP_VERSION}）"
+echo "发布后请把 fnos/VERSION 更新为 ${DISPLAY_VERSION}、fnos/qq-farm-bot/manifest 的 version 更新为 ${APP_VERSION}，作为下次构建的基准。"
