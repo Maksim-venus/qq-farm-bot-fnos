@@ -85,6 +85,8 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       __APP_VERSION__: JSON.stringify(corePackageJson.version),
+      // 飞牛改动：打包时由 fnos/build.sh 传入 FPK_VERSION（与 manifest version 同值）；本地开发为空 → 侧栏显示「fpk dev」
+      __FPK_VERSION__: JSON.stringify(String(process.env.FPK_VERSION || '').trim()),
     },
     resolve: {
       alias: {

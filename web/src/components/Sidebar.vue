@@ -260,7 +260,9 @@ function selectAccount(acc: any) {
   showAccountDropdown.value = false
 }
 
-const version = __APP_VERSION__
+// 飞牛改动：侧栏左下角显示「fpk v<发布版本>」（构建时由 FPK_VERSION 注入）；本地开发显示「fpk dev」。Core 仍用上游 /api/ping 的 version。
+const fpkVersionText = __FPK_VERSION__ ? `fpk v${__FPK_VERSION__}` : 'fpk dev'
+const FNOS_REPO_URL = 'https://github.com/Maksim-venus/qq-farm-bot-fnos'
 
 watch(
   () => route.path,
@@ -542,9 +544,10 @@ watch(isSidebarCollapsed, closeFlyouts)
           </div>
           <div class="flex items-center justify-between opacity-50">
             <div class="flex items-center gap-2">
-              <span>Web v{{ version }}</span>
+              <!-- 飞牛改动：Web v → fpk v<版本>；GitHub 链到本 fork -->
+              <span>{{ fpkVersionText }}</span>
               <a
-                href="https://github.com/liyangpengs/qq-farm-bot"
+                :href="FNOS_REPO_URL"
                 target="_blank"
                 rel="noopener noreferrer"
                 title="开源地址"
@@ -588,7 +591,7 @@ watch(isSidebarCollapsed, closeFlyouts)
           <template #trigger>
             <a
               class="sidebar-footer__icon"
-              href="https://github.com/liyangpengs/qq-farm-bot"
+              :href="FNOS_REPO_URL"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="查看项目版本与开源地址"
@@ -598,7 +601,8 @@ watch(isSidebarCollapsed, closeFlyouts)
           </template>
           <div class="sidebar-tooltip-content">
             <strong>版本信息</strong>
-            <span>Web v{{ version }}</span>
+            <!-- 飞牛改动：与展开态一致 -->
+            <span>{{ fpkVersionText }}</span>
             <span v-if="serverVersion">Core v{{ serverVersion }}</span>
             <span>点击访问开源地址</span>
           </div>

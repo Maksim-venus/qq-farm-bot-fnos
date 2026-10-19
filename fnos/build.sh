@@ -74,7 +74,8 @@ cd "${ROOT}"
 pnpm install --frozen-lockfile
 
 echo "==> 2/5 构建前端（base=${GATEWAY_BASE}）与后端"
-VITE_BASE="${GATEWAY_BASE}" pnpm -C web build
+# 飞牛改动：把本次 APP_VERSION 注入前端（侧栏「fpk v…」），与 manifest version 同源
+VITE_BASE="${GATEWAY_BASE}" FPK_VERSION="${APP_VERSION}" pnpm -C web build
 pnpm -C core build:ts
 
 echo "==> 3/5 组装应用目录"
