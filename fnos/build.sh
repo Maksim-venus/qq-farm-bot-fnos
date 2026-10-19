@@ -2,14 +2,12 @@
 # 构建 QQ 农场飞牛原生 FPK
 #
 # 用法：fnos/build.sh [输出目录]        （默认 ./fnos/out）
-# 版本（见变更说明「版本号规则」）：
-#   显示版本 V1.x.y：用于 Release 标题/tag/文件名，默认取 fnos/VERSION（上次发布）并把补丁号加 1，
-#       可用 APP_VERSION=v1.2.5 覆盖。
-#   内部版本（manifest version，飞牛应用中心据此判断升级）= 构建日期（Asia/Shanghai）YYYY.M.D，不补零，
-#       例如 2026.10.19；可用 FPK_VERSION=2026.10.19 覆盖。必须高于模板 manifest 记录的上次发布版本。
-#       同一天再次发布：用 FPK_VERSION 显式加第 4 段，如 FPK_VERSION=2026.10.19.1（V1.2.6 即如此）。
-#       比较按数字逐段进行（缺少的段视为 0），所以 2026.10.19 < 2026.10.19.1 < 2026.10.20；
-#       飞牛应用中心对第 4 段的处理未经官方确认（见变更说明）。本地测试可设 ALLOW_NOT_NEWER=1 跳过检查。
+# 版本（见变更说明「版本号规则」）：版本号 = 构建日期（Asia/Shanghai）YYYY.M.D，不补零，例如 2026.10.19；
+#   同一天已有发布时依次加第 4 段 .1、.2、.3……（如 2026.10.19.1）。同一版本号用于 manifest version、
+#   Release tag v<版本>-fnos、标题与安装包文件名 qq-farm-bot_<版本>_native_x86.fpk。
+#   自动选号依据：模板 manifest 的 version（上次发布）与远端仓库已有的 v*-fnos tag（取最大者），按数字逐段比较。
+#   可用 FPK_VERSION=2026.10.19.2 指定，但必须严格高于上次发布；本地测试可设 ALLOW_NOT_NEWER=1 跳过检查。
+#   VERSION_ONLY=1 只输出将使用的版本号。RELEASE_REMOTE 指定查询 tag 的远端（默认 fork，不存在或离线时只用模板 manifest）。
 # 依赖：Node.js 20+、pnpm 10、curl；fnpack 不在 PATH 时自动下载官方 1.2.3 Linux x86 版本
 # 后端打包为 Node 单文件可执行程序（SEA，见 fnos/sea/build-sea.sh），安装包不依赖飞牛 Node.js
 set -euo pipefail
@@ -22,37 +20,54 @@ GATEWAY_BASE="/app/qq-farm-bot/"
 FNPACK_URL="https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64"
 
 manifest_get() { sed -n "s/^$1[[:space:]]*=[[:space:]]*//p" "${TEMPLATE}/manifest" | head -n 1; }
-# 显示版本 V1.x.y
-LAST_DISPLAY_VERSION="$(tr -d '[:space:]' < "${ROOT}/fnos/VERSION" 2>/dev/null || true)"   # 上一次发布的显示版本
-if [ -n "${APP_VERSION:-}" ]; then
-    DISPLAY_VERSION="v${APP_VERSION#[vV]}"
-elif [[ "${LAST_DISPLAY_VERSION}" =~ ^[vV]([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-    DISPLAY_VERSION="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
-else
-    echo "无法从 fnos/VERSION 推算显示版本，请用 APP_VERSION=v1.x.y 指定" >&2
-    exit 1
-fi
-if ! [[ "${DISPLAY_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "显示版本格式无效：${DISPLAY_VERSION}（应为 v1.x.y）" >&2
-    exit 1
+VERSION_RE='^[1-9][0-9]*(\.(0|[1-9][0-9]*)){2,3}$'
+# 按数字逐段比较（缺少的段视为 0）：$1 > $2 时返回 0
+version_gt() {
+    local IFS=. i
+    local -a a=($1) b=($2)
+    for i in 0 1 2 3; do
+        if (( ${a[i]:-0} > ${b[i]:-0} )); then return 0; fi
+        if (( ${a[i]:-0} < ${b[i]:-0} )); then return 1; fi
+    done
+    return 1
+}
+# 上次发布：模板 manifest 与远端 v*-fnos tag 中最大者
+LAST_VERSION="$(manifest_get version)"
+RELEASE_REMOTE="${RELEASE_REMOTE:-fork}"
+if git -C "${ROOT}" remote get-url "${RELEASE_REMOTE}" >/dev/null 2>&1; then
+    while read -r tag_ver; do
+        [[ "${tag_ver}" =~ ${VERSION_RE} ]] || continue
+        if [ -z "${LAST_VERSION}" ] || version_gt "${tag_ver}" "${LAST_VERSION}"; then LAST_VERSION="${tag_ver}"; fi
+    done < <(timeout 30 git -C "${ROOT}" ls-remote --tags --refs "${RELEASE_REMOTE}" 'v*-fnos' 2>/dev/null \
+        | sed -n 's#.*refs/tags/v\(.*\)-fnos$#\1#p')
 fi
 
-# 内部版本 = 构建日期
-LAST_VERSION="$(manifest_get version)"   # 模板 manifest 中记录的上一次发布的内部版本
-APP_VERSION="${FPK_VERSION:-$(TZ=Asia/Shanghai date '+%Y.%-m.%-d')}"
-if ! [[ "${APP_VERSION}" =~ ^[1-9][0-9]*(\.(0|[1-9][0-9]*)){2,3}$ ]]; then
-    echo "内部版本格式无效：${APP_VERSION}（应为不补零的数字段，如 2026.10.19）" >&2
+if [ -n "${FPK_VERSION:-}" ]; then
+    APP_VERSION="${FPK_VERSION}"
+else
+    TODAY="$(TZ=Asia/Shanghai date '+%Y.%-m.%-d')"
+    APP_VERSION="${TODAY}"
+    if [ -n "${LAST_VERSION}" ]; then
+        IFS=. read -r l1 l2 l3 l4 <<<"${LAST_VERSION}"
+        if [ "${l1}.${l2}.${l3}" = "${TODAY}" ]; then
+            APP_VERSION="${TODAY}.$(( ${l4:-0} + 1 ))"   # 同一天再次发布：.1、.2、.3……
+            echo "==> 今天已发布 ${LAST_VERSION}，本次使用 ${APP_VERSION}" >&2
+        fi
+    fi
+fi
+if ! [[ "${APP_VERSION}" =~ ${VERSION_RE} ]]; then
+    echo "版本号格式无效：${APP_VERSION}（应为不补零的 YYYY.M.D 或 YYYY.M.D.N，如 2026.10.19、2026.10.19.1）" >&2
     exit 1
 fi
-# 飞牛按数字逐段比较：新版本必须大于已发布版本，否则应用中心不会执行升级
-version_gt() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | tail -n 1)" = "$1" ]; }
 if [ -n "${LAST_VERSION}" ] && ! version_gt "${APP_VERSION}" "${LAST_VERSION}" && [ "${ALLOW_NOT_NEWER:-0}" != "1" ]; then
-    echo "内部版本 ${APP_VERSION} 不高于上次发布的 ${LAST_VERSION}，飞牛应用中心不会把它当作升级。" >&2
+    echo "版本 ${APP_VERSION} 不高于上次发布的 ${LAST_VERSION}，飞牛应用中心不会把它当作升级。" >&2
     echo "如只是本地测试，可设置 ALLOW_NOT_NEWER=1；正式发布请换用更高的版本号。" >&2
     exit 1
 fi
-FPK_NAME="qq-farm-bot_${DISPLAY_VERSION}_native_x86.fpk"
-echo "==> 显示版本 ${DISPLAY_VERSION}（上次 ${LAST_DISPLAY_VERSION:-无}），内部版本 ${APP_VERSION}（上次 ${LAST_VERSION:-无}）"
+# 只输出将使用的版本号（不构建），便于检查或供 CI 使用
+if [ "${VERSION_ONLY:-0}" = "1" ]; then echo "${APP_VERSION}"; exit 0; fi
+FPK_NAME="qq-farm-bot_${APP_VERSION}_native_x86.fpk"
+echo "==> 版本 ${APP_VERSION}（上次发布 ${LAST_VERSION:-无}）"
 
 echo "==> 1/5 安装依赖"
 cd "${ROOT}"
@@ -66,7 +81,7 @@ echo "==> 3/5 组装应用目录"
 rm -rf "${OUT_DIR}/stage" "${OUT_DIR}/deploy" "${OUT_DIR}/sea-work"
 mkdir -p "${STAGE}"
 cp -a "${TEMPLATE}/." "${STAGE}/"
-# 写入本次构建的内部版本
+# 写入本次构建版本
 sed -i "s/^version[[:space:]]*=.*/version               = ${APP_VERSION}/" "${STAGE}/manifest"
 rm -f "${STAGE}/wizard/.gitkeep"
 SERVER="${STAGE}/app/server"
@@ -94,7 +109,6 @@ cp -a "${ROOT}/web/dist" "${SERVER}/web/dist"
 UPSTREAM_COMMIT="$(git -C "${ROOT}" rev-parse HEAD 2>/dev/null || echo unknown)"
 cat > "${SERVER}/BUILD_INFO" <<INFO
 app_version=${APP_VERSION}
-display_version=${DISPLAY_VERSION}
 bot_version=$(node -p "require('${ROOT}/core/package.json').version")
 source_commit=${UPSTREAM_COMMIT}
 runtime=node-sea ${NODE_SEA_VERSION} linux-x64
@@ -122,5 +136,5 @@ mv -f "${BUILT}" "${OUT_DIR}/${FPK_NAME}"
 echo "==> 5/5 计算 SHA-256"
 cd "${OUT_DIR}"
 sha256sum "${FPK_NAME}" | tee "${FPK_NAME}.sha256"
-echo "完成：${OUT_DIR}/${FPK_NAME}（${DISPLAY_VERSION}，内部版本 ${APP_VERSION}）"
-echo "发布后请把 fnos/VERSION 更新为 ${DISPLAY_VERSION}、fnos/qq-farm-bot/manifest 的 version 更新为 ${APP_VERSION}，作为下次构建的基准。"
+echo "完成：${OUT_DIR}/${FPK_NAME}（版本 ${APP_VERSION}）"
+echo "发布后请把 fnos/qq-farm-bot/manifest 的 version 更新为 ${APP_VERSION}（tag 为 v${APP_VERSION}-fnos）。"
