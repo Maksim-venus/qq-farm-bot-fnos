@@ -10,7 +10,7 @@ QQ 农场助手的 **飞牛 fnOS 原生应用（FPK）** 版本。
 
 ## 安装
 
-1. 从 [Releases](https://github.com/Maksim-venus/qq-farm-bot-fnos/releases) 下载 `qq-farm-bot_<版本>_native_x86.fpk`，并核对 SHA-256。文件名中的 `v1.x.y` 是显示版本；安装包内部版本（应用中心据此判断升级）是构建日期，例如 `2026.10.19`。
+1. 从 [Releases](https://github.com/Maksim-venus/qq-farm-bot-fnos/releases) 下载 `qq-farm-bot_<版本>_native_x86.fpk`，并核对 SHA-256。版本号就是构建日期，例如 `2026.10.19`；同一天再发一版时依次加 `.1`、`.2`……（如 `2026.10.19.1`）。数字逐段越大越新。应用中心能否把 `.N` 识别为升级尚未验证；如果没有显示为升级，请先备份数据，再卸载并重新安装。
 2. 打开「应用中心 → 手动安装」，选择该 FPK；已安装旧版时确认覆盖升级。
 3. 安装完成后从桌面图标「QQ 农场」打开。
 
