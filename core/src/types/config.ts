@@ -95,6 +95,20 @@ export interface AccountConfig {
   autoAcceptHarvestStealEnabled: boolean;
   autoAcceptHarvestStealHarvest: number;
   autoAcceptHarvestStealSteal: number;
+  /** [fnos-fork] 大号/小号：本账号是否为小号及其大号（见 services/farm/fnos-alt-account.ts） */
+  fnosAltAccount?: {
+    enabled: boolean;
+    masterGid: number;
+    masterName: string;
+    timeoutMinutes: number;
+  };
+  /** [fnos-fork] 奶茶活动自动雇佣（见 services/fnos-milk-tea-auto-hire.ts） */
+  fnosMilkTeaAutoHire?: {
+    enabled: boolean;
+    durationId: number;
+    talentId: number;
+    allowRobots: boolean;
+  };
 }
 
 export interface OfflineReminder {

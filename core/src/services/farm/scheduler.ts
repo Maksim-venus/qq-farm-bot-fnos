@@ -23,6 +23,9 @@ const {
 } = require('./land-analysis');
 const { autoPlantEmptyLands, runFertilizerByConfig } = require('./planting');
 const { checkAndBuyFertilizerBoth } = require('../mall');
+// [fnos-fork] 大号/小号：自动巡田时小号只收大号已偷过的地
+const { filterHarvestForAltAccount, harvestSelectedLands } = require('./fnos-alt-account');
+
 // 延迟加载以打破循环依赖: visit-strategy → farm/index → scheduler → visit-strategy
 function inFarmQuietHours() {
     return require('../friend/visit-strategy').inFarmQuietHours();
@@ -101,11 +104,26 @@ async function harvestMatureOwnLandsOnce(actions: string[], propagateErrors: boo
     if (lands.length === 0) return 0;
 
     const ownGid = toNum(getUserState().gid);
-    const harvestable = analyzeLands(lands, false, ownGid).harvestable;
+    let harvestable = analyzeLands(lands, false, ownGid).harvestable;
     if (harvestable.length === 0) return 0;
+    // [fnos-fork] 大号/小号：自动流程（非手动）下过滤留给大号的地
+    let altFiltered = false;
+    if (!propagateErrors) {
+        const alt = await filterHarvestForAltAccount(lands, harvestable, { source: 'fertilizer_followup' });
+        harvestable = alt.landIds;
+        altFiltered = alt.filtered;
+        if (harvestable.length === 0) return 0;
+    }
 
     try {
-        const harvestReply = await harvest(harvestable);
+        let harvestReply: any;
+        if (altFiltered) {
+            const r = await harvestSelectedLands(harvestable);
+            harvestReply = r.reply;
+            harvestable = r.harvested;
+        } else {
+            harvestReply = await harvest(harvestable);
+        }
         actions.push(`施肥后收获${harvestable.length}`);
         recordOperation('harvest', harvestable.length);
         networkEvents.emit('farmHarvested', {
@@ -235,22 +253,37 @@ async function runFarmOperation(
     let harvestReply: any = null;
     let postHarvest: any = null;
     if (opType === 'all' || opType === 'harvest') {
-        if (status.harvestable.length > 0) {
+        // [fnos-fork] 大号/小号：自动巡田（opType=all 且非手动）时，小号只收大号已偷过的地。
+        // 手动点「收获」「一键全收」视为用户明确要求，不受限制。
+        let harvestTargets: number[] = status.harvestable;
+        let altFiltered = false;
+        if (opType === 'all' && !propagateErrors && harvestTargets.length > 0) {
+            const alt = await filterHarvestForAltAccount(lands, harvestTargets, { source: 'farm_check' });
+            harvestTargets = alt.landIds;
+            altFiltered = alt.filtered;
+        }
+        if (harvestTargets.length > 0) {
             try {
-                harvestReply = await harvest(status.harvestable);
-                log('收获', `收获完成 ${status.harvestable.length} 块土地`, {
+                if (altFiltered) {
+                    const r = await harvestSelectedLands(harvestTargets);
+                    harvestReply = r.reply;
+                    harvestTargets = r.harvested;
+                } else {
+                    harvestReply = await harvest(harvestTargets);
+                }
+                log('收获', `收获完成 ${harvestTargets.length} 块土地`, {
                     module: 'farm',
                     event: '收获作物',
                     result: 'ok',
-                    count: status.harvestable.length,
-                    landIds: [...status.harvestable],
+                    count: harvestTargets.length,
+                    landIds: [...harvestTargets],
                 });
-                actions.push(`收获${status.harvestable.length}`);
-                recordOperation('harvest', status.harvestable.length);
-                harvestedLandIds = [...status.harvestable];
+                actions.push(`收获${harvestTargets.length}`);
+                recordOperation('harvest', harvestTargets.length);
+                harvestedLandIds = [...harvestTargets];
                 networkEvents.emit('farmHarvested', {
-                    count: status.harvestable.length,
-                    landIds: [...status.harvestable],
+                    count: harvestTargets.length,
+                    landIds: [...harvestTargets],
                     opType,
                 });
             } catch (e: any) {

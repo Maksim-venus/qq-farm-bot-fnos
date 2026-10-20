@@ -46,12 +46,13 @@ async function getAllLands(): Promise<any> {
     return reply;
 }
 
-async function harvest(landIds: number[]): Promise<any> {
+// [fnos-fork] 大号/小号：小号只收部分地块时需 isAll=false，避免“全部收获”把留给大号的地也收掉。
+async function harvest(landIds: number[], options: { isAll?: boolean } = {}): Promise<any> {
     const state = getUserState();
     const body = types.HarvestRequest.encode(types.HarvestRequest.create({
         land_ids: landIds,
         host_gid: toLong(state.gid),
-        is_all: true,
+        is_all: options.isAll !== false,
     })).finish();
     const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Harvest', body);
     return types.HarvestReply.decode(replyBody);

@@ -3,6 +3,10 @@ export {};
 
 const sharedState = require('./shared-state');
 const { readKnownFriendGidsCache, writeKnownFriendGidsCache } = require('./gid-cache');
+// [fnos-fork] 大号/小号
+const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-account');
+// [fnos-fork] 奶茶活动自动雇佣
+const { normalizeFnosMilkTeaAutoHire } = require('../../services/fnos-milk-tea-auto-hire');
 
 const {
     globalConfig,
@@ -106,6 +110,9 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         autoAcceptHarvestStealEnabled: !!cfg.autoAcceptHarvestStealEnabled,
         autoAcceptHarvestStealHarvest: cfg.autoAcceptHarvestStealHarvest,
         autoAcceptHarvestStealSteal: cfg.autoAcceptHarvestStealSteal,
+        // [fnos-fork] 大号/小号
+        fnosAltAccount: { ...cfg.fnosAltAccount },
+        fnosMilkTeaAutoHire: { ...cfg.fnosMilkTeaAutoHire }, // [fnos-fork] 奶茶活动自动雇佣
         ui: { ...globalConfig.ui },
     } as any;
 }
@@ -268,6 +275,16 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
             cfg.autoAcceptHarvestStealSteal,
             next.autoAcceptHarvestStealSteal,
         );
+    }
+
+    // [fnos-fork] 大号/小号
+    if (cfg.fnosAltAccount !== undefined && cfg.fnosAltAccount !== null) {
+        next.fnosAltAccount = normalizeFnosAltAccount(cfg.fnosAltAccount, next.fnosAltAccount);
+    }
+    // [fnos-fork] 奶茶活动自动雇佣
+    if (cfg.fnosMilkTeaAutoHire !== undefined && cfg.fnosMilkTeaAutoHire !== null) {
+        next.fnosMilkTeaAutoHire = normalizeFnosMilkTeaAutoHire(cfg.fnosMilkTeaAutoHire, next.fnosMilkTeaAutoHire);
+        try { require('../../services/fnos-milk-tea-auto-hire').onFnosMilkTeaAutoHireConfigChanged(); } catch { /* ignore */ }
     }
 
     if (cfg.ui && typeof cfg.ui === 'object') {

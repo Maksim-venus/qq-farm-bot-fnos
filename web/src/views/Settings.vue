@@ -10,6 +10,7 @@ import AccountModal from '@/components/AccountModal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import AutomationSettingsForm from '@/components/settings/AutomationSettingsForm.vue'
 import BagSeedPriorityItem from '@/components/settings/BagSeedPriorityItem.vue'
+import FnosForkSettings from '@/components/settings/FnosForkSettings.vue' // [fnos-fork] 大号/小号、奶茶自动雇佣
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
@@ -1887,6 +1888,12 @@ async function handleResetSystemConfig() {
             :fertilizer-land-type-options="fertilizerLandTypeOptions"
             :fertilizer-options="fertilizerOptions"
             @save="saveAutomationSettings"
+          />
+
+          <!-- [fnos-fork] 大号/小号、奶茶活动自动雇佣（独立保存） -->
+          <FnosForkSettings
+            v-if="currentAccountId && !settingsLoading && loadedAccountId === currentAccountId"
+            :account-id="currentAccountId"
           />
         </div>
 

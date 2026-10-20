@@ -4,6 +4,10 @@ export {};
 const { DEFAULT_TIME_ZONE, normalizeTimeZone, resolveClientVersion } = require('../../config/config');
 const { getDataFile, ensureDataDir } = require('../../config/runtime-paths');
 const { readJsonFile } = require('../../services/json-db');
+// [fnos-fork] 大号/小号：账号配置 fnosAltAccount 的规范化
+const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-account');
+// [fnos-fork] 奶茶活动自动雇佣：账号配置 fnosMilkTeaAutoHire 的规范化
+const { normalizeFnosMilkTeaAutoHire } = require('../../services/fnos-milk-tea-auto-hire');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -326,6 +330,10 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
             : DEFAULT_ACCOUNT_CONFIG.autoAcceptHarvestStealEnabled,
         autoAcceptHarvestStealHarvest: normalizeAutoAcceptHarvestStealHarvest(base.autoAcceptHarvestStealHarvest, DEFAULT_ACCOUNT_CONFIG.autoAcceptHarvestStealHarvest),
         autoAcceptHarvestStealSteal: normalizeAutoAcceptHarvestStealSteal(base.autoAcceptHarvestStealSteal, DEFAULT_ACCOUNT_CONFIG.autoAcceptHarvestStealSteal),
+        // [fnos-fork] 大号/小号
+        fnosAltAccount: normalizeFnosAltAccount(base.fnosAltAccount),
+        // [fnos-fork] 奶茶活动自动雇佣
+        fnosMilkTeaAutoHire: normalizeFnosMilkTeaAutoHire(base.fnosMilkTeaAutoHire),
     };
 }
 
@@ -471,6 +479,15 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
 
     if (src.autoAcceptHarvestStealSteal !== undefined && src.autoAcceptHarvestStealSteal !== null) {
         cfg.autoAcceptHarvestStealSteal = normalizeAutoAcceptHarvestStealSteal(src.autoAcceptHarvestStealSteal, cfg.autoAcceptHarvestStealSteal);
+    }
+
+    // [fnos-fork] 大号/小号
+    if (src.fnosAltAccount !== undefined && src.fnosAltAccount !== null) {
+        cfg.fnosAltAccount = normalizeFnosAltAccount(src.fnosAltAccount, cfg.fnosAltAccount);
+    }
+    // [fnos-fork] 奶茶活动自动雇佣
+    if (src.fnosMilkTeaAutoHire !== undefined && src.fnosMilkTeaAutoHire !== null) {
+        cfg.fnosMilkTeaAutoHire = normalizeFnosMilkTeaAutoHire(src.fnosMilkTeaAutoHire, cfg.fnosMilkTeaAutoHire);
     }
 
     return cfg;
