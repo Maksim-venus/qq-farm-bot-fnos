@@ -35,7 +35,7 @@ require.cache[dist('models/store')] = {
     exports: {
         isAutomationOn: key => key === 'farm' || key === 'skip_own_weed_bug',
         getAutomation: () => ({ fertilizer: 'none', fertilizer_land_types: [] }),
-        getAccountConfigSnapshot: () => ({ fnosAltAccount: altConfig }),
+        getConfigSnapshot: () => ({ fnosAltAccount: altConfig }),
         getFertilizerBuyOrganicCount: () => 0,
         getFertilizerBuyOrganicThresholdHours: () => 0,
         getFertilizerBuyNormalCount: () => 0,
@@ -204,15 +204,37 @@ test('decideAltHarvest: 访客记录按地块/作物/时间匹配大号偷菜', 
     assert.deepEqual(ds.map(d => d.harvest), [true, true, false]);
 });
 
-test('decideAltHarvest: 超时兜底（0 = 一直等）', () => {
-    const lands = [matureLand(1)]; // 成熟 10 分钟
-    let [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 0 }, records: [], nowSec: NOW + 86400 * 3 });
+test('decideAltHarvest: 超时兜底从「首次发现可收」算起（0 = 一直等），不看服务端成熟时间', () => {
+    // 服务端成熟时间戳是 3 天前（催熟等情况可能出现），但本进程刚发现可收：不能直接判超时
+    const lands = [{ ...matureLand(1), plant: { ...matureLand(1).plant, phases: [{ phase: 6, begin_time: NOW - 86400 * 3 }] } }];
+    const seen = new Map([[1, NOW]]);
+    let [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 10 }, records: [], nowSec: NOW, firstSeenSecByLand: seen });
     assert.equal(d.harvest, false);
-    [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 30 }, records: [], nowSec: NOW });
-    assert.equal(d.harvest, false);
+    assert.equal(d.waitedSec, 0);
+    // 没传首次发现时间时同样视为刚发现
     [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 10 }, records: [], nowSec: NOW });
+    assert.equal(d.harvest, false);
+    // 发现后 9 分钟：还不到
+    [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 10 }, records: [], nowSec: NOW + 540, firstSeenSecByLand: seen });
+    assert.equal(d.harvest, false);
+    // 发现后 10 分钟：超时兜底
+    [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 10 }, records: [], nowSec: NOW + 600, firstSeenSecByLand: seen });
     assert.equal(d.harvest, true);
     assert.equal(d.reason, 'timeout');
+    // 0 = 一直等
+    [d] = decideAltHarvest({ lands, harvestableIds: [1], config: { ...CFG, timeoutMinutes: 0 }, records: [], nowSec: NOW + 86400 * 3, firstSeenSecByLand: seen });
+    assert.equal(d.harvest, false);
+});
+
+test('decideAltHarvest: 取不到成熟时间时，大号很早以前在这块地的偷菜记录不算', () => {
+    const lands = [{ ...matureLand(1), plant: { ...matureLand(1).plant, phases: [] } }];
+    const seen = new Map([[1, NOW]]);
+    const old = [{ actionType: 1, visitorGid: MASTER, serverTimeSec: NOW - 86400, landId: 1 }];
+    let [d] = decideAltHarvest({ lands, harvestableIds: [1], config: CFG, records: old, nowSec: NOW, firstSeenSecByLand: seen });
+    assert.equal(d.harvest, false);
+    const fresh = [{ actionType: 1, visitorGid: MASTER, serverTimeSec: NOW + 30, landId: 1 }];
+    [d] = decideAltHarvest({ lands, harvestableIds: [1], config: CFG, records: fresh, nowSec: NOW + 60, firstSeenSecByLand: seen });
+    assert.equal(d.harvest, true);
 });
 
 // ---------- 自动巡田挂钩 ----------

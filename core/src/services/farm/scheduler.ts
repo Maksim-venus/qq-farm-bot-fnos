@@ -257,7 +257,8 @@ async function runFarmOperation(
         // 手动点「收获」「一键全收」视为用户明确要求，不受限制。
         let harvestTargets: number[] = status.harvestable;
         let altFiltered = false;
-        if (opType === 'all' && !propagateErrors && harvestTargets.length > 0) {
+        // 没有可收的地也调用一次，用来清理「首次发现可收」计时（2026.10.20.3）
+        if (opType === 'all' && !propagateErrors) {
             const alt = await filterHarvestForAltAccount(lands, harvestTargets, { source: 'farm_check' });
             harvestTargets = alt.landIds;
             altFiltered = alt.filtered;

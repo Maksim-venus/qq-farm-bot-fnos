@@ -283,8 +283,11 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
     }
     // [fnos-fork] 奶茶活动自动雇佣
     if (cfg.fnosMilkTeaAutoHire !== undefined && cfg.fnosMilkTeaAutoHire !== null) {
+        const beforeTea = JSON.stringify(next.fnosMilkTeaAutoHire || null);
         next.fnosMilkTeaAutoHire = normalizeFnosMilkTeaAutoHire(cfg.fnosMilkTeaAutoHire, next.fnosMilkTeaAutoHire);
-        try { require('../../services/fnos-milk-tea-auto-hire').onFnosMilkTeaAutoHireConfigChanged(); } catch { /* ignore */ }
+        if (JSON.stringify(next.fnosMilkTeaAutoHire) !== beforeTea) {
+            try { require('../../services/fnos-milk-tea-auto-hire').onFnosMilkTeaAutoHireConfigChanged(); } catch { /* ignore */ }
+        }
     }
 
     if (cfg.ui && typeof cfg.ui === 'object') {

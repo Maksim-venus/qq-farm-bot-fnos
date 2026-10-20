@@ -11,7 +11,10 @@ export {};
  *      上游 proto 改成了 bytes 且注明“服务端格式不一致”，因此这里自行解析：
  *      既按 packed varint 读，也兼容旧版 StealPlayer{gid=1,num=2} 嵌套消息。
  *   2. 访客记录（InteractRecords，即“农场动态”）里有大号的「偷取作物」(action_type=1)，
- *      且时间不早于该地作物成熟时间；记录带地块号时按地块匹配，否则按作物匹配。
+ *      且时间不早于该地作物成熟时间（取不到成熟时间时用本进程首次发现可收的时间）；
+ *      记录带地块号时按地块匹配，否则按作物匹配。
+ * 超时兜底的起点是「本进程首次观察到这块地可收」的时间，不用服务端的成熟/种植时间戳
+ * （2026.10.20.3：花费催熟等情况下服务端时间戳可能早于实际可收时间，会让超时被误判为已到）。
  * 两个信号都未经真号验证，详见 fnos/飞牛部署与变更说明.md。
  *
  * 本文件只做判定与日志，不改动上游的收获/种植流程；scheduler.ts 中只有少量带
@@ -213,6 +216,7 @@ export interface AltHarvestDecision {
     /** 判定来源说明（日志用） */
     detail: string;
     matureBeginSec: number;
+    /** 从本进程首次发现可收到现在的秒数（超时兜底用） */
     waitedSec: number;
 }
 
@@ -222,8 +226,11 @@ function decideAltHarvest(params: {
     config: FnosAltAccountConfig;
     records?: AltHarvestRecord[] | null;
     nowSec: number;
+    /** landId → 本进程首次发现该地可收的时间（秒）；缺省视为现在（即刚发现，不会超时） */
+    firstSeenSecByLand?: Map<number, number> | null;
 }): AltHarvestDecision[] {
     const { lands, harvestableIds, config, nowSec } = params;
+    const firstSeenMap = params.firstSeenSecByLand || null;
     const records = Array.isArray(params.records) ? params.records : [];
     const landMap = new Map<number, any>();
     for (const land of Array.isArray(lands) ? lands : []) {
@@ -241,7 +248,8 @@ function decideAltHarvest(params: {
         const plant = land && land.plant;
         const plantName = String((plant && plant.name) || '').trim() || '作物';
         const matureBeginSec = plant ? getMatureBeginSec(plant, nowSec) : 0;
-        const waitedSec = matureBeginSec > 0 ? Math.max(0, nowSec - matureBeginSec) : 0;
+        const firstSeenSec = (firstSeenMap && firstSeenMap.get(landId)) || nowSec;
+        const waitedSec = Math.max(0, nowSec - firstSeenSec);
         const base = { landId, plantName, matureBeginSec, waitedSec };
 
         if (!config || !config.enabled || masterGid <= 0) {
@@ -255,7 +263,9 @@ function decideAltHarvest(params: {
 
         const plantId = toNumber(plant && plant.id);
         const fruitId = toNumber(plant && plant.fruit_id);
-        const minTime = matureBeginSec > 0 ? matureBeginSec - RECORD_TIME_TOLERANCE_SEC : 0;
+        // 只认这一茬作物成熟之后的偷菜记录；取不到成熟时间时退而用首次发现可收的时间，
+        // 不能放宽到 0，否则大号很久以前偷过这块地的旧记录也会被当成“已偷”。
+        const minTime = (matureBeginSec > 0 ? Math.min(matureBeginSec, firstSeenSec) : firstSeenSec) - RECORD_TIME_TOLERANCE_SEC;
         const matched = masterSteals.find((r) => {
             if (toNumber(r.serverTimeSec) < minTime) return false;
             const recordLandId = toNumber(r.landId);
@@ -273,8 +283,8 @@ function decideAltHarvest(params: {
         }
 
         const timeoutSec = Math.max(0, toNumber(config.timeoutMinutes)) * 60;
-        if (timeoutSec > 0 && matureBeginSec > 0 && waitedSec >= timeoutSec) {
-            return { ...base, harvest: true, reason: 'timeout', detail: `成熟已超过 ${config.timeoutMinutes} 分钟，大号仍未偷` };
+        if (timeoutSec > 0 && waitedSec >= timeoutSec) {
+            return { ...base, harvest: true, reason: 'timeout', detail: `发现可收已超过 ${config.timeoutMinutes} 分钟，大号仍未偷（超时兜底）` };
         }
         return { ...base, harvest: false, reason: 'waiting', detail: '等待大号来偷' };
     });
@@ -288,9 +298,12 @@ let recordsCache: { at: number; records: AltHarvestRecord[] } | null = null;
 let lastWaitLogKey = '';
 let lastWaitLogAt = 0;
 let lastNotConfiguredLogAt = 0;
+/** landId → { 作物 id, 本进程首次发现可收的时间（秒） } */
+const firstSeenByLand = new Map<number, { plantId: number; sec: number }>();
 
 function resetFnosAltAccountRuntime(): void {
     recordsCache = null;
+    firstSeenByLand.clear();
     lastWaitLogKey = '';
     lastWaitLogAt = 0;
     lastNotConfiguredLogAt = 0;
@@ -316,13 +329,33 @@ async function loadMasterStealRecords(): Promise<{ records: AltHarvestRecord[]; 
 }
 
 function getConfigForCurrentAccount(): FnosAltAccountConfig {
-    try {
-        const store = require('../../models/store');
-        const snapshot = store.getAccountConfigSnapshot();
-        return normalizeFnosAltAccount(snapshot && snapshot.fnosAltAccount);
-    } catch {
-        return { ...DEFAULT_FNOS_ALT_ACCOUNT };
+    // 2026.10.20.3：统一经 store.getConfigSnapshot() 读取（见 services/fnos-fork-config.ts）
+    return require('../fnos-fork-config').readFnosForkConfigs().alt;
+}
+
+/** 更新「首次发现可收」时间表：不再可收或换了作物的地清掉，新发现的记下现在。 */
+function updateFirstSeen(lands: any[], harvestableIds: number[], nowSec: number): Map<number, number> {
+    const harvestable = new Set(harvestableIds.map(toNumber));
+    const plantIdByLand = new Map<number, number>();
+    for (const land of Array.isArray(lands) ? lands : []) {
+        const id = toNumber(land && land.id);
+        if (id > 0) plantIdByLand.set(id, toNumber(land.plant && land.plant.id));
     }
+    for (const [landId, entry] of [...firstSeenByLand]) {
+        if (!harvestable.has(landId) || (plantIdByLand.has(landId) && plantIdByLand.get(landId) !== entry.plantId)) {
+            firstSeenByLand.delete(landId);
+        }
+    }
+    const out = new Map<number, number>();
+    for (const landId of harvestable) {
+        let entry = firstSeenByLand.get(landId);
+        if (!entry) {
+            entry = { plantId: plantIdByLand.get(landId) || 0, sec: nowSec };
+            firstSeenByLand.set(landId, entry);
+        }
+        out.set(landId, entry.sec);
+    }
+    return out;
 }
 
 function formatMinutes(sec: number): string {
@@ -342,13 +375,16 @@ async function filterHarvestForAltAccount(
 ): Promise<{ landIds: number[]; filtered: boolean; held: AltHarvestDecision[] }> {
     const ids = Array.isArray(harvestableIds) ? [...harvestableIds] : [];
     const config = getConfigForCurrentAccount();
-    if (!config.enabled || ids.length === 0) return { landIds: ids, filtered: false, held: [] };
+    if (!config.enabled) {
+        firstSeenByLand.clear();
+        return { landIds: ids, filtered: false, held: [] };
+    }
 
     const { log, logWarn, getServerTimeSec } = require('../../utils/utils');
     if (config.masterGid <= 0) {
         if (Date.now() - lastNotConfiguredLogAt > WAIT_LOG_INTERVAL_MS) {
             lastNotConfiguredLogAt = Date.now();
-            logWarn('小号', '已开启「这是小号」但还没有选择大号，本次照常收获。请到 设置 → 自动控制 → 大号/小号 选择大号', {
+            logWarn('小号', '已开启「这是小号」但还没有选择大号，本次照常收获。请到 设置 → 大小号与雇佣 选择大号', {
                 module: 'farm', event: '小号留菜', result: 'not_configured',
             });
         }
@@ -356,13 +392,15 @@ async function filterHarvestForAltAccount(
     }
 
     const nowSec = options.nowSec || getServerTimeSec();
+    const firstSeenSecByLand = updateFirstSeen(lands, ids, nowSec);
+    if (ids.length === 0) return { landIds: ids, filtered: false, held: [] };
     // 先只看土地数据：都已被大号偷过就不必再拉访客记录。
-    let decisions = decideAltHarvest({ lands, harvestableIds: ids, config, records: [], nowSec });
+    let decisions = decideAltHarvest({ lands, harvestableIds: ids, config, records: [], nowSec, firstSeenSecByLand });
     let recordError = '';
     if (decisions.some(d => !d.harvest)) {
         const loaded = await loadMasterStealRecords();
         recordError = loaded.error;
-        decisions = decideAltHarvest({ lands, harvestableIds: ids, config, records: loaded.records, nowSec });
+        decisions = decideAltHarvest({ lands, harvestableIds: ids, config, records: loaded.records, nowSec, firstSeenSecByLand });
     }
 
     const allowed = decisions.filter(d => d.harvest);
@@ -380,8 +418,8 @@ async function filterHarvestForAltAccount(
         if (key !== lastWaitLogKey || now - lastWaitLogAt > WAIT_LOG_INTERVAL_MS) {
             lastWaitLogKey = key;
             lastWaitLogAt = now;
-            const parts = held.map(d => `#${d.landId}${d.plantName}(已成熟${formatMinutes(d.waitedSec)})`);
-            const timeoutText = config.timeoutMinutes > 0 ? `，成熟超过 ${config.timeoutMinutes} 分钟仍未偷则照常收获` : '，一直等到大号偷过为止';
+            const parts = held.map(d => `#${d.landId}${d.plantName}(已等${formatMinutes(d.waitedSec)})`);
+            const timeoutText = config.timeoutMinutes > 0 ? `，发现可收后超过 ${config.timeoutMinutes} 分钟仍未偷则照常收获` : '，一直等到大号偷过为止';
             log('小号', `留给大号 ${masterLabel} 偷，暂不收获 ${held.length} 块：${parts.join('、')}（未在土地偷菜者和访客记录里发现大号${timeoutText}）${recordError ? `；访客记录读取失败：${recordError}` : ''}`, {
                 module: 'farm', event: '小号留菜', result: 'waiting', count: held.length, landIds: held.map(d => d.landId), masterGid: config.masterGid,
             });

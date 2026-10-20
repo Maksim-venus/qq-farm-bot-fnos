@@ -468,6 +468,8 @@ function applyRuntimeConfig(snapshot: any, syncNow: boolean = false): number {
     }
     applyConfigSnapshot(snapshot || {}, { persist: false, accountId });
     if (rev > appliedConfigRevision) appliedConfigRevision = rev;
+    // [fnos-fork] 大号/小号、奶茶自动雇佣：设置有变化时在日志里打印当前状态
+    try { require('../services/fnos-fork-config').onWorkerConfigApplied(); } catch { /* ignore */ }
 
     // 优先使用本次下发的间隔，避免 worker 内部 store 漂移导致回退默认值
     const incomingIntervals = (snapshot && snapshot.intervals && typeof snapshot.intervals === 'object')

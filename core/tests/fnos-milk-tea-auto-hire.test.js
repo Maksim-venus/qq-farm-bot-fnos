@@ -6,7 +6,7 @@ const test = require('node:test');
 const dist = rel => require.resolve(path.join('..', 'dist', rel));
 let accountSnapshot = {};
 const logs = [];
-require.cache[dist('models/store')] = { exports: { getAccountConfigSnapshot: () => accountSnapshot } };
+require.cache[dist('models/store')] = { exports: { getConfigSnapshot: () => accountSnapshot } };
 const realUtils = require('../dist/utils/utils');
 require.cache[dist('utils/utils')] = {
     exports: { ...realUtils, log: (t, m) => logs.push(`${t}|${m}`), logWarn: (t, m) => logs.push(`${t}|WARN|${m}`) },

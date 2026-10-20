@@ -224,11 +224,9 @@ function resetFnosMilkTeaAutoHireRuntime(): void {
 }
 
 function readConfigs(): { cfg: FnosMilkTeaAutoHireConfig; alt: { enabled: boolean; masterGid: number; masterName: string } } {
-    const store = require('../models/store');
-    const snapshot = store.getAccountConfigSnapshot() || {};
-    const { normalizeFnosAltAccount } = require('./farm/fnos-alt-account');
-    const alt = normalizeFnosAltAccount(snapshot.fnosAltAccount);
-    return { cfg: normalizeFnosMilkTeaAutoHire(snapshot.fnosMilkTeaAutoHire), alt };
+    // 2026.10.20.3：统一经 store.getConfigSnapshot() 读取（见 services/fnos-fork-config.ts）
+    const { tea, alt } = require('./fnos-fork-config').readFnosForkConfigs();
+    return { cfg: tea, alt };
 }
 
 function logSkip(message: string): void {
@@ -267,6 +265,13 @@ async function runMilkTeaAutoHireTick(options: { force?: boolean; milkTea?: any;
         const nextEnd = getNextSlotEndSec(state.shop, nowSec);
         // 员工位都满：到最早一个班次结束后 30 秒再查
         nextCheckAtMs = nextEnd > 0 ? nowMs + (nextEnd - nowSec + 30) * 1000 : nowMs + TICK_INTERVAL_MS;
+        if (nextEnd > 0) {
+            const at = new Date(nextEnd * 1000);
+            const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+            logSkip(`员工位已满，最早 ${hhmm} 有员工下班，届时再检查`);
+        } else {
+            logSkip('员工位已满');
+        }
         return 0;
     }
 
@@ -326,18 +331,38 @@ async function runMilkTeaAutoHireTick(options: { force?: boolean; milkTea?: any;
     return hired;
 }
 
+/** 保存设置后多久做一次检查（让新设置马上生效） */
+const CONFIG_CHANGE_TICK_DELAY_MS = 5 * 1000;
+let activeScheduler: any = null;
+let activeTick: (() => Promise<any>) | null = null;
+let lastTickErrorLogAt = 0;
+
 /** 登录完成后由 worker 调用；任务挂在 workerScheduler 上，停号时随 clearAll 一起清理。 */
 function startFnosMilkTeaAutoHire(scheduler: any, runExclusive: (name: string, fn: () => Promise<any>) => Promise<any>): void {
     resetFnosMilkTeaAutoHireRuntime();
-    const tick = () => runExclusive('fnos_milk_tea_auto_hire', () => runMilkTeaAutoHireTick()).catch(() => null);
+    const tick = () => runExclusive('fnos_milk_tea_auto_hire', () => runMilkTeaAutoHireTick()).catch((e: any) => {
+        // 不再静默吞掉异常（2026.10.20.3 之前读配置的 TypeError 就是这样被吞掉的）
+        if (Date.now() - lastTickErrorLogAt > 30 * 60 * 1000) {
+            lastTickErrorLogAt = Date.now();
+            try { require('../utils/utils').logWarn('奶茶雇佣', `自动雇佣检查出错：${e && e.message ? e.message : e}`, { module: 'activity', event: '奶茶自动雇佣', result: 'error' }); } catch { /* ignore */ }
+        }
+        return null;
+    });
+    activeScheduler = scheduler;
+    activeTick = tick;
     scheduler.setTimeoutTask('fnos_milk_tea_auto_hire_first', FIRST_TICK_DELAY_MS, tick);
     scheduler.setIntervalTask('fnos_milk_tea_auto_hire', TICK_INTERVAL_MS, tick);
+    // 登录完成时打印两项设置的状态，便于在日志里确认已生效
+    try { require('./fnos-fork-config').logFnosForkStatus('账号已登录', true); } catch { /* ignore */ }
 }
 
-/** 保存设置后让下一轮立即检查。 */
+/** 保存设置后：清掉退避，并在几秒后检查一次（只在 worker 里、登录后生效；主进程无调度器时什么也不做）。 */
 function onFnosMilkTeaAutoHireConfigChanged(): void {
     nextCheckAtMs = 0;
     lastSkipLog = '';
+    if (activeScheduler && activeTick) {
+        try { activeScheduler.setTimeoutTask('fnos_milk_tea_auto_hire_first', CONFIG_CHANGE_TICK_DELAY_MS, activeTick); } catch { /* ignore */ }
+    }
 }
 
 module.exports = {
