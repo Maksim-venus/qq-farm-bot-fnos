@@ -33,9 +33,9 @@ const accountStore = useAccountStore()
 const settingStore = useSettingStore()
 const statusStore = useStatusStore()
 
-type SettingsTab = 'account' | 'strategy' | 'automation' | 'system'
+type SettingsTab = 'account' | 'strategy' | 'automation' | 'fnos-alt' | 'system' // [fnos-fork] 新增 fnos-alt
 const storedTab = localStorage.getItem('settings-active-tab')
-const settingsTabKeys: SettingsTab[] = ['account', 'strategy', 'automation', 'system']
+const settingsTabKeys: SettingsTab[] = ['account', 'strategy', 'automation', 'fnos-alt', 'system'] // [fnos-fork]
 const queryTab = String(route.query.tab || '')
 const initialTab = settingsTabKeys.includes(queryTab as SettingsTab)
   ? queryTab as SettingsTab
@@ -61,6 +61,7 @@ const tabs = [
   { key: 'account', label: '账号管理', icon: 'i-carbon-user-profile' },
   { key: 'strategy', label: '策略设置', icon: 'i-carbon-settings-adjust' },
   { key: 'automation', label: '自动控制', icon: 'i-carbon-settings-adjust' },
+  { key: 'fnos-alt', label: '大小号与雇佣', icon: 'i-carbon-user-multiple' }, // [fnos-fork]
   { key: 'system', label: '系统设置', icon: 'i-carbon-settings' },
 ] as const
 
@@ -1889,13 +1890,14 @@ async function handleResetSystemConfig() {
             :fertilizer-options="fertilizerOptions"
             @save="saveAutomationSettings"
           />
-
-          <!-- [fnos-fork] 大号/小号、奶茶活动自动雇佣（独立保存） -->
-          <FnosForkSettings
-            v-if="currentAccountId && !settingsLoading && loadedAccountId === currentAccountId"
-            :account-id="currentAccountId"
-          />
         </div>
+
+        <!-- [fnos-fork] 大小号与雇佣（大号/小号、奶茶活动自动雇佣，组件内自带标题与保存） -->
+        <FnosForkSettings
+          v-else-if="activeTab === 'fnos-alt'"
+          :account-id="currentAccountId"
+          :account-name="currentAccountName"
+        />
 
         <!-- 系统设置 -->
         <div v-else-if="activeTab === 'system'" class="space-y-4">

@@ -5,7 +5,7 @@
  * - 奶茶活动自动雇佣：时长/职业可选或随机；小号优先雇大号 24 小时
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
@@ -13,7 +13,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
 
-const props = defineProps<{ accountId: string }>()
+const props = defineProps<{ accountId?: string | null, accountName?: string | null }>()
 const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number }
@@ -80,8 +80,11 @@ const timeoutModel = computed<number>({
 })
 
 function headers() {
-  return { 'x-account-id': props.accountId }
+  return { 'x-account-id': String(props.accountId || '') }
 }
+
+// 小号模式下「雇佣时长」不生效（大号 24 小时、其他好友 4 小时）
+const altActive = computed(() => alt.value.enabled && alt.value.masterGid > 0)
 
 async function loadFriends(force = false) {
   if (!props.accountId)
@@ -191,117 +194,239 @@ async function saveTea() {
 
 watch(() => props.accountId, () => {
   friends.value = []
+  friendsError.value = ''
   manualGid.value = ''
   load()
 }, { immediate: true })
+
+// 手机宽度下设置页标签栏需要横向滚动，进入本栏目时把当前标签滚到可见处
+onMounted(() => {
+  nextTick(() => {
+    const tab = document.querySelector<HTMLElement>('.settings-page .n-tabs-tab--active')
+    const scroller = tab?.closest<HTMLElement>('.n-tabs-nav-scroll-content')?.parentElement
+    if (tab && scroller && scroller.scrollWidth > scroller.clientWidth)
+      scroller.scrollLeft = Math.max(0, tab.offsetLeft - (scroller.clientWidth - tab.offsetWidth) / 2)
+  })
+})
 </script>
 
 <template>
-  <div class="fnos-fork-settings grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-    <!-- 大号/小号 -->
-    <section class="farm-card rounded-2xl p-4" data-testid="fnos-alt-account">
-      <div class="mb-4 flex items-start gap-3">
-        <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-400">
-          <span class="i-carbon-user-multiple text-xl" />
-        </div>
-        <div>
-          <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
-            大号/小号
-          </h4>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-            小号的成熟作物先留给大号偷；检测到大号偷过这块地，自动巡田才收获。手动点「收获」「一键全收」不受限制。
-          </p>
-        </div>
-      </div>
+  <div class="space-y-4">
+    <div class="flex items-center justify-between">
+      <h3 class="flex items-center gap-2 text-lg text-gray-900 font-bold dark:text-gray-100">
+        <span class="i-carbon-user-multiple text-lg" />
+        大小号与雇佣
+        <span v-if="accountName" class="ml-2 text-sm text-gray-500 font-normal dark:text-gray-400">
+          ({{ accountName }})
+        </span>
+      </h3>
+    </div>
 
-      <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
-        加载中...
-      </div>
-      <div v-else class="space-y-3">
-        <BaseSwitch v-model="alt.enabled" label="这是小号" />
+    <div v-if="!accountId" class="py-8 text-center text-gray-500">
+      <div class="i-carbon-settings mx-auto mb-2 text-3xl text-gray-400" />
+      <p>请先选择账号</p>
+    </div>
 
-        <template v-if="alt.enabled">
-          <div class="flex items-end gap-2">
-            <BaseSelect
-              v-model="masterGidModel"
-              class="min-w-0 flex-1"
-              label="大号（从本账号的好友中选择）"
-              :options="friendOptions"
-              filterable
-              :placeholder="friendsLoading ? '正在读取好友列表...' : '请选择大号'"
+    <div v-else class="fnos-fork-layout">
+      <!-- 大号/小号 -->
+      <section class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-alt-account">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-400">
+            <span class="i-carbon-user-multiple text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              大号/小号
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              小号的成熟作物先留给大号偷；检测到大号偷过这块地，自动巡田才收获。手动点「收获」「一键全收」不受限制。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="alt.enabled" label="这是小号" />
+          </div>
+
+          <template v-if="alt.enabled">
+            <div class="fnos-field-row">
+              <div class="min-w-0 flex-1">
+                <BaseSelect
+                  v-model="masterGidModel"
+                  label="大号（从本账号的好友中选择）"
+                  :options="friendOptions"
+                  filterable
+                  :placeholder="friendsLoading ? '正在读取好友列表...' : '请选择大号'"
+                />
+              </div>
+              <BaseButton class="shrink-0" variant="secondary" size="md" :loading="friendsLoading" @click="loadFriends(true)">
+                刷新好友
+              </BaseButton>
+            </div>
+            <p v-if="friendsError" class="fnos-hint text-amber-700 dark:text-amber-300">
+              {{ friendsError }}
+            </p>
+            <div v-if="friendsError || !friendOptions.length" class="fnos-field-row">
+              <div class="min-w-0 flex-1">
+                <BaseInput v-model="manualGid" label="或手动输入大号 GID" placeholder="例如 4300123456" />
+              </div>
+              <BaseButton class="shrink-0" variant="secondary" size="md" @click="applyManualGid">
+                使用
+              </BaseButton>
+            </div>
+            <BaseInput
+              v-model="timeoutModel"
+              type="number"
+              :min="0"
+              :max="10080"
+              label="超时后仍收获（分钟，0 = 一直等大号）"
             />
-            <BaseButton variant="secondary" size="sm" :loading="friendsLoading" @click="loadFriends(true)">
-              刷新好友
+            <p class="fnos-hint text-gray-500 dark:text-gray-400">
+              判定依据：土地数据里的偷菜者列表，或访客记录里大号的「偷取作物」（不早于成熟时间）。还没被大号偷的地会在日志「小号」里写明原因。非小号账号不受影响。
+            </p>
+          </template>
+
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="altSaving" @click="saveAlt">
+              保存大号/小号
             </BaseButton>
           </div>
-          <p v-if="friendsError" class="text-xs text-amber-600 dark:text-amber-400">
-            {{ friendsError }}
+        </div>
+      </section>
+
+      <!-- 奶茶活动自动雇佣 -->
+      <section class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-auto-hire">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-pink-50 text-pink-600 dark:bg-pink-900/25 dark:text-pink-400">
+            <span class="i-carbon-cafe text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              奶茶活动自动雇佣
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              员工位空出（到期）时自动从可雇佣好友里雇人，约每 5 分钟检查一次。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="tea.enabled" label="自动雇佣" />
+          </div>
+          <template v-if="tea.enabled">
+            <p v-if="altActive" class="fnos-hint fnos-hint--box bg-blue-50 text-blue-700 dark:bg-blue-900/25 dark:text-blue-300">
+              当前是小号：大号空闲时优先雇大号 24 小时（不受职业限制）；大号已被雇时随机雇其他好友 4 小时，「雇佣时长」不生效。
+            </p>
+            <div class="fnos-select-grid">
+              <BaseSelect
+                v-model="durationModel"
+                :label="altActive ? '雇佣时长（小号模式不生效）' : '雇佣时长'"
+                :options="durationSelectOptions"
+                :disabled="altActive"
+              />
+              <BaseSelect v-model="talentModel" label="职业（员工特长）" :options="talentSelectOptions" />
+            </div>
+            <div class="fnos-setting-item">
+              <BaseSwitch v-model="tea.allowRobots" label="好友都不可雇时雇系统员工" />
+            </div>
+          </template>
+          <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+            ⚠️ 雇佣会消耗奶茶券：4 小时 40、12 小时 130、24 小时 270（以游戏当时返回的价格为准）。奶茶券不足、活动结算期或剩余营业时间不足时自动跳过。
           </p>
-          <div v-if="friendsError || !friendOptions.length" class="flex items-end gap-2">
-            <BaseInput v-model="manualGid" class="min-w-0 flex-1" label="或手动输入大号 GID" placeholder="例如 4300123456" />
-            <BaseButton variant="secondary" size="sm" @click="applyManualGid">
-              使用
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="teaSaving" @click="saveTea">
+              保存奶茶雇佣
             </BaseButton>
           </div>
-          <BaseInput
-            v-model="timeoutModel"
-            type="number"
-            :min="0"
-            :max="10080"
-            label="超时后仍收获（分钟，0 = 一直等大号）"
-          />
-          <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-            判定依据：土地数据里的偷菜者列表，或访客记录里大号的「偷取作物」（不早于成熟时间）。
-            还没被大号偷的地会在日志「小号」里写明原因。非小号账号不受影响。
-          </p>
-        </template>
-
-        <div class="flex justify-end">
-          <BaseButton variant="primary" size="sm" :loading="altSaving" @click="saveAlt">
-            保存大号/小号
-          </BaseButton>
         </div>
-      </div>
-    </section>
-
-    <!-- 奶茶活动自动雇佣 -->
-    <section class="farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-auto-hire">
-      <div class="mb-4 flex items-start gap-3">
-        <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-pink-50 text-pink-600 dark:bg-pink-900/25 dark:text-pink-400">
-          <span class="i-carbon-cafe text-xl" />
-        </div>
-        <div>
-          <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
-            奶茶活动自动雇佣
-          </h4>
-          <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-            员工位空出（到期）时自动从可雇佣好友里雇人，约每 5 分钟检查一次。
-          </p>
-        </div>
-      </div>
-
-      <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
-        加载中...
-      </div>
-      <div v-else class="space-y-3">
-        <BaseSwitch v-model="tea.enabled" label="自动雇佣" />
-        <template v-if="tea.enabled">
-          <BaseSelect v-model="durationModel" label="雇佣时长" :options="durationSelectOptions" />
-          <BaseSelect v-model="talentModel" label="职业（员工特长）" :options="talentSelectOptions" />
-          <BaseSwitch v-model="tea.allowRobots" label="好友都不可雇时雇系统员工" />
-          <p class="rounded-lg bg-amber-50 p-2 text-xs text-amber-700 leading-relaxed dark:bg-amber-900/20 dark:text-amber-300">
-            雇佣会消耗奶茶券：4 小时 40、12 小时 130、24 小时 270（以游戏当时返回的价格为准）。奶茶券不足、活动结算期或剩余营业时间不足时自动跳过。
-          </p>
-          <p v-if="alt.enabled && alt.masterGid > 0" class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-            当前是小号：大号空闲时优先雇大号 24 小时（不受职业限制）；大号已被雇时随机雇其他好友 4 小时，上方「雇佣时长」不生效。
-          </p>
-        </template>
-        <div class="flex justify-end">
-          <BaseButton variant="primary" size="sm" :loading="teaSaving" @click="saveTea">
-            保存奶茶雇佣
-          </BaseButton>
-        </div>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 </template>
+
+<style scoped>
+/* 与上游「自动控制」卡片一致：≥1280px 两列并排、等高，保存按钮贴底；更窄时上下排列 */
+.fnos-fork-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+@media (min-width: 1280px) {
+  .fnos-fork-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+}
+
+.fnos-fork-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.fnos-fork-card__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.fnos-fork-card__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ui-border);
+}
+
+/* 开关行沿用上游 automation-setting-item 的外观 */
+.fnos-setting-item {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  padding: 9px 11px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-control);
+  background: color-mix(in srgb, var(--ui-surface-strong) 58%, transparent);
+}
+
+.fnos-field-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+/* 卡片单独占一行（<1280px）且够宽时，两个下拉框并排 */
+.fnos-select-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) and (max-width: 1279px) {
+  .fnos-select-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.fnos-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.fnos-hint--box {
+  padding: 8px 10px;
+  border-radius: var(--ui-radius-control);
+}
+</style>
