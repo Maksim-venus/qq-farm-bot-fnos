@@ -99,7 +99,7 @@ async function loadFriends(force = false) {
     const res = await api.get('/api/friends', { headers: headers(), skipErrorToast: true, params: force ? { forceSync: 'true' } : {} } as any)
     friends.value = Array.isArray(res.data?.data) ? res.data.data : []
     if (!friends.value.length)
-      friendsError.value = '好友列表为空'
+      friendsError.value = '好友列表为空（账号需要在运行中才能读取好友，可先启动账号后点「刷新好友」）'
   }
   catch (e: any) {
     friendsError.value = `读取好友列表失败（账号需要在运行中）：${getApiErrorMessage(e, '未知错误')}`
