@@ -1251,6 +1251,7 @@ const defaultDeviceInfo = {
 const localSystemConfig = ref({
   serverUrl: '',
   clientVersion: '',
+  wxClientVersion: '',
   platform: 'qq',
   os: 'Windows',
   timeZone: 'Asia/Shanghai',
@@ -1259,6 +1260,7 @@ const localSystemConfig = ref({
 const defaultSystemConfig = ref({
   serverUrl: '',
   clientVersion: '',
+  wxClientVersion: '',
   platform: 'qq',
   os: 'Windows',
   timeZone: 'Asia/Shanghai',
@@ -1289,6 +1291,7 @@ function normalizeSystemConfig(source: any, fallback: any) {
   return {
     serverUrl: source?.serverUrl || '',
     clientVersion: source?.clientVersion || '',
+    wxClientVersion: source?.wxClientVersion || fallback.wxClientVersion || '',
     platform: source?.platform || 'qq',
     os: source?.os || 'Windows',
     timeZone: source?.timeZone || fallback.timeZone || 'Asia/Shanghai',
@@ -1382,7 +1385,7 @@ async function handleSaveSystemConfig() {
     localSystemConfig.value.clientVersion = localSystemConfig.value.deviceInfo.clientVersion
     localSystemConfig.value.os = localSystemConfig.value.deviceInfo.os
     const { data } = await api.post('/api/settings/system-config', localSystemConfig.value)
-    showAlert(data?.ok ? '系统配置已保存并立即生效' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
+    showAlert(data?.ok ? '系统配置已保存，连接参数在下次登录时生效' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
   }
   catch (e: any) {
     showAlert(`保存失败: ${getApiErrorMessage(e, '未知错误')}`, 'danger')
@@ -1399,7 +1402,7 @@ async function handleResetSystemConfig() {
     if (data?.ok) {
       localSystemConfig.value = normalizeSystemConfig(data.data.saved, defaultSystemConfig.value)
       selectedPresetId.value = ''
-      showAlert('系统配置已重置为默认值', 'primary')
+      showAlert('系统配置已重置，连接参数在下次登录时生效', 'primary')
     }
     else {
       showAlert(getApiErrorMessage(data, '重置失败'), 'danger')
@@ -1985,9 +1988,15 @@ async function handleResetSystemConfig() {
                 <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <BaseInput
                     v-model="localSystemConfig.deviceInfo.clientVersion"
-                    label="客户端版本"
+                    label="QQ 客户端版本"
                     type="text"
                     :placeholder="defaultSystemConfig.deviceInfo.clientVersion || '从服务器加载中...'"
+                  />
+                  <BaseInput
+                    v-model="localSystemConfig.wxClientVersion"
+                    label="微信客户端版本"
+                    type="text"
+                    :placeholder="defaultSystemConfig.wxClientVersion || '从服务器加载中...'"
                   />
                   <BaseInput
                     v-model="localSystemConfig.deviceInfo.sysSoftware"

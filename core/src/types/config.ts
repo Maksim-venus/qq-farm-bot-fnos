@@ -132,6 +132,8 @@ export interface SystemConfig {
   serverUrl: string;
   clientVersion: string;
   clientVersionUpdatedAt?: number;
+  wxClientVersion: string;
+  wxClientVersionUpdatedAt?: number;
   platform: string;
   os: string;
   timeZone: string;

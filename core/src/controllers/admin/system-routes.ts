@@ -25,7 +25,8 @@ function mountSystemRoutes(app: Application, ctx: AdminContext): void {
     });
 
     app.get('/api/game-version', (_req: Request, res: Response) => {
-        res.json({ ok: true, clientVersion: getRuntimeConfig().clientVersion, botVersion: version });
+        const { clientVersion, wxClientVersion } = getRuntimeConfig();
+        res.json({ ok: true, clientVersion, wxClientVersion, botVersion: version });
     });
 
     // 当前飞牛用户（来自统一网关转发的 X-Trim-* Header）
