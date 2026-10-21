@@ -8,6 +8,8 @@ import { useRoute, useRouter } from 'vue-router'
 import api, { getApiErrorMessage } from '@/api'
 import AccountModal from '@/components/AccountModal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+// [fnos-fork] 背包种子优先顺序：直接改序号 + 拖动排序。
+import FnosSortableList from '@/components/fnos/FnosSortableList.vue'
 import AutomationSettingsForm from '@/components/settings/AutomationSettingsForm.vue'
 import BagSeedPriorityItem from '@/components/settings/BagSeedPriorityItem.vue'
 import FnosForkSettings from '@/components/settings/FnosForkSettings.vue' // [fnos-fork] 大号/小号、奶茶自动雇佣
@@ -18,6 +20,7 @@ import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
+import { fnosMoveIndex } from '@/utils/fnos-sort-order' // [fnos-fork]
 
 const fertilizerLandTypeOptions = [
   { label: '紫金土地', value: 'purple-gold' },
@@ -608,6 +611,14 @@ function moveBagSeed(seedId: number, direction: -1 | 1) {
   nextOrder[index] = nextOrder[targetIndex]!
   nextOrder[targetIndex] = temp
   saveVisibleBagSeedOrder(nextOrder)
+}
+
+// [fnos-fork] 把第 from 项移到第 to 项（0 起），其他顺延；只改同一个数组的顺序，保存方式不变。
+function fnosMoveBagSeedIndex(from: number, to: number) {
+  const order = materializeVisibleBagSeedOrder()
+  const next = fnosMoveIndex(order, from, to)
+  if (next.some((id, i) => id !== order[i]))
+    saveVisibleBagSeedOrder(next)
 }
 
 function moveBagSeedUp(seedId: number) {
@@ -1715,17 +1726,30 @@ async function handleResetSystemConfig() {
                 <div v-else-if="bagSeeds.length === 0" class="py-4 text-center text-sm text-amber-700 dark:text-amber-300">
                   背包中暂无 1x1 / 2x2 种子
                 </div>
-                <div v-else class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <!-- [fnos-fork] FnosSortableList：按住手柄拖动排序（鼠标/触屏），序号可直接改 -->
+                <FnosSortableList
+                  v-else
+                  v-slot="fnosSort"
+                  class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3"
+                  :item-count="sortedBagSeeds.length"
+                  @move="fnosMoveBagSeedIndex"
+                >
                   <BagSeedPriorityItem
                     v-for="(seed, index) in sortedBagSeeds"
                     :key="seed.seedId"
                     :seed="seed"
                     :index="index"
+                    :data-fnos-sort-index="index"
+                    :total="sortedBagSeeds.length"
+                    :fnos-dragging="fnosSort.draggingIndex === index"
+                    :fnos-indicator="fnosSort.indicatorFor(index)"
                     :land-types="localStrategySettings.bagSeedLandTypes[String(seed.seedId)]"
                     :land-type-options="fertilizerLandTypeOptions"
                     :dragging="draggingBagSeedId === seed.seedId"
                     :can-move-up="index > 0"
                     :can-move-down="index < sortedBagSeeds.length - 1"
+                    @fnos-handle-down="fnosSort.startDrag(index, $event)"
+                    @fnos-move-to="fnosMoveBagSeedIndex(index, $event - 1)"
                     @move-up="moveBagSeedUp(seed.seedId)"
                     @move-down="moveBagSeedDown(seed.seedId)"
                     @update:land-types="setBagSeedLandTypes(seed.seedId, $event)"
@@ -1734,7 +1758,7 @@ async function handleResetSystemConfig() {
                     @drag-over="dragOverBagSeed(seed.seedId, $event)"
                     @drop="dropBagSeed(seed.seedId, $event)"
                   />
-                </div>
+                </FnosSortableList>
                 <div v-if="orphanRestrictedSeeds.length > 0" class="border-t border-amber-200 pt-2 dark:border-amber-800/50">
                   <div class="text-xs text-amber-800 dark:text-amber-300">
                     未持有但已配限制
@@ -2113,7 +2137,6 @@ async function handleResetSystemConfig() {
                   </BaseButton>
                 </div>
               </section>
-
 
               <section class="farm-card rounded-lg p-4">
                 <div class="mb-4 flex items-start gap-3">

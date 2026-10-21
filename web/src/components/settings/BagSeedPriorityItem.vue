@@ -2,6 +2,8 @@
 import { NButton } from 'naive-ui/es/button'
 import { NCheckbox, NCheckboxGroup } from 'naive-ui/es/checkbox'
 import { computed, ref, watch } from 'vue'
+// [fnos-fork] 直接改序号 + 按住手柄拖动排序（鼠标/触屏）。
+import FnosSortPositionInput from '@/components/fnos/FnosSortPositionInput.vue'
 
 export interface BagSeedPriorityItemSeed {
   seedId: number
@@ -20,6 +22,10 @@ const props = defineProps<{
   dragging: boolean
   canMoveUp: boolean
   canMoveDown: boolean
+  // [fnos-fork] 列表总数（改序号时夹到 1..total）、拖动状态、插入位置提示。
+  total?: number
+  fnosDragging?: boolean
+  fnosIndicator?: { side: 'before' | 'after', axis: 'x' | 'y' } | null
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +36,9 @@ const emit = defineEmits<{
   'dragEnd': []
   'dragOver': [event: DragEvent]
   'drop': [event: DragEvent]
+  // [fnos-fork]
+  'fnosMoveTo': [position: number]
+  'fnosHandleDown': [event: PointerEvent]
 }>()
 
 const chevronUpIconClass = 'i-carbon-chevron-up'
@@ -58,6 +67,33 @@ watch(restricted, (value) => {
     editing.value = false
 })
 
+// [fnos-fork] 按住手柄时暂停卡片自带的 HTML5 拖动，避免和 pointer 拖动抢事件；松手后恢复。
+const rootEl = ref<HTMLElement | null>(null)
+function handleFnosHandleDown(event: PointerEvent) {
+  const el = rootEl.value
+  if (el) {
+    el.draggable = false
+    const restore = () => {
+      el.draggable = true
+      window.removeEventListener('pointerup', restore)
+      window.removeEventListener('pointercancel', restore)
+    }
+    window.addEventListener('pointerup', restore)
+    window.addEventListener('pointercancel', restore)
+  }
+  emit('fnosHandleDown', event)
+}
+
+const fnosIndicatorStyle = computed(() => {
+  const indicator = props.fnosIndicator
+  if (!indicator)
+    return null
+  const offset = '-6px'
+  return indicator.axis === 'x'
+    ? { top: '0', bottom: '0', width: '4px', [indicator.side === 'before' ? 'left' : 'right']: offset }
+    : { left: '0', right: '0', height: '4px', [indicator.side === 'before' ? 'top' : 'bottom']: offset }
+})
+
 function handleLandTypesChange(value: (string | number)[]) {
   const next = value.map(String)
   emit('update:landTypes', next.length === props.landTypeOptions.length ? [] : next)
@@ -66,18 +102,28 @@ function handleLandTypesChange(value: (string | number)[]) {
 
 <template>
   <div
-    class="flex flex-col gap-2 border cartoon-card border-amber-200 rounded-xl bg-white px-3 py-2.5 dark:border-amber-700/50 dark:bg-gray-800"
-    :class="{ 'opacity-60 ring-2 ring-amber-400': dragging }"
+    ref="rootEl"
+    class="relative flex flex-col gap-2 border cartoon-card border-amber-200 rounded-xl bg-white px-3 py-2.5 dark:border-amber-700/50 dark:bg-gray-800"
+    :class="{ 'opacity-60 ring-2 ring-amber-400': dragging || fnosDragging }"
     draggable="true"
     @dragstart="emit('dragStart', $event)"
     @dragend="emit('dragEnd')"
     @dragover.prevent="emit('dragOver', $event)"
     @drop="emit('drop', $event)"
   >
+    <!-- [fnos-fork] 拖动时的插入位置提示 -->
+    <div
+      v-if="fnosIndicatorStyle"
+      class="pointer-events-none absolute z-10 rounded-full bg-amber-500 shadow"
+      :style="fnosIndicatorStyle"
+    />
     <div class="flex items-center gap-2">
-      <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs text-amber-700 font-bold dark:bg-amber-900/50 dark:text-amber-300">
-        {{ index + 1 }}
-      </div>
+      <!-- [fnos-fork] 序号可点击直接改 -->
+      <FnosSortPositionInput
+        :position="index + 1"
+        :total="total ?? 0"
+        @commit="emit('fnosMoveTo', $event)"
+      />
       <div class="h-9 w-9 flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-amber-50 dark:bg-gray-700">
         <img
           v-if="seed.image && !imageFailed"
@@ -101,6 +147,18 @@ function handleLandTypesChange(value: (string | number)[]) {
         <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
           库存 {{ seed.count }} · {{ seed.requiredLevel }} 级 · ID {{ seed.seedId }}
         </div>
+      </div>
+      <!-- [fnos-fork] 拖动手柄：只有按住这里才拖动，手机上其他区域照常滑动页面 -->
+      <div
+        class="h-12 w-6 flex shrink-0 cursor-grab touch-none select-none items-center justify-center rounded text-lg text-amber-400 active:cursor-grabbing hover:bg-amber-50 dark:text-amber-500 dark:hover:bg-gray-700"
+        title="按住拖动排序"
+        aria-label="按住拖动排序"
+        role="button"
+        @pointerdown="handleFnosHandleDown"
+        @dragstart.prevent
+        @contextmenu.prevent
+      >
+        <span class="i-carbon-draggable" />
       </div>
       <div class="flex shrink-0 flex-col gap-2">
         <NButton
