@@ -190,7 +190,7 @@ test('智能有机肥让作物立即成熟后的跟随收获也留给大号', as
     store.applyConfigSnapshot({ automation: { ...cfg.automation, fertilizer: 'none' } }, { persist: false, accountId: '2' });
 });
 
-test('奶茶自动雇佣从真实 store 读到运行中保存的配置并雇佣（小号模式优先大号 24 小时）', async () => {
+test('奶茶自动雇佣从真实 store 读到运行中保存的配置并雇佣（老配置小号迁移：优先大号 24 小时）', async () => {
     tea.resetFnosMilkTeaAutoHireRuntime();
     logs.length = 0;
     const hires = [];
@@ -217,7 +217,7 @@ test('奶茶设置运行中变化 → 几秒后检查一次；tick 出错会写�
     logs.length = 0;
     tea.startFnosMilkTeaAutoHire(fakeScheduler, async (_n, fn) => fn());
     assert.ok(logs.some(l => l.startsWith('小号|账号已登录：小号模式已启用')), logs.join('\n'));
-    assert.ok(logs.some(l => l.startsWith('奶茶雇佣|账号已登录：奶茶自动雇佣已启用（小号模式')), logs.join('\n'));
+    assert.ok(logs.some(l => l.startsWith('奶茶雇佣|账号已登录：奶茶自动雇佣已启用（优先雇佣人 Maksim(1280585737) 24 小时，否则随机雇其他好友 4 小时，沿用旧版小号设置')), logs.join('\n'));
     tasks.length = 0;
     logs.length = 0;
     workerApply({ fnosMilkTeaAutoHire: { enabled: true, durationId: 1, talentId: 9002, allowRobots: false } });

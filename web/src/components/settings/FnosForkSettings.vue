@@ -2,7 +2,7 @@
 /**
  * [fnos-fork] 本 fork 新增的按账号设置（上游没有）：
  * - 大号/小号：小号成熟作物留给大号偷，大号偷过才自动收获
- * - 奶茶活动自动雇佣：时长/职业可选或随机；小号优先雇大号 24 小时
+ * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友）及其时长，其他人时长/职业可选或随机；2026.10.21.2 起与大小号解耦
  * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
  * 所在栏目：设置 → 活动设置（独立栏目，不在「自动控制」里）。
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
@@ -19,12 +19,12 @@ const props = defineProps<{ accountId?: string | null, accountName?: string | nu
 const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number }
-interface MilkTeaAutoHire { enabled: boolean, durationId: number, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
+interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityGid: number, priorityName: string, priorityDurationId: number, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
 interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0 })
-const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
+const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
 const dailySaving = ref(false)
@@ -68,7 +68,7 @@ const talentSelectOptions = computed(() => [
 ])
 const workSelectOptions = computed(() => [
   { label: '随机（只在宣传推广 / 花式摇杯 / 招牌试饮中选）', value: 0 },
-  ...workOptions.value.map(w => ({ label: `${w.name}${w.risky ? '（有风险）' : ''}`, value: w.workType })),
+  ...workOptions.value.map(w => ({ label: w.name, value: w.workType })),
 ])
 const workModel = computed<number>({
   get: () => tea.value.workType,
@@ -77,6 +77,38 @@ const workModel = computed<number>({
   },
 })
 const workDescription = computed(() => workOptions.value.find(w => w.workType === tea.value.workType)?.description || '')
+const priorityDurationModel = computed<number>({
+  get: () => tea.value.priorityDurationId,
+  set: (v) => {
+    tea.value.priorityDurationId = Number(v) || 0
+  },
+})
+const teaMigratedFromAlt = ref(false)
+const priorityManualGid = ref<string | number>('')
+const priorityOptions = computed(() => {
+  const list = [{ label: '不指定（随机雇好友）', value: 0 }, ...friends.value
+    .filter(f => Number(f.gid) > 0)
+    .map(f => ({ label: `${String(f.name || '').trim() || '未命名'}（GID ${f.gid}）`, value: Number(f.gid) }))]
+  if (tea.value.priorityGid > 0 && !list.some(o => o.value === tea.value.priorityGid))
+    list.splice(1, 0, { label: `${tea.value.priorityName || '已选优先雇佣人'}（GID ${tea.value.priorityGid}）`, value: tea.value.priorityGid })
+  return list
+})
+const priorityGidModel = computed<number>({
+  get: () => tea.value.priorityGid,
+  set: (value) => {
+    const gid = Number(value) || 0
+    tea.value.priorityGid = gid
+    tea.value.priorityName = String(friends.value.find(item => Number(item.gid) === gid)?.name || '').trim()
+  },
+})
+function applyPriorityManualGid() {
+  const gid = Number.parseInt(String(priorityManualGid.value || ''), 10)
+  if (!Number.isSafeInteger(gid) || gid <= 0) {
+    toast.error('请输入正确的 GID')
+    return
+  }
+  priorityGidModel.value = gid
+}
 const durationModel = computed<number>({
   get: () => tea.value.durationId,
   set: (v) => {
@@ -99,9 +131,6 @@ const timeoutModel = computed<number>({
 function headers() {
   return { 'x-account-id': String(props.accountId || '') }
 }
-
-// 小号模式下「雇佣时长」不生效（大号 24 小时、其他好友 4 小时）
-const altActive = computed(() => alt.value.enabled && alt.value.masterGid > 0)
 
 async function loadFriends(force = false) {
   if (!props.accountId)
@@ -148,6 +177,7 @@ async function load() {
       durationOptions.value = teaRes.data.options?.durations || []
       talentOptions.value = teaRes.data.options?.talents || []
       workOptions.value = teaRes.data.options?.works || []
+      teaMigratedFromAlt.value = !!teaRes.data.migratedFromAlt
     }
   }
   catch (e: any) {
@@ -203,6 +233,7 @@ async function saveTea() {
     const res = await api.post('/api/fnos/milk-tea-auto-hire', tea.value, { headers: headers() })
     if (res.data?.data)
       tea.value = { ...tea.value, ...res.data.data }
+    teaMigratedFromAlt.value = false
     reportSave(res, '奶茶雇佣与工作事项设置已保存')
   }
   catch (e: any) {
@@ -233,6 +264,7 @@ watch(() => props.accountId, () => {
   friends.value = []
   friendsError.value = ''
   manualGid.value = ''
+  priorityManualGid.value = ''
   load()
 }, { immediate: true })
 
@@ -346,7 +378,7 @@ onMounted(() => {
               奶茶活动自动雇佣
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              员工位空出（到期）时自动从可雇佣好友里雇人，约每 5 分钟检查一次；本账号被别人雇佣时还可以自动做工作事项。
+              员工位空出（到期）时自动雇人，可指定一个优先雇佣人，约每 5 分钟检查一次；任何账号都可开启；本账号被别人雇佣时还可以自动做工作事项。
             </p>
           </div>
         </div>
@@ -359,15 +391,48 @@ onMounted(() => {
             <BaseSwitch v-model="tea.enabled" label="自动雇佣" />
           </div>
           <template v-if="tea.enabled">
-            <p v-if="altActive" class="fnos-hint fnos-hint--box bg-blue-50 text-blue-700 dark:bg-blue-900/25 dark:text-blue-300">
-              当前是小号：大号空闲时优先雇大号 24 小时（不受职业限制）；大号已被雇时随机雇其他好友 4 小时，「雇佣时长」不生效。
+            <p v-if="teaMigratedFromAlt" class="fnos-hint fnos-hint--box bg-blue-50 text-blue-700 dark:bg-blue-900/25 dark:text-blue-300">
+              已沿用旧版小号设置：优先雇佣人为大号、24 小时，其他人 4 小时。点「保存」后按本卡片的设置执行，不再参考大号/小号。
+            </p>
+            <div class="fnos-field-row">
+              <div class="min-w-0 flex-1">
+                <BaseSelect
+                  v-model="priorityGidModel"
+                  label="优先雇佣人（从本账号的好友中选择）"
+                  :options="priorityOptions"
+                  filterable
+                  :placeholder="friendsLoading ? '正在读取好友列表...' : '不指定'"
+                />
+              </div>
+              <BaseButton class="shrink-0" variant="secondary" size="md" :loading="friendsLoading" @click="loadFriends(true)">
+                刷新好友
+              </BaseButton>
+            </div>
+            <p v-if="friendsError" class="fnos-hint text-amber-700 dark:text-amber-300">
+              {{ friendsError }}
+            </p>
+            <div v-if="friendsError || priorityOptions.length <= 1" class="fnos-field-row">
+              <div class="min-w-0 flex-1">
+                <BaseInput v-model="priorityManualGid" label="或手动输入优先雇佣人 GID" placeholder="例如 4300123456" />
+              </div>
+              <BaseButton class="shrink-0" variant="secondary" size="md" @click="applyPriorityManualGid">
+                使用
+              </BaseButton>
+            </div>
+            <p class="fnos-hint text-gray-500 dark:text-gray-400">
+              优先雇佣人空闲时先雇他（不受职业限制）；他已被雇、冷却中或未指定时，从可雇佣好友里随机雇其他人。
             </p>
             <div class="fnos-select-grid">
               <BaseSelect
-                v-model="durationModel"
-                :label="altActive ? '雇佣时长（小号模式不生效）' : '雇佣时长'"
+                v-if="tea.priorityGid > 0"
+                v-model="priorityDurationModel"
+                label="优先雇佣人时长"
                 :options="durationSelectOptions"
-                :disabled="altActive"
+              />
+              <BaseSelect
+                v-model="durationModel"
+                :label="tea.priorityGid > 0 ? '其他人时长' : '雇佣时长'"
+                :options="durationSelectOptions"
               />
               <BaseSelect v-model="talentModel" label="职业（员工特长）" :options="talentSelectOptions" />
             </div>

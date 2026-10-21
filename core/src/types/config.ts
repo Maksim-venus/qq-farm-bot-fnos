@@ -106,6 +106,10 @@ export interface AccountConfig {
   fnosMilkTeaAutoHire?: {
     enabled: boolean;
     durationId: number;
+    priorityGid?: number;
+    priorityName?: string;
+    priorityDurationId?: number;
+    priorityConfigured?: boolean;
     talentId: number;
     allowRobots: boolean;
     autoWork?: boolean;

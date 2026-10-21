@@ -12,7 +12,10 @@ export {};
 
 export interface FnosForkConfigs {
     alt: { enabled: boolean; masterGid: number; masterName: string; timeoutMinutes: number };
-    tea: { enabled: boolean; durationId: number; talentId: number; allowRobots: boolean; autoWork: boolean; workType: number };
+    tea: {
+        enabled: boolean; durationId: number; priorityGid: number; priorityName: string; priorityDurationId: number; priorityConfigured: boolean;
+        talentId: number; allowRobots: boolean; autoWork: boolean; workType: number;
+    };
     daily: { autoClaim: boolean; autoExchangeSeed: boolean };
     error: string;
 }
@@ -65,10 +68,13 @@ function describeTea(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']): 
 
 function describeHire(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']): string {
     if (!tea.enabled) return '奶茶自动雇佣未启用';
-    if (alt.enabled && alt.masterGid > 0) {
-        return `奶茶自动雇佣已启用（小号模式：优先雇大号 24 小时，否则随机好友 4 小时；职业 ${TALENT_TEXT[tea.talentId] || tea.talentId}；${tea.allowRobots ? '允许' : '不'}雇系统员工），会消耗奶茶券`;
+    const eff = require('./fnos-milk-tea-auto-hire').resolveEffectiveHireConfig(tea, alt);
+    const common = `职业 ${TALENT_TEXT[eff.talentId] || eff.talentId}；${eff.allowRobots ? '允许' : '不'}雇系统员工`;
+    if (eff.priorityGid > 0) {
+        const who = eff.priorityName ? `${eff.priorityName}(${eff.priorityGid})` : `GID ${eff.priorityGid}`;
+        return `奶茶自动雇佣已启用（优先雇佣人 ${who} ${DURATION_TEXT[eff.priorityDurationId] || eff.priorityDurationId}，否则随机雇其他好友 ${DURATION_TEXT[eff.durationId] || eff.durationId}${eff.migratedFromAlt ? '，沿用旧版小号设置' : ''}；${common}），会消耗奶茶券`;
     }
-    return `奶茶自动雇佣已启用（时长 ${DURATION_TEXT[tea.durationId] || tea.durationId}；职业 ${TALENT_TEXT[tea.talentId] || tea.talentId}；${tea.allowRobots ? '允许' : '不'}雇系统员工），会消耗奶茶券`;
+    return `奶茶自动雇佣已启用（未指定优先雇佣人，随机雇好友 ${DURATION_TEXT[eff.durationId] || eff.durationId}；${common}），会消耗奶茶券`;
 }
 
 function describeDaily(daily: FnosForkConfigs['daily']): string {

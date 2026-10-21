@@ -8,7 +8,7 @@ export {};
  * 大号/小号：
  *   GET  /api/fnos/alt-account            读取（账号未运行也能读）
  *   POST /api/fnos/alt-account            保存
- * 奶茶活动自动雇佣：
+ * 奶茶活动自动雇佣（2026.10.21.2 起含优先雇佣人，与大小号解耦）：
  *   GET  /api/fnos/milk-tea-auto-hire     读取设置 + 可选时长/职业
  *   POST /api/fnos/milk-tea-auto-hire     保存
  * 奶茶收益每小时自动领取 / 兑换商店每日兑换森野黄金芽种子：
@@ -23,6 +23,7 @@ const store = require('../../models/store');
 const { normalizeFnosAltAccount, DEFAULT_FNOS_ALT_ACCOUNT } = require('../../services/farm/fnos-alt-account');
 const {
     normalizeFnosMilkTeaAutoHire,
+    resolveEffectiveHireConfig,
     DEFAULT_FNOS_MILK_TEA_AUTO_HIRE,
     MILK_TEA_DURATION_OPTIONS,
     MILK_TEA_TALENT_OPTIONS,
@@ -75,9 +76,13 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
         try {
             const snapshot = store.getConfigSnapshot(id);
+            // 2026.10.21.2：老配置（未用新卡片保存过）按旧版小号设置迁移后显示，保存时写入 priorityConfigured=true
+            const { migratedFromAlt, ...data } = resolveEffectiveHireConfig(
+                snapshot && snapshot.fnosMilkTeaAutoHire, normalizeFnosAltAccount(snapshot && snapshot.fnosAltAccount));
             res.json({
                 ok: true,
-                data: normalizeFnosMilkTeaAutoHire(snapshot && snapshot.fnosMilkTeaAutoHire),
+                data,
+                migratedFromAlt,
                 options: { durations: MILK_TEA_DURATION_OPTIONS, talents: MILK_TEA_TALENT_OPTIONS, works: MILK_TEA_WORK_OPTIONS },
             });
         } catch (e: any) {
@@ -89,7 +94,7 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         const id = getAccId(ctx, req);
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
         try {
-            const next = normalizeFnosMilkTeaAutoHire(req.body || {}, DEFAULT_FNOS_MILK_TEA_AUTO_HIRE);
+            const next = { ...normalizeFnosMilkTeaAutoHire(req.body || {}, DEFAULT_FNOS_MILK_TEA_AUTO_HIRE), priorityConfigured: true };
             const data = await ctx.provider.saveSettings(id, { fnosMilkTeaAutoHire: next });
             sendSaveResult(res, data, d => normalizeFnosMilkTeaAutoHire(d.fnosMilkTeaAutoHire));
         } catch (e: any) {
