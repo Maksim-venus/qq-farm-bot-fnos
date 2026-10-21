@@ -116,7 +116,8 @@ test('WeChat loads its audited WASM and reports unsupported host calls without u
         assert.ok(!JSON.stringify(runtime.getDiagnostics()).includes('synthetic-wx-openid'));
         const pkgAssets = require('../package.json').pkg.assets;
         assert.ok(pkgAssets.includes('src/utils/tsdk-wx.wasm'));
-        assert.match(fs.readFileSync(path.join(__dirname, '../Dockerfile'), 'utf8'), /COPY[^\n]+tsdk-wx\.wasm/);
+        // [fnos-fork] 本 fork 已删除 Docker 文件（不使用 Docker），改为检查飞牛打包脚本随包复制 tsdk-wx.wasm
+        assert.match(fs.readFileSync(path.join(__dirname, '../../fnos/build.sh'), 'utf8'), /cp[^\n]+tsdk-wx\.wasm/);
     } finally {
         runtime?.destroy();
         https.get = originalGet;
