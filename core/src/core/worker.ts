@@ -411,6 +411,8 @@ async function runStartupSequence(canContinue: () => boolean = () => loginReady)
         startMysteryShopTimer();
         // [fnos-fork] 奶茶活动自动雇佣（未开启时每轮直接返回，不发请求）
         require('../services/fnos-milk-tea-auto-hire').startFnosMilkTeaAutoHire(workerScheduler, runExclusiveAutomationTask);
+        // [fnos-fork] 奶茶收益每小时自动领取 / 森野黄金芽种子每日兑换（都未开启时每轮直接返回，不发请求）
+        require('../services/fnos-milk-tea-daily').startFnosMilkTeaDaily(workerScheduler, runExclusiveAutomationTask);
     } catch (e: any) {
         log('系统', `登录启动序列执行失败: ${e.message}`, { module: 'system', event: '启动序列', result: 'error' });
     }

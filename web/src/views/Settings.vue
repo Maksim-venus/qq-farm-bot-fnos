@@ -61,7 +61,7 @@ const tabs = [
   { key: 'account', label: '账号管理', icon: 'i-carbon-user-profile' },
   { key: 'strategy', label: '策略设置', icon: 'i-carbon-settings-adjust' },
   { key: 'automation', label: '自动控制', icon: 'i-carbon-settings-adjust' },
-  { key: 'fnos-alt', label: '大小号与雇佣', icon: 'i-carbon-user-multiple' }, // [fnos-fork]
+  { key: 'fnos-alt', label: '活动设置', icon: 'i-carbon-event' }, // [fnos-fork]
   { key: 'system', label: '系统设置', icon: 'i-carbon-settings' },
 ] as const
 
@@ -1892,7 +1892,7 @@ async function handleResetSystemConfig() {
           />
         </div>
 
-        <!-- [fnos-fork] 大小号与雇佣（大号/小号、奶茶活动自动雇佣，组件内自带标题与保存） -->
+        <!-- [fnos-fork] 活动设置（大号/小号、奶茶自动雇佣、奶茶收益领取与种子兑换，组件内自带标题与保存） -->
         <FnosForkSettings
           v-else-if="activeTab === 'fnos-alt'"
           :account-id="currentAccountId"

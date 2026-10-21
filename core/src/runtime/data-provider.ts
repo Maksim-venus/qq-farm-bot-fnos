@@ -315,6 +315,7 @@ function createDataProvider(options: DataProviderOptions) {
                 'autoAcceptHarvestStealSteal',
                 'fnosAltAccount', // [fnos-fork] 大号/小号
                 'fnosMilkTeaAutoHire', // [fnos-fork] 奶茶活动自动雇佣
+                'fnosMilkTeaDaily', // [fnos-fork] 奶茶收益领取 / 种子兑换
             ]) {
                 copyIfPresent(key);
             }

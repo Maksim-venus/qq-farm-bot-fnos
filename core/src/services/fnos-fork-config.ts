@@ -1,6 +1,7 @@
 export {};
 /**
- * [fnos-fork] 本 fork 独有设置（大号/小号、奶茶活动自动雇佣）在 worker 内的统一读取与状态日志。
+ * [fnos-fork] 本 fork 独有设置（大号/小号、奶茶活动自动雇佣、奶茶收益领取/种子兑换）在 worker 内的统一读取与状态日志。
+ * 这些设置都在「设置 → 活动设置」栏目。
  *
  * 2026.10.20.3 修复：之前两个功能都调用了 store 并不导出的 getAccountConfigSnapshot()，
  * 抛出的 TypeError 又被各自的 try/catch 吞掉，结果 worker 里永远读到「未开启」，
@@ -12,6 +13,7 @@ export {};
 export interface FnosForkConfigs {
     alt: { enabled: boolean; masterGid: number; masterName: string; timeoutMinutes: number };
     tea: { enabled: boolean; durationId: number; talentId: number; allowRobots: boolean };
+    daily: { autoClaim: boolean; autoExchangeSeed: boolean };
     error: string;
 }
 
@@ -20,21 +22,23 @@ let lastReadErrorLogAt = 0;
 function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
     const { normalizeFnosAltAccount } = require('./farm/fnos-alt-account');
     const { normalizeFnosMilkTeaAutoHire } = require('./fnos-milk-tea-auto-hire');
+    const { normalizeFnosMilkTeaDaily } = require('./fnos-milk-tea-daily');
     try {
         const store = require('../models/store');
         const snapshot = store.getConfigSnapshot(accountId) || {};
         return {
             alt: normalizeFnosAltAccount(snapshot.fnosAltAccount),
             tea: normalizeFnosMilkTeaAutoHire(snapshot.fnosMilkTeaAutoHire),
+            daily: normalizeFnosMilkTeaDaily(snapshot.fnosMilkTeaDaily),
             error: '',
         };
     } catch (e: any) {
         const message = String(e && e.message ? e.message : e);
         if (Date.now() - lastReadErrorLogAt > 10 * 60 * 1000) {
             lastReadErrorLogAt = Date.now();
-            try { require('../utils/utils').logWarn('系统', `读取大号/小号、奶茶雇佣设置失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
+            try { require('../utils/utils').logWarn('系统', `读取活动设置（大号/小号、奶茶）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
         }
-        return { alt: normalizeFnosAltAccount(undefined), tea: normalizeFnosMilkTeaAutoHire(undefined), error: message };
+        return { alt: normalizeFnosAltAccount(undefined), tea: normalizeFnosMilkTeaAutoHire(undefined), daily: normalizeFnosMilkTeaDaily(undefined), error: message };
     }
 }
 
@@ -43,7 +47,7 @@ const TALENT_TEXT: Record<number, string> = { 0: '不限', 9001: '金牌销售',
 
 function describeAlt(alt: FnosForkConfigs['alt']): string {
     if (!alt.enabled) return '小号模式未启用（本账号按普通账号收获）';
-    if (!(alt.masterGid > 0)) return '小号模式已开启但未选择大号（照常收获），请到 设置 → 大小号与雇佣 选择大号';
+    if (!(alt.masterGid > 0)) return '小号模式已开启但未选择大号（照常收获），请到 设置 → 活动设置 选择大号';
     const master = alt.masterName ? `${alt.masterName}(${alt.masterGid})` : `GID ${alt.masterGid}`;
     const timeout = alt.timeoutMinutes > 0 ? `超时 ${alt.timeoutMinutes} 分钟（从本进程首次发现可收时算起）` : '不超时（一直等大号）';
     return `小号模式已启用，大号 ${master}，${timeout}；自动巡田只收大号偷过的地，手动收获不受限`;
@@ -57,6 +61,10 @@ function describeTea(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']): 
     return `奶茶自动雇佣已启用（时长 ${DURATION_TEXT[tea.durationId] || tea.durationId}；职业 ${TALENT_TEXT[tea.talentId] || tea.talentId}；${tea.allowRobots ? '允许' : '不'}雇系统员工），会消耗奶茶券`;
 }
 
+function describeDaily(daily: FnosForkConfigs['daily']): string {
+    return `奶茶收益每小时自动领取${daily.autoClaim ? '已启用' : '未启用'}；森野黄金芽种子每日兑换${daily.autoExchangeSeed ? '已启用（会消耗兑换商店货币）' : '未启用'}`;
+}
+
 let lastStatusKey = '';
 
 /**
@@ -66,7 +74,7 @@ let lastStatusKey = '';
 function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const cfg = readFnosForkConfigs();
     if (cfg.error) return false;
-    const key = JSON.stringify([cfg.alt, cfg.tea]);
+    const key = JSON.stringify([cfg.alt, cfg.tea, cfg.daily]);
     if (!force && key === lastStatusKey) return false;
     const first = lastStatusKey === '';
     lastStatusKey = key;
@@ -76,6 +84,7 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const prefix = reason ? `${reason}：` : '';
     log('小号', `${prefix}${describeAlt(cfg.alt)}`, { module: 'farm', event: '小号设置', result: cfg.alt.enabled ? 'enabled' : 'disabled', masterGid: cfg.alt.masterGid, timeoutMinutes: cfg.alt.timeoutMinutes });
     log('奶茶雇佣', `${prefix}${describeTea(cfg.tea, cfg.alt)}`, { module: 'activity', event: '奶茶自动雇佣设置', result: cfg.tea.enabled ? 'enabled' : 'disabled' });
+    log('奶茶收益', `${prefix}${describeDaily(cfg.daily)}`, { module: 'activity', event: '奶茶收益与兑换设置', result: cfg.daily.autoClaim || cfg.daily.autoExchangeSeed ? 'enabled' : 'disabled' });
     return true;
 }
 
@@ -95,4 +104,5 @@ module.exports = {
     resetFnosForkStatusLog,
     describeAlt,
     describeTea,
+    describeDaily,
 };

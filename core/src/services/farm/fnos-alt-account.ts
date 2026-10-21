@@ -384,7 +384,7 @@ async function filterHarvestForAltAccount(
     if (config.masterGid <= 0) {
         if (Date.now() - lastNotConfiguredLogAt > WAIT_LOG_INTERVAL_MS) {
             lastNotConfiguredLogAt = Date.now();
-            logWarn('小号', '已开启「这是小号」但还没有选择大号，本次照常收获。请到 设置 → 大小号与雇佣 选择大号', {
+            logWarn('小号', '已开启「这是小号」但还没有选择大号，本次照常收获。请到 设置 → 活动设置 选择大号', {
                 module: 'farm', event: '小号留菜', result: 'not_configured',
             });
         }

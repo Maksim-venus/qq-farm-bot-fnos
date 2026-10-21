@@ -8,6 +8,8 @@ const { readJsonFile } = require('../../services/json-db');
 const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-account');
 // [fnos-fork] 奶茶活动自动雇佣：账号配置 fnosMilkTeaAutoHire 的规范化
 const { normalizeFnosMilkTeaAutoHire } = require('../../services/fnos-milk-tea-auto-hire');
+// [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
+const { normalizeFnosMilkTeaDaily } = require('../../services/fnos-milk-tea-daily');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -334,6 +336,8 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         fnosAltAccount: normalizeFnosAltAccount(base.fnosAltAccount),
         // [fnos-fork] 奶茶活动自动雇佣
         fnosMilkTeaAutoHire: normalizeFnosMilkTeaAutoHire(base.fnosMilkTeaAutoHire),
+        // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
+        fnosMilkTeaDaily: normalizeFnosMilkTeaDaily(base.fnosMilkTeaDaily),
     };
 }
 
@@ -488,6 +492,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
     // [fnos-fork] 奶茶活动自动雇佣
     if (src.fnosMilkTeaAutoHire !== undefined && src.fnosMilkTeaAutoHire !== null) {
         cfg.fnosMilkTeaAutoHire = normalizeFnosMilkTeaAutoHire(src.fnosMilkTeaAutoHire, cfg.fnosMilkTeaAutoHire);
+    }
+    // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
+    if (src.fnosMilkTeaDaily !== undefined && src.fnosMilkTeaDaily !== null) {
+        cfg.fnosMilkTeaDaily = normalizeFnosMilkTeaDaily(src.fnosMilkTeaDaily, cfg.fnosMilkTeaDaily);
     }
 
     return cfg;

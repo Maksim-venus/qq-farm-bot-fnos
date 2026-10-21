@@ -11,6 +11,10 @@ export {};
  * 奶茶活动自动雇佣：
  *   GET  /api/fnos/milk-tea-auto-hire     读取设置 + 可选时长/职业
  *   POST /api/fnos/milk-tea-auto-hire     保存
+ * 奶茶收益每小时自动领取 / 兑换商店每日兑换森野黄金芽种子：
+ *   GET  /api/fnos/milk-tea-daily         读取
+ *   POST /api/fnos/milk-tea-daily         保存
+ * 以上都在前端「设置 → 活动设置」栏目。
  *
  * 保存走与设置页相同的 provider.saveSettings：写入 store.json，运行中的账号同步到 worker 并等待确认。
  */
@@ -23,6 +27,7 @@ const {
     MILK_TEA_DURATION_OPTIONS,
     MILK_TEA_TALENT_OPTIONS,
 } = require('../../services/fnos-milk-tea-auto-hire');
+const { normalizeFnosMilkTeaDaily, DEFAULT_FNOS_MILK_TEA_DAILY } = require('../../services/fnos-milk-tea-daily');
 const { getAccId, handleApiError } = require('./middleware');
 
 function sendSaveResult(res: Response, data: any, pick: (d: any) => any): void {
@@ -86,6 +91,29 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
             const next = normalizeFnosMilkTeaAutoHire(req.body || {}, DEFAULT_FNOS_MILK_TEA_AUTO_HIRE);
             const data = await ctx.provider.saveSettings(id, { fnosMilkTeaAutoHire: next });
             sendSaveResult(res, data, d => normalizeFnosMilkTeaAutoHire(d.fnosMilkTeaAutoHire));
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    app.get('/api/fnos/milk-tea-daily', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const snapshot = store.getConfigSnapshot(id);
+            res.json({ ok: true, data: normalizeFnosMilkTeaDaily(snapshot && snapshot.fnosMilkTeaDaily) });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
+    app.post('/api/fnos/milk-tea-daily', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const next = normalizeFnosMilkTeaDaily(req.body || {}, DEFAULT_FNOS_MILK_TEA_DAILY);
+            const data = await ctx.provider.saveSettings(id, { fnosMilkTeaDaily: next });
+            sendSaveResult(res, data, d => normalizeFnosMilkTeaDaily(d.fnosMilkTeaDaily));
         } catch (e: any) {
             handleApiError(res, e);
         }

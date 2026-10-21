@@ -3,6 +3,8 @@
  * [fnos-fork] 本 fork 新增的按账号设置（上游没有）：
  * - 大号/小号：小号成熟作物留给大号偷，大号偷过才自动收获
  * - 奶茶活动自动雇佣：时长/职业可选或随机；小号优先雇大号 24 小时
+ * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
+ * 所在栏目：设置 → 活动设置（独立栏目，不在「自动控制」里）。
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -18,10 +20,13 @@ const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number }
 interface MilkTeaAutoHire { enabled: boolean, durationId: number, talentId: number, allowRobots: boolean }
+interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0 })
 const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, talentId: 0, allowRobots: false })
+const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
+const dailySaving = ref(false)
 const durationOptions = ref<Array<{ durationId: number, label: string, cost: number }>>([])
 const talentOptions = ref<Array<{ talentId: number, name: string }>>([])
 const friends = ref<FriendItem[]>([])
@@ -117,10 +122,13 @@ async function load() {
     return
   loading.value = true
   try {
-    const [altRes, teaRes] = await Promise.all([
+    const [altRes, teaRes, dailyRes] = await Promise.all([
       api.get('/api/fnos/alt-account', { headers: headers() }),
       api.get('/api/fnos/milk-tea-auto-hire', { headers: headers() }),
+      api.get('/api/fnos/milk-tea-daily', { headers: headers() }),
     ])
+    if (dailyRes.data?.ok)
+      daily.value = { ...daily.value, ...dailyRes.data.data }
     if (altRes.data?.ok)
       alt.value = { ...alt.value, ...altRes.data.data }
     if (teaRes.data?.ok) {
@@ -130,7 +138,7 @@ async function load() {
     }
   }
   catch (e: any) {
-    toast.error(getApiErrorMessage(e, '读取大号/小号、奶茶雇佣设置失败'))
+    toast.error(getApiErrorMessage(e, '读取活动设置失败'))
   }
   finally {
     loading.value = false
@@ -192,6 +200,22 @@ async function saveTea() {
   }
 }
 
+async function saveDaily() {
+  dailySaving.value = true
+  try {
+    const res = await api.post('/api/fnos/milk-tea-daily', daily.value, { headers: headers() })
+    if (res.data?.data)
+      daily.value = { ...daily.value, ...res.data.data }
+    reportSave(res, '奶茶收益与兑换设置已保存')
+  }
+  catch (e: any) {
+    toast.error(getApiErrorMessage(e, '保存失败'))
+  }
+  finally {
+    dailySaving.value = false
+  }
+}
+
 watch(() => props.accountId, () => {
   friends.value = []
   friendsError.value = ''
@@ -214,8 +238,8 @@ onMounted(() => {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h3 class="flex items-center gap-2 text-lg text-gray-900 font-bold dark:text-gray-100">
-        <span class="i-carbon-user-multiple text-lg" />
-        大小号与雇佣
+        <span class="i-carbon-event text-lg" />
+        活动设置
         <span v-if="accountName" class="ml-2 text-sm text-gray-500 font-normal dark:text-gray-400">
           ({{ accountName }})
         </span>
@@ -344,6 +368,43 @@ onMounted(() => {
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="teaSaving" @click="saveTea">
               保存奶茶雇佣
+            </BaseButton>
+          </div>
+        </div>
+      </section>
+
+      <!-- 奶茶收益与兑换（2026.10.21） -->
+      <section class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-daily">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-900/25 dark:text-emerald-400">
+            <span class="i-carbon-gift text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              奶茶收益与兑换
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              账号运行时自动领取奶茶店收益、每天兑换一次兑换商店里的「森野黄金芽种子」。保存后约 5 秒先执行一次。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="daily.autoClaim" label="奶茶收益每小时自动领取" />
+          </div>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="daily.autoExchangeSeed" label="每天兑换森野黄金芽种子" />
+          </div>
+          <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+            ⚠️ 兑换会消耗兑换商店的货币（按游戏当时的价格），每天按剩余限购数量兑换，货币不够时只兑换买得起的数量。今日已兑换、已售罄、货币不足或结算期时写日志跳过，当天不再重试。结果在日志「奶茶收益」「奶茶兑换」里查看。
+          </p>
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="dailySaving" @click="saveDaily">
+              保存奶茶收益与兑换
             </BaseButton>
           </div>
         </div>
