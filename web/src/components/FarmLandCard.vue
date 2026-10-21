@@ -5,6 +5,7 @@ import { gatewayPath } from '@/utils/gateway'
 /**
  * 一块地的卡片。结构固定为：编号与土地类型 / 作物 / 名称 / 时间或主状态 / 进度 / 状态图标，
  * 每张卡片高度一致；操作统一在外层“选择土地”后批量进行，卡片本身不放按钮。
+ * [fnos-fork] 例外：飞牛版通过 actions 插槽在卡片底部放单块施肥按钮。
  */
 const props = withDefaults(defineProps<{
   land: any
@@ -262,6 +263,8 @@ const ariaLabel = computed(() => {
       </template>
       <span v-if="hiddenTags.length" class="plot__more" :title="hiddenTitle">+{{ hiddenTags.length }}</span>
     </footer>
+    <!-- [fnos-fork] 卡片底部操作位：飞牛版在这里放单块施肥按钮（FnosLandFertilizeButtons） -->
+    <slot name="actions" />
   </article>
 </template>
 

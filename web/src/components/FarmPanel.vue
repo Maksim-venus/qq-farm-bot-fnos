@@ -10,6 +10,7 @@ import { useRoute } from 'vue-router'
 import CareerHarvestSteal from '@/components/CareerHarvestSteal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
 import LandCard from '@/components/FarmLandCard.vue'
+import FnosLandFertilizeButtons from '@/components/fnos/FnosLandFertilizeButtons.vue' // [fnos-fork]
 import LandDetailModal from '@/components/LandDetailModal.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -803,7 +804,17 @@ onUnmounted(() => {
                 :selection-label="selectReason(land)"
                 @open="detailLandId = $event.id"
                 @select="toggleLand(land)"
-              />
+              >
+                <!-- [fnos-fork] 卡片上直接给这一块地施肥；受「显示手动施肥按钮」控制，选地模式下隐藏 -->
+                <template v-if="showManualFertilizerButtons && !selecting" #actions>
+                  <FnosLandFertilizeButtons
+                    :land="land"
+                    :account-id="currentAccountId"
+                    :running="currentAccountRunning"
+                    :busy="operating || batchPending || interactionUsePending || farmingLandId !== null || !loaded || !!error"
+                  />
+                </template>
+              </LandCard>
             </div>
           </div>
         </div>
