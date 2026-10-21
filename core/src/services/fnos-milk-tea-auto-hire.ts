@@ -8,11 +8,12 @@ export {};
  * 操作号 56 雇佣列表 milk_tea_get_hire_list、57 雇佣 milk_tea_hire），本文件只负责“雇谁、雇多久”。
  *
  * 2026.10.21.2 起与大号/小号设置解耦，任何账号都可开启：
- * - 「优先雇佣人」（从本账号好友中选，可不指定）：空闲时按「优先雇佣人时长」雇他（不受职业限制）；
- * - 优先雇佣人已被雇/冷却/不在列表，或未指定：按「其他人时长」从符合职业条件的可雇好友中随机雇一个（不会选优先雇佣人）；
- * - 时长都可选 4/12/24 小时（官方 MilkTeaHireDurationConfig）或随机（在剩余营业时间允许的档位中）。
+ * - 「优先雇佣人」（从本账号好友中选，可不指定）：空闲时先雇他（不受职业限制）；
+ * - 优先雇佣人已被雇/冷却/不在列表，或未指定：从符合职业条件的可雇好友中随机雇一个（不会选优先雇佣人）；
+ * - 时长只有一个统一设置「雇佣时长」（durationId），雇优先雇佣人和雇其他好友都用它：
+ *   4/12/24 小时（官方 MilkTeaHireDurationConfig 的 duration_id 1/2/3）或随机（在剩余营业时间允许的档位中）。
  * - 兼容老配置：priorityConfigured=false（2026.10.21.2 之前保存的配置）且本账号是小号并已选大号时，
- *   视为「优先雇佣人 = 大号、优先时长 24 小时、其他人 4 小时」，与旧版小号模式行为一致；在新卡片保存一次后不再参考大小号设置。
+ *   视为「优先雇佣人 = 大号」，时长沿用本账号已有的「雇佣时长」；在新卡片保存一次后不再参考大小号设置。
  *
  * 雇佣会消耗奶茶券（物品 1041，按时长：4h 40、12h 130、24h 270，以服务端雇佣列表返回的 wage_total 为准）。
  * 余额不足、活动未开放/结算期、剩余营业时间不足时跳过并写日志，不会重试刷请求。
@@ -23,20 +24,16 @@ const DURATIONS: Array<{ duration_id: number; duration_sec: number; duration_cos
 const TALENTS: Array<{ talent_id: number; talent_name: string }> = config.MilkTeaTalentConfig;
 const WORK_TYPE_IDS: number[] = config.MilkTeaInteractionType.map((v: any) => Number(v.interaction_id));
 const DURATION_LABEL: Record<number, string> = { 1: '4 小时', 2: '12 小时', 3: '24 小时' };
-const DEFAULT_PRIORITY_DURATION_ID = 3; // 优先雇佣人时长默认 24 小时（与旧版雇大号一致）
-const LEGACY_OTHER_DURATION_ID = 1; // 旧版小号模式雇其他好友固定 4 小时
 const FALLBACK_DURATION_ID = 1; // 读取活动状态时默认请求的雇佣列表档位（4 小时）
 
 export interface FnosMilkTeaAutoHireConfig {
     enabled: boolean;
-    /** 其他人时长：0 = 随机；1/2/3 = 4/12/24 小时 */
+    /** 雇佣时长（优先雇佣人和其他好友统一）：0 = 随机；1/2/3 = 4/12/24 小时 */
     durationId: number;
     /** 优先雇佣人 GID（0 = 不指定） */
     priorityGid: number;
     /** 优先雇佣人名字（仅显示用） */
     priorityName: string;
-    /** 优先雇佣人时长：0 = 随机；1/2/3；默认 3（24 小时） */
-    priorityDurationId: number;
     /** 是否已用 2026.10.21.2 起的新卡片保存过；false 时按旧版小号模式迁移（见 resolveEffectiveHireConfig） */
     priorityConfigured: boolean;
     /** 0 = 不限（随机）；否则只雇该特长（职业）的好友（优先雇佣人不受限） */
@@ -54,7 +51,6 @@ const DEFAULT_FNOS_MILK_TEA_AUTO_HIRE: FnosMilkTeaAutoHireConfig = {
     durationId: 0,
     priorityGid: 0,
     priorityName: '',
-    priorityDurationId: DEFAULT_PRIORITY_DURATION_ID,
     priorityConfigured: false,
     talentId: 0,
     allowRobots: false,
@@ -72,7 +68,6 @@ function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoH
     const src = input as Record<string, any>;
     const pick = (key: string) => (src[key] !== undefined ? Number.parseInt(String(src[key]), 10) : Number((base as any)[key]) || 0);
     const durationId = pick('durationId');
-    const priorityDurationId = src.priorityDurationId !== undefined ? Number.parseInt(String(src.priorityDurationId), 10) : Number(base.priorityDurationId);
     const talentId = pick('talentId');
     const workType = pick('workType');
     const gidRaw = src.priorityGid !== undefined ? Number.parseInt(String(src.priorityGid), 10) : Number(base.priorityGid) || 0;
@@ -82,7 +77,6 @@ function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoH
         durationId: validDuration(durationId) ? durationId : 0,
         priorityGid,
         priorityName: priorityGid ? String(src.priorityName !== undefined ? src.priorityName : base.priorityName || '').trim().slice(0, 64) : '',
-        priorityDurationId: validDuration(priorityDurationId) ? priorityDurationId : DEFAULT_PRIORITY_DURATION_ID,
         priorityConfigured: src.priorityConfigured !== undefined ? !!src.priorityConfigured : !!base.priorityConfigured,
         talentId: TALENTS.some(t => t.talent_id === talentId) ? talentId : 0,
         allowRobots: src.allowRobots !== undefined ? !!src.allowRobots : !!base.allowRobots,
@@ -93,13 +87,12 @@ function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoH
 
 /**
  * 兼容 2026.10.21.2 之前的配置：未用新卡片保存过（priorityConfigured=false）、未指定优先雇佣人、
- * 且本账号是小号并已选大号 → 优先雇佣人 = 大号、优先时长 24 小时、其他人 4 小时（旧版小号模式行为）。
+ * 且本账号是小号并已选大号 → 优先雇佣人 = 大号；时长沿用本账号的「雇佣时长」，不另设。
  */
 function resolveEffectiveHireConfig(tea: FnosMilkTeaAutoHireConfig, alt: { enabled: boolean; masterGid: number; masterName: string } | null | undefined): FnosMilkTeaAutoHireConfig & { migratedFromAlt: boolean } {
     const cfg = normalizeFnosMilkTeaAutoHire(tea);
     if (!cfg.priorityConfigured && !cfg.priorityGid && alt && alt.enabled && Number(alt.masterGid) > 0) {
-        return { ...cfg, priorityGid: Number(alt.masterGid), priorityName: String(alt.masterName || ''),
-            priorityDurationId: DEFAULT_PRIORITY_DURATION_ID, durationId: LEGACY_OTHER_DURATION_ID, migratedFromAlt: true };
+        return { ...cfg, priorityGid: Number(alt.masterGid), priorityName: String(alt.masterName || ''), migratedFromAlt: true };
     }
     return { ...cfg, migratedFromAlt: false };
 }
@@ -195,10 +188,10 @@ function findMaster(hire: any, masterGid: number, nowSec: number): { found: bool
     return { found: !!candidate, hireable: isHireable(candidate, nowSec), candidate };
 }
 
-/** 按设置选时长：0 = 在营业时间允许的档位中随机；指定档位不允许时取允许的最长档位。 */
+/** 按「雇佣时长」选档位：0 = 在营业时间允许的档位中随机；指定档位不被允许时返回 0（本轮跳过）。 */
 function pickDuration(wanted: number, allowed: number[], random: () => number): number {
     if (!wanted) return allowed[Math.min(allowed.length - 1, Math.floor(random() * allowed.length))];
-    return allowed.includes(wanted) ? wanted : Math.max(...allowed);
+    return allowed.includes(wanted) ? wanted : 0;
 }
 
 /**
@@ -217,21 +210,21 @@ async function planOneHire(params: {
     const random = params.random || Math.random;
     const allowed = allowedDurationIds(remainBizSec);
     if (allowed.length === 0) return { skip: '活动剩余营业时间不足，无法再雇佣' };
+    const durationId = pickDuration(cfg.durationId, allowed, random);
+    if (!durationId) return { skip: `活动剩余营业时间不足以雇佣 ${DURATION_LABEL[cfg.durationId] || cfg.durationId}` };
     const exclude = [...(params.excludeGids || [])];
     const talentNote = cfg.talentId ? `（职业限定：${talentName(cfg.talentId)}）` : '';
+    const hire = await getHireList(durationId);
+    const wage = num(hire?.wage_total) || durationCost(durationId);
     let why = '';
-    let priorityHire: any = null;
-    let priorityDuration = 0;
 
     if (cfg.priorityGid > 0) {
         const label = cfg.priorityName ? `优先雇佣人 ${cfg.priorityName}` : `优先雇佣人 GID ${cfg.priorityGid}`;
-        priorityDuration = pickDuration(cfg.priorityDurationId, allowed, random);
-        priorityHire = await getHireList(priorityDuration);
-        const target = findMaster(priorityHire, cfg.priorityGid, nowSec);
+        const target = findMaster(hire, cfg.priorityGid, nowSec);
         if (target.hireable && !exclude.includes(cfg.priorityGid)) {
             return {
-                durationId: priorityDuration,
-                wage: num(priorityHire?.wage_total) || durationCost(priorityDuration),
+                durationId,
+                wage,
                 choice: {
                     targetGid: cfg.priorityGid,
                     targetName: String(target.candidate.friend.name || cfg.priorityName || '').trim() || `GID ${cfg.priorityGid}`,
@@ -244,11 +237,6 @@ async function planOneHire(params: {
         why = exclude.includes(cfg.priorityGid) ? `${label}已在本店上班` : target.found ? `${label}已被雇佣或冷却中` : `${label}不在可雇佣列表`;
     }
 
-    const durationId = pickDuration(cfg.durationId, allowed, random);
-    if (cfg.durationId && !allowed.includes(cfg.durationId) && !cfg.priorityGid) {
-        return { skip: `活动剩余营业时间不足以雇佣 ${DURATION_LABEL[cfg.durationId] || cfg.durationId}` };
-    }
-    const hire = priorityHire && durationId === priorityDuration ? priorityHire : await getHireList(durationId);
     const choice = chooseCandidate({
         hire, nowSec, talentId: cfg.talentId, allowRobots: cfg.allowRobots,
         excludeGids: cfg.priorityGid > 0 ? [...exclude, cfg.priorityGid] : exclude, random,
@@ -256,7 +244,7 @@ async function planOneHire(params: {
     if (!choice) return { skip: `${why ? `${why}，且` : ''}没有符合条件的${why ? '其他' : ''}可雇佣好友${talentNote}` };
     return {
         durationId,
-        wage: num(hire?.wage_total) || durationCost(durationId),
+        wage,
         choice: why ? { ...choice, reason: `${why}，${choice.isRobot ? '雇佣系统员工' : '随机雇其他好友'}` } : choice,
     };
 }

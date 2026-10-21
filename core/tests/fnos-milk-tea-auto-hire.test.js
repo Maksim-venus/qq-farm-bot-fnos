@@ -27,11 +27,11 @@ const MASTER = 4300123456;
 const friend = (gid, extra = {}) => ({ friend: { gid: String(gid), name: `F${gid}` }, is_robot: false, talent_id: 9001, state: 0, rehire_available_at: '0', ...extra });
 
 test('normalizeFnosMilkTeaAutoHire: 默认关闭、随机时长/不限职业，非法值回到默认', () => {
-    assert.deepEqual(normalizeFnosMilkTeaAutoHire(undefined), { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 });
+    assert.deepEqual(normalizeFnosMilkTeaAutoHire(undefined), { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 });
     assert.deepEqual(normalizeFnosMilkTeaAutoHire({ enabled: true, durationId: '3', talentId: 9002, allowRobots: 1 }),
-        { enabled: true, durationId: 3, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: false, talentId: 9002, allowRobots: true, autoWork: false, workType: 0 });
+        { enabled: true, durationId: 3, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 9002, allowRobots: true, autoWork: false, workType: 0 });
     assert.deepEqual(normalizeFnosMilkTeaAutoHire({ autoWork: 1, workType: '9' }).workType, 0);
-    assert.deepEqual(normalizeFnosMilkTeaAutoHire({ autoWork: 1, workType: '2' }), { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 2 });
+    assert.deepEqual(normalizeFnosMilkTeaAutoHire({ autoWork: 1, workType: '2' }), { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 2 });
     const bad = normalizeFnosMilkTeaAutoHire({ enabled: true, durationId: 9, talentId: 1 });
     assert.equal(bad.durationId, 0);
     assert.equal(bad.talentId, 0);
@@ -70,10 +70,10 @@ const lists = {
     1: { duration_id: 1, wage_total: '40', friends: [friend(MASTER, { state: 1 }), friend(5)] },
     3: { duration_id: 3, wage_total: '270', friends: [friend(MASTER), friend(5)] },
 };
-const CFG = { enabled: true, durationId: 2, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: true, talentId: 0, allowRobots: false };
-const PRI = { ...CFG, priorityGid: MASTER, priorityName: '大号', durationId: 1, priorityDurationId: 3 };
+const CFG = { enabled: true, durationId: 2, priorityGid: 0, priorityName: '', priorityConfigured: true, talentId: 0, allowRobots: false };
+const PRI = { ...CFG, priorityGid: MASTER, priorityName: '大号', durationId: 3 };
 
-test('planOneHire 优先雇佣人空闲 → 按优先雇佣人时长雇他', async () => {
+test('planOneHire 优先雇佣人空闲 → 按统一的雇佣时长雇他', async () => {
     const plan = await planOneHire({ cfg: PRI, remainBizSec: 200000, nowSec: NOW, getHireList: async id => lists[id] || { friends: [] } });
     assert.equal(plan.durationId, 3);
     assert.equal(plan.choice.targetGid, MASTER);
@@ -81,25 +81,23 @@ test('planOneHire 优先雇佣人空闲 → 按优先雇佣人时长雇他', asy
     assert.match(plan.choice.reason, /优先雇佣人 大号当前空闲/);
 });
 
-test('planOneHire 优先雇佣人已被雇 → 按其他人时长随机雇其他好友', async () => {
-    const busy = { 1: lists[1], 3: { ...lists[3], friends: [friend(MASTER, { state: 2 }), friend(5)] } };
-    const plan = await planOneHire({ cfg: PRI, remainBizSec: 200000, nowSec: NOW, getHireList: async id => busy[id] });
-    assert.equal(plan.durationId, 1);
+test('planOneHire 优先雇佣人已被雇 → 同一个雇佣时长随机雇其他好友', async () => {
+    const seen = [];
+    const busy = { 3: { ...lists[3], friends: [friend(MASTER, { state: 2 }), friend(5)] } };
+    const plan = await planOneHire({ cfg: PRI, remainBizSec: 200000, nowSec: NOW, getHireList: async (id) => { seen.push(id); return busy[id]; } });
+    assert.equal(plan.durationId, 3);
     assert.equal(plan.choice.targetGid, 5);
-    assert.equal(plan.wage, 40);
+    assert.equal(plan.wage, 270);
     assert.match(plan.choice.reason, /已被雇佣/);
+    assert.deepEqual(seen, [3], '只请求一次雇佣列表');
 });
 
-test('planOneHire 优先雇佣人时长可选 12 小时 / 随机；营业时间不够时取最长允许档位', async () => {
-    let plan = await planOneHire({ cfg: { ...PRI, priorityDurationId: 2 }, remainBizSec: 200000, nowSec: NOW, getHireList: async id => ({ ...lists[3], duration_id: id, wage_total: '130' }) });
-    assert.equal(plan.durationId, 2);
-    assert.equal(plan.choice.targetGid, MASTER);
-    plan = await planOneHire({ cfg: { ...PRI, priorityDurationId: 0 }, remainBizSec: 200000, nowSec: NOW, random: () => 0, getHireList: async id => ({ ...lists[3], duration_id: id, wage_total: '40' }) });
+test('planOneHire 雇佣时长随机：优先雇佣人也按随机到的档位；营业时间不足以雇指定档位时跳过（不换档）', async () => {
+    let plan = await planOneHire({ cfg: { ...PRI, durationId: 0 }, remainBizSec: 200000, nowSec: NOW, random: () => 0, getHireList: async id => ({ ...lists[3], duration_id: id, wage_total: '40' }) });
     assert.equal(plan.durationId, 1);
-    const seen = [];
-    plan = await planOneHire({ cfg: PRI, remainBizSec: 20000, nowSec: NOW, getHireList: async id => { seen.push(id); return { ...lists[3], duration_id: id, wage_total: '130' }; } });
-    assert.equal(plan.durationId, 2);
-    assert.deepEqual(seen, [2]);
+    assert.equal(plan.choice.targetGid, MASTER);
+    plan = await planOneHire({ cfg: PRI, remainBizSec: 20000, nowSec: NOW, getHireList: async () => { throw new Error('不应请求'); } });
+    assert.match(plan.skip, /营业时间不足以雇佣 24 小时/);
 });
 
 test('planOneHire 未指定优先雇佣人：按设置时长；随机时长在允许档位内；无人可雇时跳过', async () => {
@@ -136,11 +134,11 @@ test('runMilkTeaAutoHireTick: 未开启不发请求', async () => {
     assert.equal(called, false);
 });
 
-test('runMilkTeaAutoHireTick: 老配置小号两个空位（迁移）→ 先雇大号 24h，再随机雇其他好友 4h，带上预期花费', async () => {
+test('runMilkTeaAutoHireTick: 老配置小号两个空位（迁移）→ 先雇大号，再随机雇其他好友，都按该账号的雇佣时长，带上预期花费', async () => {
     resetFnosMilkTeaAutoHireRuntime();
     logs.length = 0;
     accountSnapshot = {
-        fnosMilkTeaAutoHire: { enabled: true, durationId: 0, talentId: 0 },
+        fnosMilkTeaAutoHire: { enabled: true, durationId: 2, talentId: 0 },
         fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: '大号' },
     };
     let masterHired = false;
@@ -148,16 +146,16 @@ test('runMilkTeaAutoHireTick: 老配置小号两个空位（迁移）→ 先雇�
     mt.getMilkTeaActivity = async (_p, input) => ({
         active: true, settling: false, serverTime: NOW, settleStartTime: NOW + 200000, summary: { shop_open_at: '1' },
         shop: { level: 3, slots: [] }, balances: { 1041: 1000 },
-        hire: { duration_id: input.durationId, wage_total: input.durationId === 3 ? '270' : '40', friends: [friend(MASTER, { state: masterHired ? 2 : 0 }), friend(5)] },
+        hire: { duration_id: input.durationId, wage_total: { 1: '40', 2: '130', 3: '270' }[input.durationId], friends: [friend(MASTER, { state: masterHired ? 2 : 0 }), friend(5)] },
     });
     mt.operateMilkTeaActivity = async (action, input) => { mt.hires.push({ action, ...input }); if (input.targetGid === String(MASTER)) masterHired = true; return {}; };
     const n = await runMilkTeaAutoHireTick({ milkTea: mt, force: true });
     assert.equal(n, 2);
     assert.deepEqual(mt.hires, [
-        { action: 'hire', durationId: 3, targetGid: String(MASTER), expectedCosts: [{ id: 1041, count: 270 }] },
-        { action: 'hire', durationId: 1, targetGid: '5', expectedCosts: [{ id: 1041, count: 40 }] },
+        { action: 'hire', durationId: 2, targetGid: String(MASTER), expectedCosts: [{ id: 1041, count: 130 }] },
+        { action: 'hire', durationId: 2, targetGid: '5', expectedCosts: [{ id: 1041, count: 130 }] },
     ]);
-    assert.ok(logs.some(l => l.includes('已雇佣') && l.includes('24 小时')), logs.join('\n'));
+    assert.ok(logs.some(l => l.includes('已雇佣') && l.includes('12 小时')), logs.join('\n'));
 });
 
 test('runMilkTeaAutoHireTick: 奶茶券不足时跳过并写日志；员工位满时不雇', async () => {

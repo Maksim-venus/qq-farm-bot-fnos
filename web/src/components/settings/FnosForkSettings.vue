@@ -2,7 +2,7 @@
 /**
  * [fnos-fork] 本 fork 新增的按账号设置（上游没有）：
  * - 大号/小号：小号成熟作物留给大号偷，大号偷过才自动收获
- * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友）及其时长，其他人时长/职业可选或随机；2026.10.21.2 起与大小号解耦
+ * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友），统一的雇佣时长与职业可选或随机；2026.10.21.2 起与大小号解耦
  * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
  * 所在栏目：设置 → 活动设置（独立栏目，不在「自动控制」里）。
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
@@ -19,12 +19,12 @@ const props = defineProps<{ accountId?: string | null, accountName?: string | nu
 const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number }
-interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityGid: number, priorityName: string, priorityDurationId: number, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
+interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityGid: number, priorityName: string, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
 interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0 })
-const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
+const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
 const dailySaving = ref(false)
@@ -77,12 +77,6 @@ const workModel = computed<number>({
   },
 })
 const workDescription = computed(() => workOptions.value.find(w => w.workType === tea.value.workType)?.description || '')
-const priorityDurationModel = computed<number>({
-  get: () => tea.value.priorityDurationId,
-  set: (v) => {
-    tea.value.priorityDurationId = Number(v) || 0
-  },
-})
 const teaMigratedFromAlt = ref(false)
 const priorityManualGid = ref<string | number>('')
 const priorityOptions = computed(() => {
@@ -392,7 +386,7 @@ onMounted(() => {
           </div>
           <template v-if="tea.enabled">
             <p v-if="teaMigratedFromAlt" class="fnos-hint fnos-hint--box bg-blue-50 text-blue-700 dark:bg-blue-900/25 dark:text-blue-300">
-              已沿用旧版小号设置：优先雇佣人为大号、24 小时，其他人 4 小时。点「保存」后按本卡片的设置执行，不再参考大号/小号。
+              已沿用旧版小号设置：优先雇佣人为大号，时长按下方「雇佣时长」。点「保存」后按本卡片的设置执行，不再参考大号/小号。
             </p>
             <div class="fnos-field-row">
               <div class="min-w-0 flex-1">
@@ -420,20 +414,10 @@ onMounted(() => {
               </BaseButton>
             </div>
             <p class="fnos-hint text-gray-500 dark:text-gray-400">
-              优先雇佣人空闲时先雇他（不受职业限制）；他已被雇、冷却中或未指定时，从可雇佣好友里随机雇其他人。
+              优先雇佣人空闲时先雇他（不受职业限制）；他已被雇、冷却中或未指定时，从可雇佣好友里随机雇其他人。雇谁都按同一个「雇佣时长」。
             </p>
             <div class="fnos-select-grid">
-              <BaseSelect
-                v-if="tea.priorityGid > 0"
-                v-model="priorityDurationModel"
-                label="优先雇佣人时长"
-                :options="durationSelectOptions"
-              />
-              <BaseSelect
-                v-model="durationModel"
-                :label="tea.priorityGid > 0 ? '其他人时长' : '雇佣时长'"
-                :options="durationSelectOptions"
-              />
+              <BaseSelect v-model="durationModel" label="雇佣时长" :options="durationSelectOptions" />
               <BaseSelect v-model="talentModel" label="职业（员工特长）" :options="talentSelectOptions" />
             </div>
             <div class="fnos-setting-item">

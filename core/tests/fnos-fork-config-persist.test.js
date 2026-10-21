@@ -31,7 +31,7 @@ test('fnosAltAccount / fnosMilkTeaAutoHire 持久化并在新进程中读回；�
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout.trim().split('\n').pop());
     assert.deepEqual(out.alt, { enabled: true, masterGid: 4300123456, masterName: '大号', timeoutMinutes: 45 });
-    assert.deepEqual(out.tea, { enabled: true, durationId: 3, priorityGid: 0, priorityName: '', priorityDurationId: 3, priorityConfigured: false, talentId: 9002, allowRobots: false, autoWork: false, workType: 0 });
+    assert.deepEqual(out.tea, { enabled: true, durationId: 3, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 9002, allowRobots: false, autoWork: false, workType: 0 });
     assert.equal(out.steal, 7);
     assert.equal(out.otherAlt.enabled, false);
     assert.equal(out.otherTea.enabled, false);
