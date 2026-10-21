@@ -251,10 +251,16 @@ async function planOneHire(params: {
 
 // ============ 运行时（worker 内） ============
 
-const TICK_INTERVAL_MS = 5 * 60 * 1000;
+// [fnos-fork] 2026.10.22 雇人检测改为每 10 分钟一次：
+// 调度器每分钟只做本地时间判断（不发请求、不排队），真正读取奶茶店按 nextCheckAtMs；
+// 常规检查、跳过、失败、未开业都是 10 分钟后再查；员工位已满时精确等到最早一个班次结束后 30 秒。
+// 只有「活动未开放/已结束」（6 小时）和「结算期」（1 小时）保留长间隔：这两种情况都不可能雇佣，不会造成空窗。
+const CHECK_INTERVAL_MS = 10 * 60 * 1000;
+const LOCAL_TICK_MS = 60 * 1000;
 const FIRST_TICK_DELAY_MS = 90 * 1000;
-const FAIL_BACKOFF_MS = 30 * 60 * 1000;
-const SKIP_BACKOFF_MS = 15 * 60 * 1000;
+const FAIL_BACKOFF_MS = CHECK_INTERVAL_MS;
+const SKIP_BACKOFF_MS = CHECK_INTERVAL_MS;
+const SHOP_CLOSED_BACKOFF_MS = CHECK_INTERVAL_MS;
 let nextCheckAtMs = 0;
 let lastSkipLog = '';
 let lastSkipLogAt = 0;
@@ -289,25 +295,26 @@ async function runMilkTeaAutoHireTick(options: { force?: boolean; milkTea?: any;
     if (!options.force && nextCheckAtMs > nowMs) return 0;
     const { log, logWarn, getServerTimeSec } = require('../utils/utils');
     const milkTea = options.milkTea || require('./milk-tea');
+    nextCheckAtMs = nowMs + CHECK_INTERVAL_MS;
 
     let state: any;
     try {
         state = await milkTea.getMilkTeaActivity('hireList', { durationId: FALLBACK_DURATION_ID });
     } catch (e: any) {
         nextCheckAtMs = nowMs + FAIL_BACKOFF_MS;
-        logSkip(`读取奶茶活动失败（${e.message}），30 分钟后再试`);
+        logSkip(`读取奶茶活动失败（${e.message}），10 分钟后再试`);
         return 0;
     }
     const nowSec = Number(state?.serverTime) || getServerTimeSec();
     if (!state?.active) { nextCheckAtMs = nowMs + 6 * 3600 * 1000; logSkip('奶茶活动未开放或已结束'); return 0; }
-    if (!num(state.summary?.shop_open_at) || !state.shop) { nextCheckAtMs = nowMs + 3600 * 1000; logSkip('奶茶店尚未开业'); return 0; }
+    if (!num(state.summary?.shop_open_at) || !state.shop) { nextCheckAtMs = nowMs + SHOP_CLOSED_BACKOFF_MS; logSkip('奶茶店尚未开业'); return 0; }
     if (state.settling || state.shop.is_settling) { nextCheckAtMs = nowMs + 3600 * 1000; logSkip('奶茶活动结算期，不能雇佣'); return 0; }
 
     const freeSlots = getFreeSlots(state.shop, nowSec);
     if (freeSlots.length === 0) {
         const nextEnd = getNextSlotEndSec(state.shop, nowSec);
         // 员工位都满：到最早一个班次结束后 30 秒再查
-        nextCheckAtMs = nextEnd > 0 ? nowMs + (nextEnd - nowSec + 30) * 1000 : nowMs + TICK_INTERVAL_MS;
+        nextCheckAtMs = nextEnd > 0 ? nowMs + (nextEnd - nowSec + 30) * 1000 : nowMs + CHECK_INTERVAL_MS;
         if (nextEnd > 0) {
             const at = new Date(nextEnd * 1000);
             const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
@@ -370,7 +377,7 @@ async function runMilkTeaAutoHireTick(options: { force?: boolean; milkTea?: any;
             return hired;
         }
     }
-    nextCheckAtMs = 0;
+    nextCheckAtMs = nowMs + CHECK_INTERVAL_MS;
     return hired;
 }
 
@@ -391,10 +398,15 @@ function startFnosMilkTeaAutoHire(scheduler: any, runExclusive: (name: string, f
         }
         return null;
     });
+    // [fnos-fork] 2026.10.22 未开启或未到检查时间时不进入自动化队列（每分钟只做本地判断）
+    const localTick = () => {
+        try { if (!readConfigs().cfg.enabled || nextCheckAtMs > Date.now()) return Promise.resolve(null); } catch { /* 交给 tick 内部处理 */ }
+        return tick();
+    };
     activeScheduler = scheduler;
     activeTick = tick;
     scheduler.setTimeoutTask('fnos_milk_tea_auto_hire_first', FIRST_TICK_DELAY_MS, tick);
-    scheduler.setIntervalTask('fnos_milk_tea_auto_hire', TICK_INTERVAL_MS, tick);
+    scheduler.setIntervalTask('fnos_milk_tea_auto_hire', LOCAL_TICK_MS, localTick);
     // [fnos-fork] 2026.10.21.1 被雇佣时自动做工作事项（未开启时每轮直接返回，不发请求）
     try { require('./fnos-milk-tea-auto-work').startFnosMilkTeaAutoWork(scheduler, runExclusive); } catch { /* ignore */ }
     // 登录完成时打印两项设置的状态，便于在日志里确认已生效
@@ -425,6 +437,8 @@ module.exports = {
     startFnosMilkTeaAutoHire,
     onFnosMilkTeaAutoHireConfigChanged,
     resetFnosMilkTeaAutoHireRuntime,
+    getFnosMilkTeaAutoHireNextCheckAtMs: () => nextCheckAtMs,
+    MILK_TEA_HIRE_CHECK_INTERVAL_MS: CHECK_INTERVAL_MS,
     MILK_TEA_DURATION_OPTIONS: DURATIONS.map(d => ({ durationId: d.duration_id, label: DURATION_LABEL[d.duration_id], cost: durationCost(d.duration_id) })),
     MILK_TEA_TALENT_OPTIONS: TALENTS.map(t => ({ talentId: t.talent_id, name: t.talent_name })),
     MILK_TEA_WORK_OPTIONS: config.MilkTeaInteractionType.map((v: any) => ({

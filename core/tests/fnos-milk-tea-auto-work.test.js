@@ -127,19 +127,43 @@ test('随机只在无风险的 1/2/3 里选；未被雇佣、未开业、结算�
     }
 });
 
-test('提交失败写警告且 30 分钟内不重试；同一失败不重复写', async () => {
+test('提交失败写警告且 10 分钟内不重试；同一失败不重复写', async () => {
     reset();
     st.failInteract = true;
     work.resetFnosMilkTeaAutoWorkRuntime();
     workerApply({ fnosMilkTeaAutoHire: { autoWork: true, workType: 2 } });
     logs.length = 0;
     await work.runMilkTeaAutoWorkTick({ nowMs: 1000 });
-    await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 10 * 60 * 1000 });
+    await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 9 * 60 * 1000 });
     assert.equal(writes.length, 1);
-    await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 31 * 60 * 1000 });
+    await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 10 * 60 * 1000 });
     assert.equal(writes.length, 2);
+    await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 20 * 60 * 1000 });
+    assert.equal(writes.length, 3);
     assert.equal(logs.filter(l => l.includes('WARN')).length, 1, logs.join('\n'));
     assert.ok(logs[0].includes('为老板 小号 做「花式摇杯」失败'), logs.join('\n'));
+    assert.ok(logs[0].includes('10 分钟后再试'), logs.join('\n'));
+});
+
+// [fnos-fork] 2026.10.22 工作事项检测统一 10 分钟
+test('检测间隔：未被雇佣/未开业 10 分钟后再查；已做过等到班次结束', async () => {
+    const MIN = 60 * 1000;
+    for (const setup of [() => { st.hasShift = false; }, () => { st.shopOpen = false; }]) {
+        reset();
+        setup();
+        work.resetFnosMilkTeaAutoWorkRuntime();
+        workerApply({ fnosMilkTeaAutoHire: { autoWork: true, workType: 1 } });
+        await work.runMilkTeaAutoWorkTick({ nowMs: 1000 });
+        // 9 分钟内不再读取；10 分钟时改为可做 → 立即提交
+        st.hasShift = true; st.shopOpen = true;
+        await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 9 * MIN });
+        assert.equal(writes.length, 0);
+        await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 10 * MIN });
+        assert.equal(writes.length, 1);
+    }
+    // 已做过：等到班次结束（约 23 小时后）才再查，期间不提交
+    await work.runMilkTeaAutoWorkTick({ nowMs: 1000 + 10 * MIN + 20 * 3600 * 1000 });
+    assert.equal(writes.length, 1);
 });
 
 test('启动挂上调度；设置变化约 5 秒后检查；状态日志包含工作事项', async () => {

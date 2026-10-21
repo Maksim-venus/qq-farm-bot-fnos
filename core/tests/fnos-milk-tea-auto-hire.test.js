@@ -20,6 +20,9 @@ const {
     allowedDurationIds,
     runMilkTeaAutoHireTick,
     resetFnosMilkTeaAutoHireRuntime,
+    startFnosMilkTeaAutoHire,
+    getFnosMilkTeaAutoHireNextCheckAtMs,
+    MILK_TEA_HIRE_CHECK_INTERVAL_MS,
 } = require('../dist/services/fnos-milk-tea-auto-hire');
 
 const NOW = 1_792_000_000;
@@ -182,4 +185,81 @@ test('runMilkTeaAutoHireTick: 雇佣失败后退避，不连续重试', async ()
     await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 });
     await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 + 60_000 });
     assert.equal(calls, 1);
+});
+
+// [fnos-fork] 2026.10.22 雇人检测改为每 10 分钟一次
+test('检测间隔：常规/跳过/失败/未开业都是 10 分钟后再查；员工位满时精确到最早下班后 30 秒', async () => {
+    const MIN = 60_000;
+    assert.equal(MILK_TEA_HIRE_CHECK_INTERVAL_MS, 10 * MIN);
+    accountSnapshot = { fnosMilkTeaAutoHire: { enabled: true, durationId: 1 } };
+    const t0 = 1_000_000_000_000;
+    const reads = mt => { let n = 0; const g = mt.getMilkTeaActivity; mt.getMilkTeaActivity = async (...a) => { n++; return g(...a); }; return () => n; };
+
+    // 雇佣成功 → 10 分钟后
+    resetFnosMilkTeaAutoHireRuntime();
+    let mt = fakeMilkTea({ shop: { level: 1, slots: [] }, balances: { 1041: 1000 }, listsById: { 1: { wage_total: '40', friends: [friend(5)] } } });
+    assert.equal(await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 }), 1);
+    assert.equal(getFnosMilkTeaAutoHireNextCheckAtMs(), t0 + 10 * MIN);
+
+    // 无人可雇（跳过）→ 10 分钟（原 15 分钟）；9 分钟时不读、10 分钟时再读
+    resetFnosMilkTeaAutoHireRuntime();
+    mt = fakeMilkTea({ shop: { level: 1, slots: [] }, balances: { 1041: 1000 }, listsById: { 1: { friends: [] } } });
+    const n = reads(mt);
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 });
+    assert.equal(getFnosMilkTeaAutoHireNextCheckAtMs(), t0 + 10 * MIN);
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 + 9 * MIN });
+    assert.equal(n(), 1);
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 + 10 * MIN });
+    assert.equal(n(), 2);
+
+    // 奶茶券不足 / 雇佣失败 / 读取失败 → 10 分钟（原 30 分钟）
+    resetFnosMilkTeaAutoHireRuntime();
+    mt = fakeMilkTea({ shop: { level: 1, slots: [] }, balances: { 1041: 1 }, listsById: { 1: { wage_total: '40', friends: [friend(5)] } } });
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 });
+    assert.equal(getFnosMilkTeaAutoHireNextCheckAtMs(), t0 + 10 * MIN);
+    resetFnosMilkTeaAutoHireRuntime();
+    mt.getMilkTeaActivity = async () => { throw new Error('网络错误'); };
+    logs.length = 0;
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 });
+    assert.equal(getFnosMilkTeaAutoHireNextCheckAtMs(), t0 + 10 * MIN);
+    assert.ok(logs.some(l => l.includes('10 分钟后再试')), logs.join('\n'));
+
+    // 未开业 → 10 分钟（原 1 小时）
+    resetFnosMilkTeaAutoHireRuntime();
+    mt = fakeMilkTea({ shop: null, balances: {}, listsById: {} });
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 });
+    assert.equal(getFnosMilkTeaAutoHireNextCheckAtMs(), t0 + 10 * MIN);
+
+    // 员工位满 → 精确到最早下班后 30 秒（保留）
+    resetFnosMilkTeaAutoHireRuntime();
+    mt = fakeMilkTea({ shop: { level: 1, slots: [{ slot_index: 0, end_at: NOW + 3 * 3600 }] }, balances: { 1041: 1000 }, listsById: { 1: { friends: [friend(5)] } } });
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 });
+    assert.equal(getFnosMilkTeaAutoHireNextCheckAtMs(), t0 + (3 * 3600 + 30) * 1000);
+
+    // 重复的跳过原因仍去重：连续多轮无人可雇只记一次
+    resetFnosMilkTeaAutoHireRuntime();
+    logs.length = 0;
+    mt = fakeMilkTea({ shop: { level: 1, slots: [] }, balances: { 1041: 1000 }, listsById: { 1: { friends: [] } } });
+    for (let i = 0; i < 6; i++) await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: t0 + i * 10 * MIN });
+    assert.equal(logs.filter(l => l.includes('跳过')).length, 1, logs.join('\n'));
+});
+
+test('调度：每分钟本地判断，未到检查时间不进入自动化队列', async () => {
+    accountSnapshot = { fnosMilkTeaAutoHire: { enabled: true, durationId: 1 } };
+    const tasks = [];
+    const sched = { setTimeoutTask: (name, ms, fn) => tasks.push({ name, ms, fn }), setIntervalTask: (name, ms, fn) => tasks.push({ name, ms, fn, interval: true }) };
+    let queued = 0;
+    startFnosMilkTeaAutoHire(sched, async (_n, fn) => { queued++; return fn(); });
+    const iv = tasks.find(t => t.name === 'fnos_milk_tea_auto_hire');
+    assert.equal(iv.ms, 60_000);
+    assert.ok(tasks.some(t => t.name === 'fnos_milk_tea_auto_hire_first' && t.ms === 90_000));
+    // 模拟刚检查过：10 分钟内的每分钟 tick 不排队
+    const mt = fakeMilkTea({ shop: { level: 1, slots: [] }, balances: { 1041: 1000 }, listsById: { 1: { friends: [] } } });
+    await runMilkTeaAutoHireTick({ milkTea: mt, nowMs: Date.now() });
+    await iv.fn();
+    assert.equal(queued, 0);
+    accountSnapshot = { fnosMilkTeaAutoHire: { enabled: false } };
+    resetFnosMilkTeaAutoHireRuntime();
+    await iv.fn();
+    assert.equal(queued, 0);
 });

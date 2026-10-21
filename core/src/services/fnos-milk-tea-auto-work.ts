@@ -20,7 +20,9 @@ const config = require('../activity-data/milk-tea-20261015.json');
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const FIRST_DELAY_MS = 5 * 1000;
-const FAIL_BACKOFF_MS = 30 * 60 * 1000;
+// [fnos-fork] 2026.10.22 工作事项检测统一 10 分钟：失败、未开业、事项数据不完整都 10 分钟后再查（原为 30 分钟/1 小时/1 小时）；
+// 已做过本班次或结算期时仍精确等到班次结束后 30 秒；「活动未开放/已结束」保留 6 小时。
+const FAIL_BACKOFF_MS = CHECK_INTERVAL_MS;
 const SAFE_TYPES = [1, 2, 3];
 
 function num(value: any): number {
@@ -98,12 +100,12 @@ async function runMilkTeaAutoWorkTick(options: { milkTea?: any; nowMs?: number; 
         state = await milkTea.getMilkTeaActivity('work');
     } catch (e: any) {
         nextCheckAtMs = nowMs + FAIL_BACKOFF_MS;
-        logSkip(`读取「我的工作」失败（${e.message}），30 分钟后再试`, true);
+        logSkip(`读取「我的工作」失败（${e.message}），10 分钟后再试`, true);
         return false;
     }
     const nowSec = num(state?.serverTime) || getServerTimeSec();
     if (!state?.active) { nextCheckAtMs = nowMs + 6 * 3600 * 1000; logSkip('奶茶活动未开放或已结束'); return false; }
-    if (!num(state.summary?.shop_open_at)) { nextCheckAtMs = nowMs + 3600 * 1000; logSkip('本账号的奶茶店尚未开业（游戏要求先开业才能提交工作事项）'); return false; }
+    if (!num(state.summary?.shop_open_at)) { nextCheckAtMs = nowMs + CHECK_INTERVAL_MS; logSkip('本账号的奶茶店尚未开业（游戏要求先开业才能提交工作事项）'); return false; }
     if (!state.work) { logSkip('「我的工作」未返回'); return false; }
     const check = workableShift(state, nowSec);
     if (!check.ok) {
@@ -114,7 +116,7 @@ async function runMilkTeaAutoWorkTick(options: { milkTea?: any; nowMs?: number; 
     const { shift } = check;
     const boss = String(shift.employer?.name || '').trim() || `GID ${shift.employer?.gid}`;
     const pick = chooseWorkType(cfg.workType, state.interactions, options.random);
-    if ('skip' in pick) { nextCheckAtMs = nowMs + Math.min(num(shift.end_at) - nowSec + 30, 3600) * 1000; logSkip(pick.skip); return false; }
+    if ('skip' in pick) { nextCheckAtMs = nowMs + Math.max(1000, Math.min((num(shift.end_at) - nowSec + 30) * 1000, CHECK_INTERVAL_MS)); logSkip(pick.skip); return false; }
     try {
         const res = await milkTea.operateMilkTeaActivity('interact', { interactionType: pick.type, expectedShiftId: String(shift.shift_id) });
         const r = res?.result || {};
@@ -129,7 +131,7 @@ async function runMilkTeaAutoWorkTick(options: { milkTea?: any; nowMs?: number; 
         return true;
     } catch (e: any) {
         nextCheckAtMs = nowMs + FAIL_BACKOFF_MS;
-        const message = `为老板 ${boss} 做「${typeName(pick.type)}」失败：${e.message}，30 分钟后再试`;
+        const message = `为老板 ${boss} 做「${typeName(pick.type)}」失败：${e.message}，10 分钟后再试`;
         if (message !== lastLog) { lastLog = message; logWarn('奶茶工作', `工作事项${message}`, { module: 'activity', event: '奶茶工作事项', result: 'error' }); }
         return false;
     }
