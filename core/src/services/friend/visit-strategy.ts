@@ -754,6 +754,10 @@ export interface VisitFriendOptions {
     allowHelp?: boolean;
     allowBad?: boolean;
     ignoreExpLimit?: boolean;
+    /** [fnos-fork] 大小号协作：对大号放捣乱，不看「自动捣乱」开关 */
+    forceBad?: boolean;
+    /** [fnos-fork] 大小号协作：帮忙时只浇水，不除草/除虫 */
+    helpWaterOnly?: boolean;
 }
 
 /**
@@ -773,7 +777,7 @@ export async function visitFriend(
     const ignoreExpLimit: boolean = !!options.ignoreExpLimit;
 
     const stealEnabled: boolean = allowSteal && !!isAutomationOn('friend_steal');
-    const badEnabled: boolean = allowBad && !!isAutomationOn('friend_bad');
+    const badEnabled: boolean = allowBad && (!!options.forceBad || !!isAutomationOn('friend_bad')); // [fnos-fork] forceBad
     const stopWhenExpLimit: boolean = !!isAutomationOn('friend_help_exp_limit') && !ignoreExpLimit;
     if (!stopWhenExpLimit) schedulerRef().setCanGetHelpExp(true);
     const protectDogBypassEnabled: boolean = !!isAutomationOn('friend_help_protect_dog_ignore_exp_limit');
@@ -833,15 +837,20 @@ export async function visitFriend(
     } else if (effectiveStopWhenExpLimit && !schedulerRef().getCanGetHelpExp()) {
         // 今日已达到经验上限后停止帮忙
     } else {
-        const allHelpLandIds: number[] = [...new Set([...status.needWeed, ...status.needBug, ...status.needWater])];
+        // [fnos-fork] 大小号协作：helpWaterOnly 时只帮「只缺水、没有草/虫」的地。
+        // 帮忙用的 Farming 会把一块地上的草、虫、缺水一起处理，所以有草/虫的地整块不碰，留给大号自己清。
+        const helpWaterOnly: boolean = !!options.helpWaterOnly;
+        const allHelpLandIds: number[] = helpWaterOnly
+            ? [...new Set(status.needWater.filter((id: number) => !status.needWeed.includes(id) && !status.needBug.includes(id)))]
+            : [...new Set([...status.needWeed, ...status.needBug, ...status.needWater])];
         const allExpIds: number[] = [10005, 10006, 10007];
         const allowByExp: boolean = (!effectiveStopWhenExpLimit) || (schedulerRef().canGetExpByCandidates(allExpIds) && schedulerRef().getCanGetHelpExp());
         if (allHelpLandIds.length > 0 && allowByExp) {
             const outcome: FarmingOutcome = await runFarmingWithFallback(gid, allHelpLandIds, stopWhenExpLimit, getHelpSnapshotKey(lands));
             if (outcome.landCount > 0) {
                 const parts: string[] = [];
-                if (status.needWeed.length) parts.push(`草${status.needWeed.length}`);
-                if (status.needBug.length) parts.push(`虫${status.needBug.length}`);
+                if (status.needWeed.length && !helpWaterOnly) parts.push(`草${status.needWeed.length}`);
+                if (status.needBug.length && !helpWaterOnly) parts.push(`虫${status.needBug.length}`);
                 if (status.needWater.length) parts.push(`水${status.needWater.length}`);
                 actions.push(`一键务农${outcome.landCount}块/${outcome.operationCount}项(${parts.join('/')})`);
                 if (outcome.dogSkillGiftCount > 0) actions.push(`同气连枝礼包x${outcome.dogSkillGiftCount}(自动获得)`);

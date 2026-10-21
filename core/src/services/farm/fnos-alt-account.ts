@@ -36,6 +36,10 @@ export interface FnosAltAccountConfig {
     masterName: string;
     /** 成熟后超过多少分钟仍未被大号偷就照常收获；0 = 一直等大号 */
     timeoutMinutes: number;
+    /** 2026.10.21.3「大小号协作」：好友巡查时不偷大号的菜（见 services/friend/fnos-alt-coop.ts） */
+    skipStealMaster: boolean;
+    /** 2026.10.21.3「大小号协作」：放草/放虫只对大号做，不对其他好友做（不受「自动捣乱」开关限制） */
+    badOnlyMaster: boolean;
 }
 
 const DEFAULT_FNOS_ALT_ACCOUNT: FnosAltAccountConfig = {
@@ -43,6 +47,8 @@ const DEFAULT_FNOS_ALT_ACCOUNT: FnosAltAccountConfig = {
     masterGid: 0,
     masterName: '',
     timeoutMinutes: 0,
+    skipStealMaster: false,
+    badOnlyMaster: false,
 };
 
 function normalizeFnosAltAccount(input: unknown, fallback: FnosAltAccountConfig = DEFAULT_FNOS_ALT_ACCOUNT): FnosAltAccountConfig {
@@ -60,6 +66,8 @@ function normalizeFnosAltAccount(input: unknown, fallback: FnosAltAccountConfig 
             ? String(src.masterName !== undefined ? src.masterName : base.masterName || '').trim().slice(0, 64)
             : '',
         timeoutMinutes,
+        skipStealMaster: src.skipStealMaster !== undefined ? !!src.skipStealMaster : !!base.skipStealMaster,
+        badOnlyMaster: src.badOnlyMaster !== undefined ? !!src.badOnlyMaster : !!base.badOnlyMaster,
     };
 }
 

@@ -105,10 +105,10 @@ function matureLand(id, extra = {}) {
 
 // ---------- 配置规范化 ----------
 test('normalizeFnosAltAccount: 默认关闭、清理非法值', () => {
-    assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0 });
+    assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false });
     assert.deepEqual(
         normalizeFnosAltAccount({ enabled: 1, masterGid: String(MASTER), masterName: '  大号  ', timeoutMinutes: '30' }),
-        { enabled: true, masterGid: MASTER, masterName: '大号', timeoutMinutes: 30 },
+        { enabled: true, masterGid: MASTER, masterName: '大号', timeoutMinutes: 30, skipStealMaster: false, badOnlyMaster: false },
     );
     const bad = normalizeFnosAltAccount({ enabled: true, masterGid: -5, masterName: 'x', timeoutMinutes: -1 });
     assert.equal(bad.masterGid, 0);
@@ -116,7 +116,7 @@ test('normalizeFnosAltAccount: 默认关闭、清理非法值', () => {
     assert.equal(bad.timeoutMinutes, 0);
     assert.equal(normalizeFnosAltAccount({ timeoutMinutes: 999999 }).timeoutMinutes, 7 * 24 * 60);
     // 局部更新保留原值
-    const prev = { enabled: true, masterGid: MASTER, masterName: 'A', timeoutMinutes: 5 };
+    const prev = { enabled: true, masterGid: MASTER, masterName: 'A', timeoutMinutes: 5, skipStealMaster: true, badOnlyMaster: false };
     assert.deepEqual(normalizeFnosAltAccount({ timeoutMinutes: 10 }, prev), { ...prev, timeoutMinutes: 10 });
 });
 

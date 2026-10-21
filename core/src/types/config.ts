@@ -101,6 +101,10 @@ export interface AccountConfig {
     masterGid: number;
     masterName: string;
     timeoutMinutes: number;
+    /** [fnos-fork] 2026.10.21.3 大小号协作：不偷大号的菜 */
+    skipStealMaster?: boolean;
+    /** [fnos-fork] 2026.10.21.3 大小号协作：放草/放虫只对大号做 */
+    badOnlyMaster?: boolean;
   };
   /** [fnos-fork] 奶茶活动自动雇佣（见 services/fnos-milk-tea-auto-hire.ts） */
   fnosMilkTeaAutoHire?: {

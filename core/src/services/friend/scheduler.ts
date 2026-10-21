@@ -44,6 +44,8 @@ const {
     clearFriendsListCache,
 } = require('./visit-strategy');
 const { buildFriendVisitPlan } = require('./visit-plan');
+// [fnos-fork] 2026.10.21.3 大小号协作：不偷大号、只给大号放捣乱
+const { getAltCoopSettings, adjustVisitPlanForAltCoop, getVisitOptionsForAltCoop } = require('./fnos-alt-coop');
 const { getFriendDogState, flushFriendPetCacheNow } = require('./pet-cache');
 
 // 延迟引用 pet-sync，它反向依赖本模块的 isFriendCheckRunning
@@ -298,7 +300,10 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
     const effectiveStealEnabled: boolean = onlySteal ? true : (onlyHelp || onlyBad ? false : stealEnabled);
     const effectiveBadEnabled: boolean = onlyBad ? true : (onlyHelp || onlySteal ? false : badEnabled);
 
-    const hasAnyFriendOp: boolean = effectiveHelpEnabled || effectiveStealEnabled || effectiveBadEnabled;
+    // [fnos-fork] 大小号协作：「只给大号放捣乱」不受「自动捣乱」开关限制（只帮忙/只偷菜的手动模式除外）
+    const altCoop: any = getAltCoopSettings();
+    const altCoopBad: boolean = !!(altCoop && altCoop.badOnly) && !onlyHelp && !onlySteal;
+    const hasAnyFriendOp: boolean = effectiveHelpEnabled || effectiveStealEnabled || effectiveBadEnabled || altCoopBad;
     if (isCheckingFriends || !state.gid || !hasAnyFriendOp) return false;
     if (inFriendQuietHours()) return false;
 
@@ -336,6 +341,15 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
             badBudget: getRemainingBadOperationTimes(),
             maxBadOnlyVisits: MAX_BAD_ONLY_VISITS_PER_ROUND,
         });
+        // [fnos-fork] 大小号协作：调整对大号/其他好友的偷菜与捣乱
+        adjustVisitPlanForAltCoop(plan, {
+            coop: altCoop,
+            friends,
+            blacklist,
+            badActive: (effectiveBadEnabled || altCoopBad) && !isBadOperationLimitReached(),
+            badBudget: getRemainingBadOperationTimes(),
+            log: (msg: string) => log('小号', msg, { module: 'friend', event: '大小号协作' }),
+        });
 
         const totalActions: any = { steal: 0, farming: 0, putBug: 0, putWeed: 0 };
 
@@ -364,7 +378,7 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
         let midRoundExpSkipped: number = 0;
 
         for (const target of plan.visits) {
-            if (target.wantBad) {
+            if (target.wantBad && !target.wantSteal && !target.wantHelp) { // [fnos-fork] 大号可能同时有偷/帮和捣乱
                 // 纯捣乱的好友都排在队尾，额度一用完这一轮就可以收工
                 if (isBadOperationLimitReached() || getRemainingBadOperationTimes() <= 0) {
                     log('好友', '放虫放草次数已用完，停止执行', { module: 'friend', event: '放虫放草次数用完' });
@@ -384,6 +398,7 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
                     allowHelp: target.wantHelp,
                     allowBad: target.wantBad,
                     ignoreExpLimit,
+                    ...getVisitOptionsForAltCoop(altCoop, target), // [fnos-fork] 大小号协作
                 });
             } catch (e: any) {
                 log('好友', `巡查好友失败: ${target.name}, 错误: ${e.message}`, {

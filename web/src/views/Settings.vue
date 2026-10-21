@@ -33,9 +33,9 @@ const accountStore = useAccountStore()
 const settingStore = useSettingStore()
 const statusStore = useStatusStore()
 
-type SettingsTab = 'account' | 'strategy' | 'automation' | 'fnos-alt' | 'system' // [fnos-fork] 新增 fnos-alt
+type SettingsTab = 'account' | 'strategy' | 'automation' | 'fnos-coop' | 'fnos-alt' | 'system' // [fnos-fork] 新增 fnos-coop（大小号协作）、fnos-alt（活动设置）
 const storedTab = localStorage.getItem('settings-active-tab')
-const settingsTabKeys: SettingsTab[] = ['account', 'strategy', 'automation', 'fnos-alt', 'system'] // [fnos-fork]
+const settingsTabKeys: SettingsTab[] = ['account', 'strategy', 'automation', 'fnos-coop', 'fnos-alt', 'system'] // [fnos-fork]
 const queryTab = String(route.query.tab || '')
 const initialTab = settingsTabKeys.includes(queryTab as SettingsTab)
   ? queryTab as SettingsTab
@@ -61,6 +61,7 @@ const tabs = [
   { key: 'account', label: '账号管理', icon: 'i-carbon-user-profile' },
   { key: 'strategy', label: '策略设置', icon: 'i-carbon-settings-adjust' },
   { key: 'automation', label: '自动控制', icon: 'i-carbon-settings-adjust' },
+  { key: 'fnos-coop', label: '大小号协作', icon: 'i-carbon-user-multiple' }, // [fnos-fork] 2026.10.21.3
   { key: 'fnos-alt', label: '活动设置', icon: 'i-carbon-event' }, // [fnos-fork]
   { key: 'system', label: '系统设置', icon: 'i-carbon-settings' },
 ] as const
@@ -1892,9 +1893,17 @@ async function handleResetSystemConfig() {
           />
         </div>
 
-        <!-- [fnos-fork] 活动设置（大号/小号、奶茶自动雇佣、奶茶收益领取与种子兑换，组件内自带标题与保存） -->
+        <!-- [fnos-fork] 大小号协作（大号/小号、不偷大号、只给大号放捣乱，组件内自带标题与保存） -->
+        <FnosForkSettings
+          v-else-if="activeTab === 'fnos-coop'"
+          section="coop"
+          :account-id="currentAccountId"
+          :account-name="currentAccountName"
+        />
+        <!-- [fnos-fork] 活动设置（奶茶自动雇佣与工作事项、奶茶收益领取与种子兑换） -->
         <FnosForkSettings
           v-else-if="activeTab === 'fnos-alt'"
+          section="activity"
           :account-id="currentAccountId"
           :account-name="currentAccountName"
         />

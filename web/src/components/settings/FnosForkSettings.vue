@@ -4,7 +4,9 @@
  * - 大号/小号：小号成熟作物留给大号偷，大号偷过才自动收获
  * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友），统一的雇佣时长与职业可选或随机；2026.10.21.2 起与大小号解耦
  * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
- * 所在栏目：设置 → 活动设置（独立栏目，不在「自动控制」里）。
+ * 所在栏目（2026.10.21.3 起拆成两个独立栏目，都不在「自动控制」里）：
+ * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱）
+ * - section="activity"：设置 → 活动设置（奶茶自动雇佣/工作事项、奶茶收益与兑换）
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -15,15 +17,16 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
 
-const props = defineProps<{ accountId?: string | null, accountName?: string | null }>()
+const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
+const isCoop = computed(() => props.section === 'coop')
 const toast = useToastStore()
 
-interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number }
+interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number, skipStealMaster: boolean, badOnlyMaster: boolean }
 interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityGid: number, priorityName: string, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
 interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
-const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0 })
+const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false })
 const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
@@ -201,7 +204,7 @@ function reportSave(res: any, okText: string) {
     toast.success(okText)
 }
 
-async function saveAlt() {
+async function saveAlt(okText = '大号/小号设置已保存') {
   if (alt.value.enabled && !(alt.value.masterGid > 0)) {
     toast.error('开启「这是小号」时请先选择大号')
     return
@@ -211,7 +214,7 @@ async function saveAlt() {
     const res = await api.post('/api/fnos/alt-account', alt.value, { headers: headers() })
     if (res.data?.data)
       alt.value = { ...alt.value, ...res.data.data }
-    reportSave(res, '大号/小号设置已保存')
+    reportSave(res, okText)
   }
   catch (e: any) {
     toast.error(getApiErrorMessage(e, '保存失败'))
@@ -277,8 +280,8 @@ onMounted(() => {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h3 class="flex items-center gap-2 text-lg text-gray-900 font-bold dark:text-gray-100">
-        <span class="i-carbon-event text-lg" />
-        活动设置
+        <span :class="isCoop ? 'i-carbon-user-multiple' : 'i-carbon-event'" class="text-lg" />
+        {{ isCoop ? '大小号协作' : '活动设置' }}
         <span v-if="accountName" class="ml-2 text-sm text-gray-500 font-normal dark:text-gray-400">
           ({{ accountName }})
         </span>
@@ -291,8 +294,8 @@ onMounted(() => {
     </div>
 
     <div v-else class="fnos-fork-layout">
-      <!-- 大号/小号 -->
-      <section class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-alt-account">
+      <!-- 大号/小号（大小号协作栏目） -->
+      <section v-if="isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-alt-account">
         <div class="mb-4 flex items-start gap-3">
           <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/25 dark:text-amber-400">
             <span class="i-carbon-user-multiple text-xl" />
@@ -354,15 +357,65 @@ onMounted(() => {
           </template>
 
           <div class="fnos-fork-card__footer">
-            <BaseButton variant="primary" size="sm" :loading="altSaving" @click="saveAlt">
+            <BaseButton variant="primary" size="sm" :loading="altSaving" @click="saveAlt()">
               保存大号/小号
             </BaseButton>
           </div>
         </div>
       </section>
 
+      <!-- 小号照顾大号（2026.10.21.3，大小号协作栏目） -->
+      <section v-if="isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-alt-coop">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-400">
+            <span class="i-carbon-partnership text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              小号照顾大号
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              只对「这是小号」且已选大号的账号生效，作用于自动好友巡查（需要打开「自动控制」里的好友巡查）。面板里的手动操作不受影响。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <p v-if="!alt.enabled || !(alt.masterGid > 0)" class="fnos-hint fnos-hint--box bg-gray-50 text-gray-600 dark:bg-gray-800/40 dark:text-gray-300">
+            先在左边打开「这是小号」并选择大号，下面的选项才会生效。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="alt.skipStealMaster" label="不偷大号的菜" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            自动巡查好友时跳过偷大号，帮忙、捣乱照常（受下一项影响）。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="alt.badOnlyMaster" label="只给大号放捣乱" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            放草、放虫只对大号做，不再对其他好友做；即使「自动控制」里的「自动捣乱」关着也会对大号放（每块未成熟的地最多 1 草 1 虫，用的是每日捣乱次数，约 10 分钟最多专门进一次大号农场）。
+            打开后帮大号时只帮「只缺水」的地，有草/虫的地不帮，留给大号自己清。
+          </p>
+          <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+            ⚠️ 大号账号的「自动控制」里不要打开「巡田时跳过一键务农」，草/虫才会被及时清掉。游戏数据里没有找到「主人清除自家草/虫能得经验」的依据，请按实际效果决定是否开启。
+          </p>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            想让大号拿奶茶工资：在「活动设置 → 奶茶活动自动雇佣」里把大号设为优先雇佣人。
+          </p>
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="altSaving" @click="saveAlt('小号照顾大号设置已保存')">
+              保存
+            </BaseButton>
+          </div>
+        </div>
+      </section>
+
       <!-- 奶茶活动自动雇佣 -->
-      <section class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-auto-hire">
+      <section v-if="!isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-auto-hire">
         <div class="mb-4 flex items-start gap-3">
           <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-pink-50 text-pink-600 dark:bg-pink-900/25 dark:text-pink-400">
             <span class="i-carbon-cafe text-xl" />
@@ -449,7 +502,7 @@ onMounted(() => {
       </section>
 
       <!-- 奶茶收益与兑换（2026.10.21） -->
-      <section class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-daily">
+      <section v-if="!isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-daily">
         <div class="mb-4 flex items-start gap-3">
           <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-900/25 dark:text-emerald-400">
             <span class="i-carbon-gift text-xl" />

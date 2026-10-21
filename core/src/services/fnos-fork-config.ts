@@ -1,7 +1,7 @@
 export {};
 /**
  * [fnos-fork] 本 fork 独有设置（大号/小号、奶茶活动自动雇佣、奶茶收益领取/种子兑换）在 worker 内的统一读取与状态日志。
- * 这些设置都在「设置 → 活动设置」栏目。
+ * 大号/小号在「设置 → 大小号协作」栏目（2026.10.21.3 起独立），奶茶相关在「设置 → 活动设置」。
  *
  * 2026.10.20.3 修复：之前两个功能都调用了 store 并不导出的 getAccountConfigSnapshot()，
  * 抛出的 TypeError 又被各自的 try/catch 吞掉，结果 worker 里永远读到「未开启」，
@@ -11,7 +11,7 @@ export {};
  */
 
 export interface FnosForkConfigs {
-    alt: { enabled: boolean; masterGid: number; masterName: string; timeoutMinutes: number };
+    alt: { enabled: boolean; masterGid: number; masterName: string; timeoutMinutes: number; skipStealMaster: boolean; badOnlyMaster: boolean };
     tea: {
         enabled: boolean; durationId: number; priorityGid: number; priorityName: string; priorityConfigured: boolean;
         talentId: number; allowRobots: boolean; autoWork: boolean; workType: number;
@@ -50,10 +50,11 @@ const TALENT_TEXT: Record<number, string> = { 0: '不限', 9001: '金牌销售',
 
 function describeAlt(alt: FnosForkConfigs['alt']): string {
     if (!alt.enabled) return '小号模式未启用（本账号按普通账号收获）';
-    if (!(alt.masterGid > 0)) return '小号模式已开启但未选择大号（照常收获），请到 设置 → 活动设置 选择大号';
+    if (!(alt.masterGid > 0)) return '小号模式已开启但未选择大号（照常收获），请到 设置 → 大小号协作 选择大号';
     const master = alt.masterName ? `${alt.masterName}(${alt.masterGid})` : `GID ${alt.masterGid}`;
     const timeout = alt.timeoutMinutes > 0 ? `超时 ${alt.timeoutMinutes} 分钟（从本进程首次发现可收时算起）` : '不超时（一直等大号）';
-    return `小号模式已启用，大号 ${master}，${timeout}；自动巡田只收大号偷过的地，手动收获不受限`;
+    const coop = `${alt.skipStealMaster ? '不偷大号的菜' : '会偷大号的菜'}；${alt.badOnlyMaster ? '放草/放虫只对大号（帮大号时不除草除虫）' : '捣乱按「自动捣乱」设置'}`;
+    return `小号模式已启用，大号 ${master}，${timeout}；自动巡田只收大号偷过的地，手动收获不受限；${coop}`;
 }
 
 const WORK_TEXT: Record<number, string> = { 0: '随机（宣传推广/花式摇杯/招牌试饮）', 1: '宣传推广', 2: '花式摇杯', 3: '招牌试饮', 4: '划水摸鱼', 5: '申请涨薪' };
