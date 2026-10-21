@@ -12,7 +12,7 @@ export {};
 
 export interface FnosForkConfigs {
     alt: { enabled: boolean; masterGid: number; masterName: string; timeoutMinutes: number };
-    tea: { enabled: boolean; durationId: number; talentId: number; allowRobots: boolean };
+    tea: { enabled: boolean; durationId: number; talentId: number; allowRobots: boolean; autoWork: boolean; workType: number };
     daily: { autoClaim: boolean; autoExchangeSeed: boolean };
     error: string;
 }
@@ -53,7 +53,17 @@ function describeAlt(alt: FnosForkConfigs['alt']): string {
     return `小号模式已启用，大号 ${master}，${timeout}；自动巡田只收大号偷过的地，手动收获不受限`;
 }
 
+const WORK_TEXT: Record<number, string> = { 0: '随机（宣传推广/花式摇杯/招牌试饮）', 1: '宣传推广', 2: '花式摇杯', 3: '招牌试饮', 4: '划水摸鱼', 5: '申请涨薪' };
+
+function describeWork(tea: FnosForkConfigs['tea']): string {
+    return tea.autoWork ? `被雇佣时自动做工作事项已启用（${WORK_TEXT[tea.workType] || tea.workType}）` : '被雇佣时自动做工作事项未启用';
+}
+
 function describeTea(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']): string {
+    return `${describeHire(tea, alt)}；${describeWork(tea)}`;
+}
+
+function describeHire(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']): string {
     if (!tea.enabled) return '奶茶自动雇佣未启用';
     if (alt.enabled && alt.masterGid > 0) {
         return `奶茶自动雇佣已启用（小号模式：优先雇大号 24 小时，否则随机好友 4 小时；职业 ${TALENT_TEXT[tea.talentId] || tea.talentId}；${tea.allowRobots ? '允许' : '不'}雇系统员工），会消耗奶茶券`;

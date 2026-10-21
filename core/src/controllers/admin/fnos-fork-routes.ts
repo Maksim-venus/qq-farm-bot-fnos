@@ -26,6 +26,7 @@ const {
     DEFAULT_FNOS_MILK_TEA_AUTO_HIRE,
     MILK_TEA_DURATION_OPTIONS,
     MILK_TEA_TALENT_OPTIONS,
+    MILK_TEA_WORK_OPTIONS,
 } = require('../../services/fnos-milk-tea-auto-hire');
 const { normalizeFnosMilkTeaDaily, DEFAULT_FNOS_MILK_TEA_DAILY } = require('../../services/fnos-milk-tea-daily');
 const { getAccId, handleApiError } = require('./middleware');
@@ -77,7 +78,7 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
             res.json({
                 ok: true,
                 data: normalizeFnosMilkTeaAutoHire(snapshot && snapshot.fnosMilkTeaAutoHire),
-                options: { durations: MILK_TEA_DURATION_OPTIONS, talents: MILK_TEA_TALENT_OPTIONS },
+                options: { durations: MILK_TEA_DURATION_OPTIONS, talents: MILK_TEA_TALENT_OPTIONS, works: MILK_TEA_WORK_OPTIONS },
             });
         } catch (e: any) {
             handleApiError(res, e);

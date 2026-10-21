@@ -19,6 +19,7 @@ export {};
 const TOKEN_ITEM_ID = 1041;
 const DURATIONS: Array<{ duration_id: number; duration_sec: number; duration_cost: string; min_remaining_business_sec: number }> = config.MilkTeaHireDurationConfig;
 const TALENTS: Array<{ talent_id: number; talent_name: string }> = config.MilkTeaTalentConfig;
+const WORK_TYPE_IDS: number[] = config.MilkTeaInteractionType.map((v: any) => Number(v.interaction_id));
 const DURATION_LABEL: Record<number, string> = { 1: '4 小时', 2: '12 小时', 3: '24 小时' };
 const MASTER_DURATION_ID = 3; // 24 小时
 const FALLBACK_DURATION_ID = 1; // 4 小时
@@ -31,6 +32,10 @@ export interface FnosMilkTeaAutoHireConfig {
     talentId: number;
     /** 好友都不可雇时是否雇佣系统员工（机器人） */
     allowRobots: boolean;
+    /** 2026.10.21.1：本账号被雇佣（有兼职班次）时自动做工作事项（见 fnos-milk-tea-auto-work.ts），与 enabled 独立 */
+    autoWork: boolean;
+    /** 工作事项：0 = 随机（只在无风险的 1/2/3 中选）；1~5 = 指定 */
+    workType: number;
 }
 
 const DEFAULT_FNOS_MILK_TEA_AUTO_HIRE: FnosMilkTeaAutoHireConfig = {
@@ -38,6 +43,8 @@ const DEFAULT_FNOS_MILK_TEA_AUTO_HIRE: FnosMilkTeaAutoHireConfig = {
     durationId: 0,
     talentId: 0,
     allowRobots: false,
+    autoWork: false,
+    workType: 0,
 };
 
 function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoHireConfig = DEFAULT_FNOS_MILK_TEA_AUTO_HIRE): FnosMilkTeaAutoHireConfig {
@@ -46,11 +53,14 @@ function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoH
     const src = input as Record<string, any>;
     const durationId = src.durationId !== undefined ? Number.parseInt(String(src.durationId), 10) : base.durationId;
     const talentId = src.talentId !== undefined ? Number.parseInt(String(src.talentId), 10) : base.talentId;
+    const workType = src.workType !== undefined ? Number.parseInt(String(src.workType), 10) : Number(base.workType) || 0;
     return {
         enabled: src.enabled !== undefined ? !!src.enabled : !!base.enabled,
         durationId: DURATIONS.some(d => d.duration_id === durationId) ? durationId : 0,
         talentId: TALENTS.some(t => t.talent_id === talentId) ? talentId : 0,
         allowRobots: src.allowRobots !== undefined ? !!src.allowRobots : !!base.allowRobots,
+        autoWork: src.autoWork !== undefined ? !!src.autoWork : !!base.autoWork,
+        workType: WORK_TYPE_IDS.includes(workType) ? workType : 0,
     };
 }
 
@@ -352,12 +362,15 @@ function startFnosMilkTeaAutoHire(scheduler: any, runExclusive: (name: string, f
     activeTick = tick;
     scheduler.setTimeoutTask('fnos_milk_tea_auto_hire_first', FIRST_TICK_DELAY_MS, tick);
     scheduler.setIntervalTask('fnos_milk_tea_auto_hire', TICK_INTERVAL_MS, tick);
+    // [fnos-fork] 2026.10.21.1 被雇佣时自动做工作事项（未开启时每轮直接返回，不发请求）
+    try { require('./fnos-milk-tea-auto-work').startFnosMilkTeaAutoWork(scheduler, runExclusive); } catch { /* ignore */ }
     // 登录完成时打印两项设置的状态，便于在日志里确认已生效
     try { require('./fnos-fork-config').logFnosForkStatus('账号已登录', true); } catch { /* ignore */ }
 }
 
 /** 保存设置后：清掉退避，并在几秒后检查一次（只在 worker 里、登录后生效；主进程无调度器时什么也不做）。 */
 function onFnosMilkTeaAutoHireConfigChanged(): void {
+    try { require('./fnos-milk-tea-auto-work').onFnosMilkTeaAutoWorkConfigChanged(); } catch { /* ignore */ }
     nextCheckAtMs = 0;
     lastSkipLog = '';
     if (activeScheduler && activeTick) {
@@ -380,4 +393,9 @@ module.exports = {
     resetFnosMilkTeaAutoHireRuntime,
     MILK_TEA_DURATION_OPTIONS: DURATIONS.map(d => ({ durationId: d.duration_id, label: DURATION_LABEL[d.duration_id], cost: durationCost(d.duration_id) })),
     MILK_TEA_TALENT_OPTIONS: TALENTS.map(t => ({ talentId: t.talent_id, name: t.talent_name })),
+    MILK_TEA_WORK_OPTIONS: config.MilkTeaInteractionType.map((v: any) => ({
+        workType: Number(v.interaction_id), name: v.name,
+        description: String(v.des || '').replace(/<[^>]+>/g, '').replace('{0}', 'N'),
+        risky: [4, 5].includes(Number(v.interaction_id)),
+    })),
 };

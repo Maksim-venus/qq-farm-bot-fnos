@@ -19,12 +19,13 @@ const props = defineProps<{ accountId?: string | null, accountName?: string | nu
 const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number }
-interface MilkTeaAutoHire { enabled: boolean, durationId: number, talentId: number, allowRobots: boolean }
+interface MilkTeaAutoHire { enabled: boolean, durationId: number, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
 interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0 })
-const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, talentId: 0, allowRobots: false })
+const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
+const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
 const dailySaving = ref(false)
 const durationOptions = ref<Array<{ durationId: number, label: string, cost: number }>>([])
@@ -65,6 +66,17 @@ const talentSelectOptions = computed(() => [
   { label: '不限（随机）', value: 0 },
   ...talentOptions.value.map(t => ({ label: t.name, value: t.talentId })),
 ])
+const workSelectOptions = computed(() => [
+  { label: '随机（只在宣传推广 / 花式摇杯 / 招牌试饮中选）', value: 0 },
+  ...workOptions.value.map(w => ({ label: `${w.name}${w.risky ? '（有风险）' : ''}`, value: w.workType })),
+])
+const workModel = computed<number>({
+  get: () => tea.value.workType,
+  set: (v) => {
+    tea.value.workType = Number(v) || 0
+  },
+})
+const workDescription = computed(() => workOptions.value.find(w => w.workType === tea.value.workType)?.description || '')
 const durationModel = computed<number>({
   get: () => tea.value.durationId,
   set: (v) => {
@@ -135,6 +147,7 @@ async function load() {
       tea.value = { ...tea.value, ...teaRes.data.data }
       durationOptions.value = teaRes.data.options?.durations || []
       talentOptions.value = teaRes.data.options?.talents || []
+      workOptions.value = teaRes.data.options?.works || []
     }
   }
   catch (e: any) {
@@ -190,7 +203,7 @@ async function saveTea() {
     const res = await api.post('/api/fnos/milk-tea-auto-hire', tea.value, { headers: headers() })
     if (res.data?.data)
       tea.value = { ...tea.value, ...res.data.data }
-    reportSave(res, '奶茶自动雇佣设置已保存')
+    reportSave(res, '奶茶雇佣与工作事项设置已保存')
   }
   catch (e: any) {
     toast.error(getApiErrorMessage(e, '保存失败'))
@@ -333,7 +346,7 @@ onMounted(() => {
               奶茶活动自动雇佣
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              员工位空出（到期）时自动从可雇佣好友里雇人，约每 5 分钟检查一次。
+              员工位空出（到期）时自动从可雇佣好友里雇人，约每 5 分钟检查一次；本账号被别人雇佣时还可以自动做工作事项。
             </p>
           </div>
         </div>
@@ -362,12 +375,25 @@ onMounted(() => {
               <BaseSwitch v-model="tea.allowRobots" label="好友都不可雇时雇系统员工" />
             </div>
           </template>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="tea.autoWork" label="雇佣后自动做工作事项（本账号被雇佣时）" />
+          </div>
+          <template v-if="tea.autoWork">
+            <BaseSelect v-model="workModel" label="工作事项" :options="workSelectOptions" />
+            <p class="fnos-hint text-gray-500 dark:text-gray-400">
+              {{ workDescription || '每个兼职班次自动选一项工作事项为老板提交（每班次 1 次），约每 10 分钟检查一次。' }}
+              工作事项由<strong>被雇佣的账号</strong>完成：例如小号雇了大号，要在<strong>大号</strong>的这个栏目里打开本开关。不影响「自动雇佣」开关。
+            </p>
+            <p v-if="tea.workType === 4 || tea.workType === 5" class="fnos-hint fnos-hint--box bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300">
+              ⚠️ 该事项有概率让本班工资减半。
+            </p>
+          </template>
           <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
             ⚠️ 雇佣会消耗奶茶券：4 小时 40、12 小时 130、24 小时 270（以游戏当时返回的价格为准）。奶茶券不足、活动结算期或剩余营业时间不足时自动跳过。
           </p>
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="teaSaving" @click="saveTea">
-              保存奶茶雇佣
+              保存奶茶雇佣与工作事项
             </BaseButton>
           </div>
         </div>

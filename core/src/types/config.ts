@@ -108,6 +108,8 @@ export interface AccountConfig {
     durationId: number;
     talentId: number;
     allowRobots: boolean;
+    autoWork?: boolean;
+    workType?: number;
   };
   /** [fnos-fork] 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（见 services/fnos-milk-tea-daily.ts） */
   fnosMilkTeaDaily?: {
