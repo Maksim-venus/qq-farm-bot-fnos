@@ -67,10 +67,10 @@ function reset() { calls.length = 0; logs.length = 0; coop.resetFnosAltCoopRunti
 test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
 test('配置：新字段默认关闭，保存后从 store.json 读回', () => {
-    assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false });
+    assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false });
     store.applyConfigSnapshot({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10, skipStealMaster: true, badOnlyMaster: 1 } }, { accountId: '7' });
     const raw = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'store.json'), 'utf8'));
-    assert.deepEqual(raw.accountConfigs['7'].fnosAltAccount, { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10, skipStealMaster: true, badOnlyMaster: true });
+    assert.deepEqual(raw.accountConfigs['7'].fnosAltAccount, { enabled: true, masterGid: MASTER, masterName: 'Maksim', holdForMaster: true, timeoutMinutes: 10, skipStealMaster: true, badOnlyMaster: true });
     // 只改一个字段时保留其他字段
     store.applyConfigSnapshot({ fnosAltAccount: { badOnlyMaster: false } }, { accountId: '7' });
     assert.equal(store.getConfigSnapshot('7').fnosAltAccount.skipStealMaster, true);
@@ -132,6 +132,18 @@ test('只给大号放捣乱：其他好友不放；「自动捣乱」关着也�
     coop.resetFnosAltCoopRuntime();
     await scheduler.checkFriends();
     assert.ok(calls.includes(`enter:${MASTER}`), calls.join('\n'));
+});
+
+test('[fnos-fork] 关闭「成熟作物先留给大号偷」不影响「不偷大号的菜」「只给大号放捣乱」', async () => {
+    reset(); setupFarms();
+    setAutomation({ friend: true, friend_steal: true, friend_help: true, friend_bad: false });
+    apply({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', holdForMaster: false, skipStealMaster: true, badOnlyMaster: true } });
+    assert.equal(store.getConfigSnapshot('5').fnosAltAccount.holdForMaster, false);
+    assert.deepEqual(coop.getAltCoopSettings(), { masterGid: MASTER, masterName: 'Maksim', skipSteal: true, badOnly: true });
+    await scheduler.checkFriends();
+    assert.ok(!calls.some(c => c.startsWith(`steal:${MASTER}`)), calls.join('\n'));
+    assert.ok(calls.includes(`steal:${OTHER}:1`), calls.join('\n'));
+    apply({ fnosAltAccount: { holdForMaster: true } });
 });
 
 test('不是小号（或没选大号）时选项不生效', async () => {

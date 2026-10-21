@@ -17,6 +17,11 @@ export {};
  * （2026.10.20.3：花费催熟等情况下服务端时间戳可能早于实际可收时间，会让超时被误判为已到）。
  * 两个信号都未经真号验证，详见 fnos/飞牛部署与变更说明.md。
  *
+ * [fnos-fork] 2026.10.22 之后：「成熟作物先留给大号偷」改为开关 holdForMaster。
+ * 关闭时小号像普通账号一样正常收获自己的地（超时设置也不生效）；小号身份（enabled + 大号）
+ * 仍保留，供「不偷大号的菜」「只给大号放捣乱」及奶茶雇佣旧版迁移使用。
+ * 旧配置没有该字段时视为 true（保持原有行为），新启用小号默认也是 true。
+ *
  * 本文件只做判定与日志，不改动上游的收获/种植流程；scheduler.ts 中只有少量带
  * “[fnos-fork] 大号/小号” 注释的挂钩代码。非小号账号行为完全不变。
  */
@@ -34,7 +39,9 @@ export interface FnosAltAccountConfig {
     masterGid: number;
     /** 大号昵称（仅用于显示与日志） */
     masterName: string;
-    /** 成熟后超过多少分钟仍未被大号偷就照常收获；0 = 一直等大号 */
+    /** [fnos-fork] 成熟作物先留给大号偷（只收大号偷过的地 + 超时兜底）；关闭时正常收获。缺省 true */
+    holdForMaster: boolean;
+    /** 成熟后超过多少分钟仍未被大号偷就照常收获；0 = 一直等大号。仅 holdForMaster 打开时生效 */
     timeoutMinutes: number;
     /** 2026.10.21.3「大小号协作」：好友巡查时不偷大号的菜（见 services/friend/fnos-alt-coop.ts） */
     skipStealMaster: boolean;
@@ -46,6 +53,7 @@ const DEFAULT_FNOS_ALT_ACCOUNT: FnosAltAccountConfig = {
     enabled: false,
     masterGid: 0,
     masterName: '',
+    holdForMaster: true,
     timeoutMinutes: 0,
     skipStealMaster: false,
     badOnlyMaster: false,
@@ -65,6 +73,8 @@ function normalizeFnosAltAccount(input: unknown, fallback: FnosAltAccountConfig 
         masterName: masterGid > 0
             ? String(src.masterName !== undefined ? src.masterName : base.masterName || '').trim().slice(0, 64)
             : '',
+        // [fnos-fork] 缺省（旧配置无此字段）沿用 fallback，fallback 也没有时为 true
+        holdForMaster: src.holdForMaster !== undefined ? !!src.holdForMaster : base.holdForMaster !== false,
         timeoutMinutes,
         skipStealMaster: src.skipStealMaster !== undefined ? !!src.skipStealMaster : !!base.skipStealMaster,
         badOnlyMaster: src.badOnlyMaster !== undefined ? !!src.badOnlyMaster : !!base.badOnlyMaster,
@@ -219,7 +229,7 @@ export interface AltHarvestDecision {
     landId: number;
     plantName: string;
     harvest: boolean;
-    /** stolen_by_master | timeout | waiting | not_configured */
+    /** stolen_by_master | timeout | waiting | not_configured | hold_disabled */
     reason: string;
     /** 判定来源说明（日志用） */
     detail: string;
@@ -262,6 +272,10 @@ function decideAltHarvest(params: {
 
         if (!config || !config.enabled || masterGid <= 0) {
             return { ...base, harvest: true, reason: 'not_configured', detail: '未设置大号' };
+        }
+        // [fnos-fork] 「成熟作物先留给大号偷」关闭：正常收获
+        if (config.holdForMaster === false) {
+            return { ...base, harvest: true, reason: 'hold_disabled', detail: '未开启「成熟作物先留给大号偷」' };
         }
 
         const stealers = plant ? decodeStealerGids(plant.stealers) : [];
@@ -396,6 +410,12 @@ async function filterHarvestForAltAccount(
                 module: 'farm', event: '小号留菜', result: 'not_configured',
             });
         }
+        return { landIds: ids, filtered: false, held: [] };
+    }
+    // [fnos-fork] 「成熟作物先留给大号偷」关闭：像普通账号一样收获（含 is_all 一键全收），不打留菜日志
+    if (config.holdForMaster === false) {
+        firstSeenByLand.clear();
+        lastWaitLogKey = '';
         return { landIds: ids, filtered: false, held: [] };
     }
 

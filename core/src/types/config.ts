@@ -100,6 +100,8 @@ export interface AccountConfig {
     enabled: boolean;
     masterGid: number;
     masterName: string;
+    /** [fnos-fork] 成熟作物先留给大号偷（缺省视为 true）；关闭时小号正常收获，timeoutMinutes 不生效 */
+    holdForMaster?: boolean;
     timeoutMinutes: number;
     /** [fnos-fork] 2026.10.21.3 大小号协作：不偷大号的菜 */
     skipStealMaster?: boolean;

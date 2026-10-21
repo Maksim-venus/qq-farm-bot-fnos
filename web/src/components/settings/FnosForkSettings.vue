@@ -21,12 +21,13 @@ const props = defineProps<{ accountId?: string | null, accountName?: string | nu
 const isCoop = computed(() => props.section === 'coop')
 const toast = useToastStore()
 
-interface AltAccount { enabled: boolean, masterGid: number, masterName: string, timeoutMinutes: number, skipStealMaster: boolean, badOnlyMaster: boolean }
+interface AltAccount { enabled: boolean, masterGid: number, masterName: string, holdForMaster: boolean, timeoutMinutes: number, skipStealMaster: boolean, badOnlyMaster: boolean }
 interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityGid: number, priorityName: string, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
 interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
-const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false })
+// [fnos-fork] holdForMaster「成熟作物先留给大号偷」缺省为 true（旧配置没有该字段时保持原有行为）
+const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false })
 const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
@@ -168,7 +169,7 @@ async function load() {
     if (dailyRes.data?.ok)
       daily.value = { ...daily.value, ...dailyRes.data.data }
     if (altRes.data?.ok)
-      alt.value = { ...alt.value, ...altRes.data.data }
+      alt.value = { ...alt.value, ...altRes.data.data, holdForMaster: altRes.data.data?.holdForMaster !== false }
     if (teaRes.data?.ok) {
       tea.value = { ...tea.value, ...teaRes.data.data }
       durationOptions.value = teaRes.data.options?.durations || []
@@ -213,7 +214,7 @@ async function saveAlt(okText = '大号/小号设置已保存') {
   try {
     const res = await api.post('/api/fnos/alt-account', alt.value, { headers: headers() })
     if (res.data?.data)
-      alt.value = { ...alt.value, ...res.data.data }
+      alt.value = { ...alt.value, ...res.data.data, holdForMaster: res.data.data?.holdForMaster !== false }
     reportSave(res, okText)
   }
   catch (e: any) {
@@ -305,7 +306,7 @@ onMounted(() => {
               大号/小号
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              小号的成熟作物先留给大号偷；检测到大号偷过这块地，自动巡田才收获。手动点「收获」「一键全收」不受限制。
+              标记本账号是大号的小号。可选「成熟作物先留给大号偷」：检测到大号偷过这块地，自动巡田才收获；手动点「收获」「一键全收」不受限制。
             </p>
           </div>
         </div>
@@ -344,15 +345,24 @@ onMounted(() => {
                 使用
               </BaseButton>
             </div>
-            <BaseInput
-              v-model="timeoutModel"
-              type="number"
-              :min="0"
-              :max="10080"
-              label="超时后仍收获（分钟，从发现可收时算起，0 = 一直等大号）"
-            />
-            <p class="fnos-hint text-gray-500 dark:text-gray-400">
-              判定依据：土地数据里的偷菜者列表，或访客记录里大号的「偷取作物」（不早于成熟时间）。还没被大号偷的地会在日志「小号」里写明原因；保存后日志会打印「小号模式已启用…」确认已生效。非小号账号不受影响。
+            <!-- [fnos-fork] 成熟作物先留给大号偷：开关（关闭时小号正常收获，超时不生效） -->
+            <div class="fnos-setting-item" data-testid="fnos-alt-hold-for-master">
+              <BaseSwitch v-model="alt.holdForMaster" label="成熟作物先留给大号偷" />
+            </div>
+            <template v-if="alt.holdForMaster">
+              <BaseInput
+                v-model="timeoutModel"
+                type="number"
+                :min="0"
+                :max="10080"
+                label="超时后仍收获（分钟，从发现可收时算起，0 = 一直等大号）"
+              />
+              <p class="fnos-hint text-gray-500 dark:text-gray-400">
+                判定依据：土地数据里的偷菜者列表，或访客记录里大号的「偷取作物」（不早于成熟时间）。还没被大号偷的地会在日志「小号」里写明原因；保存后日志会打印「小号模式已启用…」确认已生效。非小号账号不受影响。
+              </p>
+            </template>
+            <p v-else class="fnos-hint text-gray-500 dark:text-gray-400">
+              已关闭：小号像普通账号一样正常收获自己的地。「不偷大号的菜」「只给大号放捣乱」不受影响。
             </p>
           </template>
 

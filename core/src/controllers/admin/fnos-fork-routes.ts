@@ -60,7 +60,10 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         const id = getAccId(ctx, req);
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
         try {
-            const next = normalizeFnosAltAccount(req.body || {}, DEFAULT_FNOS_ALT_ACCOUNT);
+            const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body : {};
+            // [fnos-fork] holdForMaster「成熟作物先留给大号偷」：请求里没带时沿用已保存的值（旧配置缺省为 true）
+            const current = normalizeFnosAltAccount(store.getConfigSnapshot(id)?.fnosAltAccount);
+            const next = normalizeFnosAltAccount(body, { ...DEFAULT_FNOS_ALT_ACCOUNT, holdForMaster: current.holdForMaster });
             if (next.enabled && next.masterGid <= 0) {
                 return res.status(400).json({ ok: false, error: '开启「这是小号」时必须选择大号' });
             }

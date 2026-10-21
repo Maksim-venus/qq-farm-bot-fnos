@@ -105,10 +105,10 @@ function matureLand(id, extra = {}) {
 
 // ---------- 配置规范化 ----------
 test('normalizeFnosAltAccount: 默认关闭、清理非法值', () => {
-    assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false });
+    assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false });
     assert.deepEqual(
         normalizeFnosAltAccount({ enabled: 1, masterGid: String(MASTER), masterName: '  大号  ', timeoutMinutes: '30' }),
-        { enabled: true, masterGid: MASTER, masterName: '大号', timeoutMinutes: 30, skipStealMaster: false, badOnlyMaster: false },
+        { enabled: true, masterGid: MASTER, masterName: '大号', holdForMaster: true, timeoutMinutes: 30, skipStealMaster: false, badOnlyMaster: false },
     );
     const bad = normalizeFnosAltAccount({ enabled: true, masterGid: -5, masterName: 'x', timeoutMinutes: -1 });
     assert.equal(bad.masterGid, 0);
@@ -116,7 +116,7 @@ test('normalizeFnosAltAccount: 默认关闭、清理非法值', () => {
     assert.equal(bad.timeoutMinutes, 0);
     assert.equal(normalizeFnosAltAccount({ timeoutMinutes: 999999 }).timeoutMinutes, 7 * 24 * 60);
     // 局部更新保留原值
-    const prev = { enabled: true, masterGid: MASTER, masterName: 'A', timeoutMinutes: 5, skipStealMaster: true, badOnlyMaster: false };
+    const prev = { enabled: true, masterGid: MASTER, masterName: 'A', holdForMaster: true, timeoutMinutes: 5, skipStealMaster: true, badOnlyMaster: false };
     assert.deepEqual(normalizeFnosAltAccount({ timeoutMinutes: 10 }, prev), { ...prev, timeoutMinutes: 10 });
 });
 
@@ -226,6 +226,16 @@ test('decideAltHarvest: 超时兜底从「首次发现可收」算起（0 = 一�
     assert.equal(d.harvest, false);
 });
 
+test('decideAltHarvest: [fnos-fork] holdForMaster 关 → 全部正常收（含超时设置）；开 / 缺省 → 等大号', () => {
+    const lands = [matureLand(1), matureLand(2, { stealers: packed(OTHER) })];
+    let ds = decideAltHarvest({ lands, harvestableIds: [1, 2], config: { ...CFG, holdForMaster: false, timeoutMinutes: 10 }, records: [], nowSec: NOW });
+    assert.deepEqual(ds.map(d => [d.landId, d.harvest, d.reason]), [[1, true, 'hold_disabled'], [2, true, 'hold_disabled']]);
+    for (const config of [{ ...CFG, holdForMaster: true }, CFG]) {
+        ds = decideAltHarvest({ lands, harvestableIds: [1, 2], config, records: [], nowSec: NOW });
+        assert.deepEqual(ds.map(d => d.reason), ['waiting', 'waiting']);
+    }
+});
+
 test('decideAltHarvest: 取不到成熟时间时，大号很早以前在这块地的偷菜记录不算', () => {
     const lands = [{ ...matureLand(1), plant: { ...matureLand(1).plant, phases: [] } }];
     const seen = new Map([[1, NOW]]);
@@ -295,4 +305,21 @@ test('runFarmOperation: 访客记录读取失败时保守不收，并在日志�
     }
     assert.deepEqual(harvestCalls, []);
     assert.ok(logs.some(l => l.includes('访客记录读取失败')));
+});
+
+test('runFarmOperation: [fnos-fork] 小号关闭「成熟作物先留给大号偷」→ 像普通账号一样一次全收（is_all=true），不读访客记录、不写留菜日志', async () => {
+    resetRun({ ...CFG, holdForMaster: false, timeoutMinutes: 30, skipStealMaster: true }, [matureLand(1), matureLand(2)]);
+    await runFarmOperation('all');
+    assert.deepEqual(harvestCalls, [{ landIds: [1, 2], isAll: true }]);
+    assert.equal(interactCalls, 0);
+    assert.ok(!logs.some(l => l.includes('留给大号')), logs.join('\n'));
+});
+
+test('runFarmOperation: [fnos-fork] holdForMaster 显式打开 / 缺省（旧配置）→ 都留给大号', async () => {
+    for (const config of [{ ...CFG, holdForMaster: true }, CFG]) {
+        resetRun(config, [matureLand(1, { stealers: packed(MASTER) }), matureLand(2)]);
+        await runFarmOperation('all');
+        assert.deepEqual(harvestCalls, [{ landIds: [1], isAll: false }]);
+        assert.ok(logs.some(l => l.includes('暂不收获 1 块')), logs.join('\n'));
+    }
 });

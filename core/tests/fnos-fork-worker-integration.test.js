@@ -122,8 +122,8 @@ test('worker 初始配置未开小号 → 照常收获；运行中保存开启�
     const saved = { ...store.getConfigSnapshot('2'), fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10 } };
     logs.length = 0;
     workerApply(saved);
-    assert.ok(logs.includes(`小号|设置已更新：小号模式已启用，大号 Maksim(${MASTER})，超时 10 分钟（从本进程首次发现可收时算起）；自动巡田只收大号偷过的地，手动收获不受限；会偷大号的菜；捣乱按「自动捣乱」设置`), logs.join('\n'));
-    assert.deepEqual(readFnosForkConfigs().alt, { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10, skipStealMaster: false, badOnlyMaster: false });
+    assert.ok(logs.includes(`小号|设置已更新：小号模式已启用，大号 Maksim(${MASTER})，成熟作物先留给大号偷，超时 10 分钟（从本进程首次发现可收时算起）；自动巡田只收大号偷过的地，手动收获不受限；会偷大号的菜；捣乱按「自动捣乱」设置`), logs.join('\n'));
+    assert.deepEqual(readFnosForkConfigs().alt, { enabled: true, masterGid: MASTER, masterName: 'Maksim', holdForMaster: true, timeoutMinutes: 10, skipStealMaster: false, badOnlyMaster: false });
     // 同样的配置再下发一次不重复打印
     logs.length = 0;
     workerApply(saved);

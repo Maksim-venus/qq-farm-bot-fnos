@@ -11,7 +11,7 @@ export {};
  */
 
 export interface FnosForkConfigs {
-    alt: { enabled: boolean; masterGid: number; masterName: string; timeoutMinutes: number; skipStealMaster: boolean; badOnlyMaster: boolean };
+    alt: { enabled: boolean; masterGid: number; masterName: string; holdForMaster: boolean; timeoutMinutes: number; skipStealMaster: boolean; badOnlyMaster: boolean };
     tea: {
         enabled: boolean; durationId: number; priorityGid: number; priorityName: string; priorityConfigured: boolean;
         talentId: number; allowRobots: boolean; autoWork: boolean; workType: number;
@@ -52,9 +52,13 @@ function describeAlt(alt: FnosForkConfigs['alt']): string {
     if (!alt.enabled) return '小号模式未启用（本账号按普通账号收获）';
     if (!(alt.masterGid > 0)) return '小号模式已开启但未选择大号（照常收获），请到 设置 → 大小号协作 选择大号';
     const master = alt.masterName ? `${alt.masterName}(${alt.masterGid})` : `GID ${alt.masterGid}`;
-    const timeout = alt.timeoutMinutes > 0 ? `超时 ${alt.timeoutMinutes} 分钟（从本进程首次发现可收时算起）` : '不超时（一直等大号）';
     const coop = `${alt.skipStealMaster ? '不偷大号的菜' : '会偷大号的菜'}；${alt.badOnlyMaster ? '放草/放虫只对大号（帮大号时不除草除虫）' : '捣乱按「自动捣乱」设置'}`;
-    return `小号模式已启用，大号 ${master}，${timeout}；自动巡田只收大号偷过的地，手动收获不受限；${coop}`;
+    // [fnos-fork] 「成熟作物先留给大号偷」开关
+    if (alt.holdForMaster === false) {
+        return `小号模式已启用，大号 ${master}；「成熟作物先留给大号偷」未开启，自动巡田正常收获自己的地；${coop}`;
+    }
+    const timeout = alt.timeoutMinutes > 0 ? `超时 ${alt.timeoutMinutes} 分钟（从本进程首次发现可收时算起）` : '不超时（一直等大号）';
+    return `小号模式已启用，大号 ${master}，成熟作物先留给大号偷，${timeout}；自动巡田只收大号偷过的地，手动收获不受限；${coop}`;
 }
 
 const WORK_TEXT: Record<number, string> = { 0: '随机（宣传推广/花式摇杯/招牌试饮）', 1: '宣传推广', 2: '花式摇杯', 3: '招牌试饮', 4: '划水摸鱼', 5: '申请涨薪' };
@@ -99,7 +103,7 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     if (!force && first) return false;
     const { log } = require('../utils/utils');
     const prefix = reason ? `${reason}：` : '';
-    log('小号', `${prefix}${describeAlt(cfg.alt)}`, { module: 'farm', event: '小号设置', result: cfg.alt.enabled ? 'enabled' : 'disabled', masterGid: cfg.alt.masterGid, timeoutMinutes: cfg.alt.timeoutMinutes });
+    log('小号', `${prefix}${describeAlt(cfg.alt)}`, { module: 'farm', event: '小号设置', result: cfg.alt.enabled ? 'enabled' : 'disabled', masterGid: cfg.alt.masterGid, holdForMaster: cfg.alt.holdForMaster, timeoutMinutes: cfg.alt.timeoutMinutes });
     log('奶茶雇佣', `${prefix}${describeTea(cfg.tea, cfg.alt)}`, { module: 'activity', event: '奶茶自动雇佣设置', result: cfg.tea.enabled ? 'enabled' : 'disabled' });
     log('奶茶收益', `${prefix}${describeDaily(cfg.daily)}`, { module: 'activity', event: '奶茶收益与兑换设置', result: cfg.daily.autoClaim || cfg.daily.autoExchangeSeed ? 'enabled' : 'disabled' });
     return true;
