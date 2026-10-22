@@ -66,11 +66,17 @@ function reset() { calls.length = 0; logs.length = 0; coop.resetFnosAltCoopRunti
 
 test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
-test('配置：新字段默认关闭，保存后从 store.json 读回', () => {
+// [fnos-fork] 上游 2026-10-22 起账号配置拆分为 data/account-configs/<id>.json（store.json 只留公共配置）
+function readAccountConfigFile(dataDir, id) {
+    const name = /^\d+$/.test(id) ? id : `id-${Buffer.from(id, 'utf8').toString('hex')}`;
+    return JSON.parse(fs.readFileSync(path.join(dataDir, 'account-configs', `${name}.json`), 'utf8'));
+}
+
+test('配置：新字段默认关闭，保存后从账号配置文件读回', () => {
     assert.deepEqual(normalizeFnosAltAccount(undefined), { enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false });
     store.applyConfigSnapshot({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10, skipStealMaster: true, badOnlyMaster: 1 } }, { accountId: '7' });
-    const raw = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'store.json'), 'utf8'));
-    assert.deepEqual(raw.accountConfigs['7'].fnosAltAccount, { enabled: true, masterGid: MASTER, masterName: 'Maksim', holdForMaster: true, timeoutMinutes: 10, skipStealMaster: true, badOnlyMaster: true });
+    const raw = readAccountConfigFile(DATA_DIR, '7');
+    assert.deepEqual(raw.fnosAltAccount, { enabled: true, masterGid: MASTER, masterName: 'Maksim', holdForMaster: true, timeoutMinutes: 10, skipStealMaster: true, badOnlyMaster: true });
     // 只改一个字段时保留其他字段
     store.applyConfigSnapshot({ fnosAltAccount: { badOnlyMaster: false } }, { accountId: '7' });
     assert.equal(store.getConfigSnapshot('7').fnosAltAccount.skipStealMaster, true);

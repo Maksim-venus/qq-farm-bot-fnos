@@ -16,7 +16,7 @@ export {};
  *   POST /api/fnos/milk-tea-daily         保存
  * 以上都在前端「设置 → 活动设置」栏目。
  *
- * 保存走与设置页相同的 provider.saveSettings：写入 store.json，运行中的账号同步到 worker 并等待确认。
+ * 保存走与设置页相同的 provider.saveSettings：写入账号配置（上游 2026-10-22 起为 data/account-configs/<id>.json），运行中的账号同步到 worker 并等待确认。
  */
 
 const store = require('../../models/store');

@@ -71,12 +71,13 @@ test('未指定优先雇佣人 → 按「雇佣时长」随机雇好友；新卡
     assert.equal(eff.priorityGid, 0);
 });
 
-test('老配置迁移：store.json 里旧版小号 + 自动雇佣（无优先雇佣人字段）→ 优先雇大号，时长沿用该账号的雇佣时长', async () => {
-    // 模拟 2026.10.21.2 之前写入 store.json 的配置（新进程读回）
+test('老配置迁移：旧版小号 + 自动雇佣（无优先雇佣人字段）→ 优先雇大号，时长沿用该账号的雇佣时长', async () => {
+    // 模拟 2026.10.21.2 之前写入的配置（新进程读回）。[fnos-fork] 上游 2026-10-22 起账号配置拆分到 account-configs/<id>.json，
+    // 这里改写该账号的配置文件；旧版聚合 store.json 的升级迁移见 fnos-fork-config-persist.test.js。
     store.applyConfigSnapshot({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10 } }, { accountId: '9' });
-    const file = path.join(DATA_DIR, 'store.json');
+    const file = path.join(DATA_DIR, 'account-configs', '9.json');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
-    raw.accountConfigs['9'].fnosMilkTeaAutoHire = { enabled: true, durationId: 2, talentId: 0, allowRobots: false };
+    raw.fnosMilkTeaAutoHire = { enabled: true, durationId: 2, talentId: 0, allowRobots: false };
     fs.writeFileSync(file, JSON.stringify(raw));
     const { execFileSync } = require('node:child_process');
     const out = execFileSync(process.execPath, ['-e', `const s=require(${JSON.stringify(path.join(__dirname, '../dist/models/store'))});const h=require(${JSON.stringify(path.join(__dirname, '../dist/services/fnos-milk-tea-auto-hire'))});const c=s.getConfigSnapshot('9');console.log(JSON.stringify(h.resolveEffectiveHireConfig(c.fnosMilkTeaAutoHire,c.fnosAltAccount)))`], { env: { ...process.env, QQ_FARM_DATA_DIR: DATA_DIR } }).toString().trim().split('\n').pop();

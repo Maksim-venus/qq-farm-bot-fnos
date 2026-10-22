@@ -31,7 +31,13 @@ test('归一化：缺省为 true（默认值、旧配置无该字段、新启用
     assert.equal(normalizeFnosAltAccount({ holdForMaster: true }, prevOff).holdForMaster, true);
 });
 
-test('持久化：旧版 store.json 里没有该字段时读出 true；关掉后保存并读回 false；其他字段不受影响', () => {
+// [fnos-fork] 上游 2026-10-22 起账号配置拆分为 data/account-configs/<id>.json（store.json 只留公共配置）
+function readAccountConfigFile(dataDir, id) {
+    const name = /^\d+$/.test(id) ? id : `id-${Buffer.from(id, 'utf8').toString('hex')}`;
+    return JSON.parse(fs.readFileSync(path.join(dataDir, 'account-configs', `${name}.json`), 'utf8'));
+}
+
+test('持久化：旧版配置里没有该字段时读出 true；关掉后保存并读回 false；其他字段不受影响', () => {
     store.applyConfigSnapshot({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', timeoutMinutes: 10, skipStealMaster: true } }, { accountId: 'h1' });
     assert.equal(store.getConfigSnapshot('h1').fnosAltAccount.holdForMaster, true);
     store.applyConfigSnapshot({ fnosAltAccount: { holdForMaster: false } }, { accountId: 'h1' });
@@ -39,8 +45,8 @@ test('持久化：旧版 store.json 里没有该字段时读出 true；关掉后
     assert.equal(cfg.holdForMaster, false);
     assert.equal(cfg.skipStealMaster, true);
     assert.equal(cfg.timeoutMinutes, 10);
-    const raw = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'store.json'), 'utf8'));
-    assert.equal(raw.accountConfigs.h1.fnosAltAccount.holdForMaster, false);
+    const raw = readAccountConfigFile(DATA_DIR, 'h1');
+    assert.equal(raw.fnosAltAccount.holdForMaster, false);
 });
 
 test('状态日志：开 / 关时描述不同，关时不提超时', () => {
