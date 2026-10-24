@@ -61,6 +61,8 @@ export interface OfflineConfig {
   title: string
   msg: string
   offlineDeleteSec: number
+  /** [fnos-fork] Bark 下线提醒使用重要警告（静音/勿扰也响铃），缺省视为开启 */
+  barkCritical?: boolean
 }
 
 export interface UIConfig {
@@ -165,6 +167,7 @@ function createDefaultSettings(): SettingsState {
       title: '账号下线提醒',
       msg: '账号下线',
       offlineDeleteSec: 0,
+      barkCritical: true, // [fnos-fork]
     },
     stealDelaySeconds: 0,
     plantOrderRandom: false,

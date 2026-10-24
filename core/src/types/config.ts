@@ -135,6 +135,8 @@ export interface OfflineReminder {
   title: string;
   msg: string;
   offlineDeleteSec: number;
+  /** [fnos-fork] Bark 渠道下线提醒使用重要警告（level=critical，静音/勿扰也响铃）；缺省视为开启 */
+  barkCritical: boolean;
 }
 
 export interface UIConfig {

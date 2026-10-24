@@ -54,6 +54,8 @@ function normalizeOfflineReminder(input: unknown): OfflineReminder {
         title,
         msg,
         offlineDeleteSec,
+        // [fnos-fork] Bark 重要警告开关：只有显式 false 才关闭，老配置缺字段视为开启
+        barkCritical: src.barkCritical !== false,
     };
 }
 

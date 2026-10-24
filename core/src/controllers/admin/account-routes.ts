@@ -330,6 +330,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
                 secret,
                 title: `${titleBase}（测试）`,
                 content: `${msgBase}\n\n这是一条下线提醒测试消息。\n时间: ${ts}`,
+                barkCritical: cfg.barkCritical !== false, // [fnos-fork] 测试也按设置走 Bark 重要警告，便于验证
             });
 
             if (!ret) {

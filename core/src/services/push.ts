@@ -6,6 +6,8 @@ export {};
 const crypto = require('node:crypto');
 const axios = require('axios').default;
 const pushoo = require('pushoo').default;
+// [fnos-fork] Bark 改为自行 POST（支持重要警告），并按渠道识别非 0 的成功码
+const { sendBarkMessage, isChannelSuccessCode } = require('./fnos-push-bark');
 
 const DINGTALK_WEBHOOK_PREFIX = 'https://oapi.dingtalk.com/robot/send?access_token=';
 const MEOW_DEFAULT_BASE_URL = 'https://api.chuckfang.com';
@@ -120,6 +122,7 @@ async function sendMeowMessage(payload: any): Promise<any> {
  * @param payload.secret 钉钉机器人加签密钥（可选）
  * @param payload.title 必填 推送标题
  * @param payload.content 必填 推送内容
+ * @param payload.barkCritical [fnos-fork] 可选 Bark 渠道使用重要警告（静音/勿扰也响铃）
  * @returns 推送结果
  */
 async function sendPushooMessage(payload: any = {}): Promise<{ ok: boolean; code: string; msg: string; raw: any }> {
@@ -147,13 +150,16 @@ async function sendPushooMessage(payload: any = {}): Promise<{ ok: boolean; code
         ? await sendDingTalkMessage({ endpoint, token, secret, title, content })
         : channel === 'meow'
             ? await sendMeowMessage({ endpoint, token, title, content })
-            : await pushoo(channel, request);
+            : channel === 'bark' // [fnos-fork]
+                ? await sendBarkMessage({ token, title, content, critical: payload.barkCritical === true })
+                : await pushoo(channel, request);
 
     const raw: any = (result && typeof result === 'object') ? result : { data: result };
     const hasError: boolean = !!(raw && raw.error);
     const code: string = String(raw.code || raw.errcode || (hasError ? 'error' : 'ok'));
     const message: string = String(raw.msg || raw.errmsg || raw.message || (hasError ? (raw.error.message || 'push failed') : 'ok'));
-    const ok: boolean = !hasError && (code === 'ok' || code === '0' || code === '' || String(raw.status || '').toLowerCase() === 'success');
+    const ok: boolean = !hasError && (code === 'ok' || code === '0' || code === '' || String(raw.status || '').toLowerCase() === 'success'
+        || isChannelSuccessCode(channel, code)); // [fnos-fork] Bark/PushPlus 成功码 200、WxPusher 1000
 
     return {
         ok,

@@ -37,7 +37,7 @@ function createReloginReminderService(options: ReloginReminderOptions) {
         return { ok: true, channel, endpoint, token, secret };
     }
 
-    async function sendConfiguredPush(payload: { title?: string; content?: string; accountId?: string; accountName?: string; logLabel?: string } = {}): Promise<void> {
+    async function sendConfiguredPush(payload: { title?: string; content?: string; accountId?: string; accountName?: string; logLabel?: string; barkCritical?: boolean } = {}): Promise<void> {
         const accountId = String(payload.accountId || '').trim();
         const accountName = String(payload.accountName || '').trim();
         const baseTitle = String(payload.title || '').trim();
@@ -61,6 +61,7 @@ function createReloginReminderService(options: ReloginReminderOptions) {
                 secret: channelCfg.secret,
                 title,
                 content,
+                barkCritical: payload.barkCritical === true, // [fnos-fork] 仅下线提醒传入；事件提醒保持普通推送
             });
             if (result?.ok) {
                 log('系统', `${logLabel}发送成功: ${accountName || accountId || title}`);
@@ -92,7 +93,14 @@ function createReloginReminderService(options: ReloginReminderOptions) {
                 return;
             }
 
-            await sendConfiguredPush({ title: baseTitle, content, accountId, accountName, logLabel: '下线提醒' });
+            await sendConfiguredPush({
+                title: baseTitle,
+                content,
+                accountId,
+                accountName,
+                logLabel: '下线提醒',
+                barkCritical: cfg.barkCritical !== false, // [fnos-fork] Bark 下线提醒默认重要警告
+            });
         } catch (e: any) {
             log('错误', `下线提醒发送异常: ${e.message}`);
         }

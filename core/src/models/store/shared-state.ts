@@ -42,6 +42,7 @@ const DEFAULT_OFFLINE_REMINDER: OfflineReminder = {
     title: '账号下线提醒',
     msg: '账号下线',
     offlineDeleteSec: 0,
+    barkCritical: true, // [fnos-fork]
 };
 
 const DEFAULT_LOGIN_SETTINGS: LoginSettings = {

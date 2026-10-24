@@ -1075,6 +1075,7 @@ const localOffline = ref({
   title: '',
   msg: '',
   offlineDeleteSec: 0,
+  barkCritical: true, // [fnos-fork]
 })
 
 const channelOptions = [
@@ -1126,6 +1127,7 @@ const CHANNEL_DOCS: Record<string, string> = {
 const offlineChannel = computed(() => String(localOffline.value.channel || '').trim().toLowerCase())
 const isDingTalkChannel = computed(() => offlineChannel.value === 'dingtalk')
 const isMeowChannel = computed(() => offlineChannel.value === 'meow')
+const isBarkChannel = computed(() => offlineChannel.value === 'bark') // [fnos-fork]
 const offlineChannelUsesEndpoint = computed(() => offlineChannel.value === 'webhook' || isDingTalkChannel.value)
 const offlineEndpointLabel = computed(() => isDingTalkChannel.value ? 'Webhook 地址' : '接口地址')
 const offlineEndpointPlaceholder = computed(() => isDingTalkChannel.value
@@ -1157,6 +1159,7 @@ function syncLocalOfflineSettings() {
       offlineDeleteSec: 0,
       ...saved,
     }
+    next.barkCritical = saved.barkCritical !== false // [fnos-fork] 老配置缺字段视为开启
 
     if (String(next.channel || '').trim().toLowerCase() === 'dingtalk') {
       const legacyToken = String(next.token || '').trim()
@@ -2198,6 +2201,17 @@ async function handleResetSystemConfig() {
                       从群机器人的设置页复制完整 Webhook；只有开启“加签”时才需要填写加签密钥。
                     </p>
                   </template>
+
+                  <!-- [fnos-fork] Bark 重要警告 -->
+                  <div v-if="isBarkChannel" class="flex flex-col gap-1 sm:col-span-2">
+                    <BaseSwitch
+                      v-model="localOffline.barkCritical"
+                      label="静音也提醒（重要警告）"
+                    />
+                    <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+                      开启后下线提醒以 Bark「重要警告」发送（音量 5、铃声持续约 30 秒），手机静音或勿扰时也会响铃；「测试通知」同样按此设置发送。需在 iPhone「设置 → 通知 → Bark」里允许「重要警告」。
+                    </p>
+                  </div>
 
                   <BaseInput
                     v-model="localOffline.title"
