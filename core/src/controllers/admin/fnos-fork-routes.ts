@@ -97,7 +97,16 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         const id = getAccId(ctx, req);
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
         try {
-            const next = { ...normalizeFnosMilkTeaAutoHire(req.body || {}, DEFAULT_FNOS_MILK_TEA_AUTO_HIRE), priorityConfigured: true };
+            const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body : {};
+            // [fnos-fork] 2026-10-27 多个优先雇佣人：请求里没带 priorityFriends / priorityGid 时沿用当前生效的列表
+            // （含老配置按旧版小号迁移出的大号），其他字段仍按请求保存
+            const snapshot = store.getConfigSnapshot(id);
+            const current = resolveEffectiveHireConfig(
+                snapshot && snapshot.fnosMilkTeaAutoHire, normalizeFnosAltAccount(snapshot && snapshot.fnosAltAccount));
+            const next = {
+                ...normalizeFnosMilkTeaAutoHire(body, { ...DEFAULT_FNOS_MILK_TEA_AUTO_HIRE, priorityFriends: current.priorityFriends }),
+                priorityConfigured: true,
+            };
             const data = await ctx.provider.saveSettings(id, { fnosMilkTeaAutoHire: next });
             sendSaveResult(res, data, d => normalizeFnosMilkTeaAutoHire(d.fnosMilkTeaAutoHire));
         } catch (e: any) {

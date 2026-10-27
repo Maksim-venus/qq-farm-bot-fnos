@@ -30,11 +30,11 @@ const MASTER = 4300123456;
 const friend = (gid, extra = {}) => ({ friend: { gid: String(gid), name: `F${gid}` }, is_robot: false, talent_id: 9001, state: 0, rehire_available_at: '0', ...extra });
 
 test('normalizeFnosMilkTeaAutoHire: 默认关闭、随机时长/不限职业，非法值回到默认', () => {
-    assert.deepEqual(normalizeFnosMilkTeaAutoHire(undefined), { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 });
+    assert.deepEqual(normalizeFnosMilkTeaAutoHire(undefined), { enabled: false, durationId: 0, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 });
     assert.deepEqual(normalizeFnosMilkTeaAutoHire({ enabled: true, durationId: '3', talentId: 9002, allowRobots: 1 }),
-        { enabled: true, durationId: 3, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 9002, allowRobots: true, autoWork: false, workType: 0 });
+        { enabled: true, durationId: 3, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 9002, allowRobots: true, autoWork: false, workType: 0 });
     assert.deepEqual(normalizeFnosMilkTeaAutoHire({ autoWork: 1, workType: '9' }).workType, 0);
-    assert.deepEqual(normalizeFnosMilkTeaAutoHire({ autoWork: 1, workType: '2' }), { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 2 });
+    assert.deepEqual(normalizeFnosMilkTeaAutoHire({ autoWork: 1, workType: '2' }), { enabled: false, durationId: 0, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 2 });
     const bad = normalizeFnosMilkTeaAutoHire({ enabled: true, durationId: 9, talentId: 1 });
     assert.equal(bad.durationId, 0);
     assert.equal(bad.talentId, 0);

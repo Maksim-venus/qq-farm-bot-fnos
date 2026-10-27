@@ -84,7 +84,7 @@ test('开启（自动雇佣开关可以关着）：为老板提交指定事项�
     reset();
     work.resetFnosMilkTeaAutoWorkRuntime();
     workerApply({ fnosMilkTeaAutoHire: { enabled: false, autoWork: true, workType: 1 } });
-    assert.deepEqual(readFnosForkConfigs().tea, { enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 1 });
+    assert.deepEqual(readFnosForkConfigs().tea, { enabled: false, durationId: 0, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 1 });
     logs.length = 0;
     assert.equal(await work.runMilkTeaAutoWorkTick({ nowMs: 1000 }), true);
     assert.deepEqual(writes, [{ target: String(MASTER_BOSS), type: 1 }]);
@@ -186,5 +186,5 @@ test('持久化：autoWork/workType 写入 store.json 后新进程读回', () =>
     store.applyConfigSnapshot({ fnosMilkTeaAutoHire: { enabled: true, durationId: 1, autoWork: true, workType: 5 } }, { accountId: '6' });
     const { execFileSync } = require('node:child_process');
     const out = execFileSync(process.execPath, ['-e', `const s=require(${JSON.stringify(path.join(__dirname, '../dist/models/store'))});console.log(JSON.stringify(s.getConfigSnapshot('6').fnosMilkTeaAutoHire))`], { env: { ...process.env, QQ_FARM_DATA_DIR: DATA_DIR } }).toString().trim().split('\n').pop();
-    assert.deepEqual(JSON.parse(out), { enabled: true, durationId: 1, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 5 });
+    assert.deepEqual(JSON.parse(out), { enabled: true, durationId: 1, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: true, workType: 5 });
 });

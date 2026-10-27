@@ -15,6 +15,11 @@ export {};
  * - 兼容老配置：priorityConfigured=false（2026.10.21.2 之前保存的配置）且本账号是小号并已选大号时，
  *   视为「优先雇佣人 = 大号」，时长沿用本账号已有的「雇佣时长」；在新卡片保存一次后不再参考大小号设置。
  *
+ * [fnos-fork] 2026-10-27 起「优先雇佣人」可选多个好友（有序列表 priorityFriends）：
+ * 按列表顺序把当前空闲的人依次填进空员工位；列表里的人都不空闲（被雇/冷却/不在列表/已在本店上班）
+ * 且还有空位时，再随机雇其他好友（原兜底逻辑不变）。老配置的单个 priorityGid/priorityName 自动转成只含一人的列表；
+ * 保存时仍把列表第一个人写回 priorityGid/priorityName，降级到旧版本时至少保留第一优先雇佣人。
+ *
  * 雇佣会消耗奶茶券（物品 1041，按时长：4h 40、12h 130、24h 270，以服务端雇佣列表返回的 wage_total 为准）。
  * 余额不足、活动未开放/结算期、剩余营业时间不足时跳过并写日志，不会重试刷请求。
  */
@@ -25,14 +30,23 @@ const TALENTS: Array<{ talent_id: number; talent_name: string }> = config.MilkTe
 const WORK_TYPE_IDS: number[] = config.MilkTeaInteractionType.map((v: any) => Number(v.interaction_id));
 const DURATION_LABEL: Record<number, string> = { 1: '4 小时', 2: '12 小时', 3: '24 小时' };
 const FALLBACK_DURATION_ID = 1; // 读取活动状态时默认请求的雇佣列表档位（4 小时）
+/** [fnos-fork] 优先雇佣人最多几个（员工位最多 4 个，留足余量） */
+const MAX_PRIORITY_FRIENDS = 20;
+
+export interface FnosPriorityFriend {
+    gid: number;
+    name: string;
+}
 
 export interface FnosMilkTeaAutoHireConfig {
     enabled: boolean;
     /** 雇佣时长（优先雇佣人和其他好友统一）：0 = 随机；1/2/3 = 4/12/24 小时 */
     durationId: number;
-    /** 优先雇佣人 GID（0 = 不指定） */
+    /** [fnos-fork] 2026-10-27 优先雇佣人（有序，可多个；空 = 不指定） */
+    priorityFriends: FnosPriorityFriend[];
+    /** 优先雇佣人 GID（0 = 不指定）。2026-10-27 起 = priorityFriends 第一个人，仅为降级兼容保留 */
     priorityGid: number;
-    /** 优先雇佣人名字（仅显示用） */
+    /** 优先雇佣人名字（仅显示用）。2026-10-27 起 = priorityFriends 第一个人的名字 */
     priorityName: string;
     /** 是否已用 2026.10.21.2 起的新卡片保存过；false 时按旧版小号模式迁移（见 resolveEffectiveHireConfig） */
     priorityConfigured: boolean;
@@ -49,6 +63,7 @@ export interface FnosMilkTeaAutoHireConfig {
 const DEFAULT_FNOS_MILK_TEA_AUTO_HIRE: FnosMilkTeaAutoHireConfig = {
     enabled: false,
     durationId: 0,
+    priorityFriends: [],
     priorityGid: 0,
     priorityName: '',
     priorityConfigured: false,
@@ -62,6 +77,36 @@ function validDuration(id: number, allowRandom = true): boolean {
     return (allowRandom && id === 0) || DURATIONS.some(d => d.duration_id === id);
 }
 
+function toGid(value: unknown): number {
+    const n = Number.parseInt(String(value ?? ''), 10);
+    return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
+
+/** [fnos-fork] 规范化优先雇佣人列表：去掉无效/重复 GID，保留顺序，名字截到 64 字 */
+function normalizePriorityFriends(list: unknown): FnosPriorityFriend[] {
+    const out: FnosPriorityFriend[] = [];
+    const seen = new Set<number>();
+    for (const item of Array.isArray(list) ? list : []) {
+        const raw = (item && typeof item === 'object') ? item as Record<string, any> : { gid: item };
+        const gid = toGid(raw.gid);
+        if (!gid || seen.has(gid)) continue;
+        seen.add(gid);
+        out.push({ gid, name: String(raw.name ?? '').trim().slice(0, 64) });
+        if (out.length >= MAX_PRIORITY_FRIENDS) break;
+    }
+    return out;
+}
+
+/** [fnos-fork] 从一份配置（新或旧格式）中取优先雇佣人列表；返回 null 表示该配置没有提供优先雇佣人字段 */
+function readPriorityFriends(src: Record<string, any>): FnosPriorityFriend[] | null {
+    if (Array.isArray(src.priorityFriends)) return normalizePriorityFriends(src.priorityFriends);
+    if (src.priorityGid !== undefined) {
+        const gid = toGid(src.priorityGid);
+        return gid ? [{ gid, name: String(src.priorityName ?? '').trim().slice(0, 64) }] : [];
+    }
+    return null;
+}
+
 function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoHireConfig = DEFAULT_FNOS_MILK_TEA_AUTO_HIRE): FnosMilkTeaAutoHireConfig {
     const base = { ...DEFAULT_FNOS_MILK_TEA_AUTO_HIRE, ...(fallback || {}) };
     if (!input || typeof input !== 'object' || Array.isArray(input)) return { ...base };
@@ -70,13 +115,15 @@ function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoH
     const durationId = pick('durationId');
     const talentId = pick('talentId');
     const workType = pick('workType');
-    const gidRaw = src.priorityGid !== undefined ? Number.parseInt(String(src.priorityGid), 10) : Number(base.priorityGid) || 0;
-    const priorityGid = Number.isSafeInteger(gidRaw) && gidRaw > 0 ? gidRaw : 0;
+    // [fnos-fork] 2026-10-27 多个优先雇佣人：新字段优先；只有旧的单个字段时转成一人列表；都没带时沿用 fallback
+    const priorityFriends = readPriorityFriends(src) ?? readPriorityFriends(base as Record<string, any>) ?? [];
+    const first = priorityFriends[0];
     return {
         enabled: src.enabled !== undefined ? !!src.enabled : !!base.enabled,
         durationId: validDuration(durationId) ? durationId : 0,
-        priorityGid,
-        priorityName: priorityGid ? String(src.priorityName !== undefined ? src.priorityName : base.priorityName || '').trim().slice(0, 64) : '',
+        priorityFriends,
+        priorityGid: first ? first.gid : 0,
+        priorityName: first ? first.name : '',
         priorityConfigured: src.priorityConfigured !== undefined ? !!src.priorityConfigured : !!base.priorityConfigured,
         talentId: TALENTS.some(t => t.talent_id === talentId) ? talentId : 0,
         allowRobots: src.allowRobots !== undefined ? !!src.allowRobots : !!base.allowRobots,
@@ -91,8 +138,9 @@ function normalizeFnosMilkTeaAutoHire(input: unknown, fallback: FnosMilkTeaAutoH
  */
 function resolveEffectiveHireConfig(tea: FnosMilkTeaAutoHireConfig, alt: { enabled: boolean; masterGid: number; masterName: string } | null | undefined): FnosMilkTeaAutoHireConfig & { migratedFromAlt: boolean } {
     const cfg = normalizeFnosMilkTeaAutoHire(tea);
-    if (!cfg.priorityConfigured && !cfg.priorityGid && alt && alt.enabled && Number(alt.masterGid) > 0) {
-        return { ...cfg, priorityGid: Number(alt.masterGid), priorityName: String(alt.masterName || ''), migratedFromAlt: true };
+    if (!cfg.priorityConfigured && cfg.priorityFriends.length === 0 && alt && alt.enabled && Number(alt.masterGid) > 0) {
+        const master = { gid: Number(alt.masterGid), name: String(alt.masterName || '') };
+        return { ...cfg, priorityFriends: [master], priorityGid: master.gid, priorityName: master.name, migratedFromAlt: true };
     }
     return { ...cfg, migratedFromAlt: false };
 }
@@ -216,30 +264,36 @@ async function planOneHire(params: {
     const talentNote = cfg.talentId ? `（职业限定：${talentName(cfg.talentId)}）` : '';
     const hire = await getHireList(durationId);
     const wage = num(hire?.wage_total) || durationCost(durationId);
-    let why = '';
 
-    if (cfg.priorityGid > 0) {
-        const label = cfg.priorityName ? `优先雇佣人 ${cfg.priorityName}` : `优先雇佣人 GID ${cfg.priorityGid}`;
-        const target = findMaster(hire, cfg.priorityGid, nowSec);
-        if (target.hireable && !exclude.includes(cfg.priorityGid)) {
+    // [fnos-fork] 2026-10-27 按列表顺序找第一个当前空闲的优先雇佣人
+    const priorities = normalizePriorityFriends(cfg.priorityFriends && cfg.priorityFriends.length
+        ? cfg.priorityFriends
+        : (cfg.priorityGid > 0 ? [{ gid: cfg.priorityGid, name: cfg.priorityName }] : []));
+    const busy: string[] = [];
+    for (const p of priorities) {
+        const label = p.name || `GID ${p.gid}`;
+        const target = findMaster(hire, p.gid, nowSec);
+        if (target.hireable && !exclude.includes(p.gid)) {
+            const order = priorities.length > 1 ? `（第 ${priorities.indexOf(p) + 1} 位）` : '';
             return {
                 durationId,
                 wage,
                 choice: {
-                    targetGid: cfg.priorityGid,
-                    targetName: String(target.candidate.friend.name || cfg.priorityName || '').trim() || `GID ${cfg.priorityGid}`,
+                    targetGid: p.gid,
+                    targetName: String(target.candidate.friend.name || p.name || '').trim() || `GID ${p.gid}`,
                     talentId: num(target.candidate.talent_id),
                     isRobot: false,
-                    reason: `${label}当前空闲，优先雇佣`,
+                    reason: `优先雇佣人 ${label}${order}当前空闲，优先雇佣`,
                 },
             };
         }
-        why = exclude.includes(cfg.priorityGid) ? `${label}已在本店上班` : target.found ? `${label}已被雇佣或冷却中` : `${label}不在可雇佣列表`;
+        busy.push(exclude.includes(p.gid) ? `${label}已在本店上班` : target.found ? `${label}已被雇佣或冷却中` : `${label}不在可雇佣列表`);
     }
+    const why = busy.length === 0 ? '' : busy.length === 1 ? `优先雇佣人 ${busy[0]}` : `优先雇佣人都不空闲（${busy.join('、')}）`;
 
     const choice = chooseCandidate({
         hire, nowSec, talentId: cfg.talentId, allowRobots: cfg.allowRobots,
-        excludeGids: cfg.priorityGid > 0 ? [...exclude, cfg.priorityGid] : exclude, random,
+        excludeGids: [...exclude, ...priorities.map(p => p.gid)], random,
     });
     if (!choice) return { skip: `${why ? `${why}，且` : ''}没有符合条件的${why ? '其他' : ''}可雇佣好友${talentNote}` };
     return {
@@ -426,6 +480,8 @@ function onFnosMilkTeaAutoHireConfigChanged(): void {
 module.exports = {
     DEFAULT_FNOS_MILK_TEA_AUTO_HIRE,
     normalizeFnosMilkTeaAutoHire,
+    normalizePriorityFriends,
+    MAX_PRIORITY_FRIENDS,
     resolveEffectiveHireConfig,
     getFreeSlots,
     getNextSlotEndSec,

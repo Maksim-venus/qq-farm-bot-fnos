@@ -38,7 +38,7 @@ test('fnosAltAccount / fnosMilkTeaAutoHire 持久化并在新进程中读回；�
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout.trim().split('\n').pop());
     assert.deepEqual(out.alt, { enabled: true, masterGid: 4300123456, masterName: '大号', holdForMaster: true, timeoutMinutes: 45, skipStealMaster: false, badOnlyMaster: false });
-    assert.deepEqual(out.tea, { enabled: true, durationId: 3, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 9002, allowRobots: false, autoWork: false, workType: 0 });
+    assert.deepEqual(out.tea, { enabled: true, durationId: 3, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 9002, allowRobots: false, autoWork: false, workType: 0 });
     assert.equal(out.steal, 7);
     assert.equal(out.otherAlt.enabled, false);
     assert.equal(out.otherTea.enabled, false);
@@ -80,7 +80,9 @@ test('升级：旧版 store.json 里的 fnos 字段经上游自动拆分迁移�
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout.trim().split('\n').pop());
     assert.deepEqual(out.a.alt, legacy.accountConfigs[2].fnosAltAccount);
-    assert.deepEqual(out.a.tea, legacy.accountConfigs[2].fnosMilkTeaAutoHire);
+    // [fnos-fork] 2026-10-27：旧的单个优先雇佣人读回时转成一人列表 priorityFriends，旧字段保留
+    assert.deepEqual(out.a.tea, { ...legacy.accountConfigs[2].fnosMilkTeaAutoHire, priorityFriends: [{ gid: 1280585737, name: 'Maksim' }] });
+    assert.deepEqual(out.b.eff.priorityFriends, [{ gid: 1280585737, name: 'Maksim' }]);
     assert.equal(out.a.daily.autoClaim, true);
     assert.equal(out.a.daily.autoExchangeSeed, true);
     assert.equal(out.a.steal, 3);

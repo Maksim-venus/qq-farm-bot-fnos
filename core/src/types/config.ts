@@ -112,6 +112,8 @@ export interface AccountConfig {
   fnosMilkTeaAutoHire?: {
     enabled: boolean;
     durationId: number;
+    /** [fnos-fork] 2026-10-27 优先雇佣人（有序，可多个）；priorityGid/priorityName = 第一个人（降级兼容） */
+    priorityFriends?: Array<{ gid: number; name: string }>;
     priorityGid?: number;
     priorityName?: string;
     priorityConfigured?: boolean;

@@ -2,7 +2,7 @@
 /**
  * [fnos-fork] 本 fork 新增的按账号设置（上游没有）：
  * - 大号/小号：小号成熟作物留给大号偷，大号偷过才自动收获
- * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友），统一的雇佣时长与职业可选或随机；2026.10.21.2 起与大小号解耦
+ * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友，2026-10-27 起可多选并排序），统一的雇佣时长与职业可选或随机；2026.10.21.2 起与大小号解耦
  * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
  * 所在栏目（2026.10.21.3 起拆成两个独立栏目，都不在「自动控制」里）：
  * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱）
@@ -11,24 +11,26 @@
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
+import FnosPriorityFriendPicker from '@/components/fnos/FnosPriorityFriendPicker.vue' // [fnos-fork] 多个优先雇佣人
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
+import { fnosPriorityFriendsFromConfig } from '@/utils/fnos-priority-friends'
 
 const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
 const isCoop = computed(() => props.section === 'coop')
 const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, holdForMaster: boolean, timeoutMinutes: number, skipStealMaster: boolean, badOnlyMaster: boolean }
-interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityGid: number, priorityName: string, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
+interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityFriends: Array<{ gid: number, name: string }>, priorityGid: number, priorityName: string, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
 interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
 // [fnos-fork] holdForMaster「成熟作物先留给大号偷」缺省为 true（旧配置没有该字段时保持原有行为）
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false })
-const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
+const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
 const dailySaving = ref(false)
@@ -83,29 +85,16 @@ const workModel = computed<number>({
 const workDescription = computed(() => workOptions.value.find(w => w.workType === tea.value.workType)?.description || '')
 const teaMigratedFromAlt = ref(false)
 const priorityManualGid = ref<string | number>('')
-const priorityOptions = computed(() => {
-  const list = [{ label: '不指定（随机雇好友）', value: 0 }, ...friends.value
-    .filter(f => Number(f.gid) > 0)
-    .map(f => ({ label: `${String(f.name || '').trim() || '未命名'}（GID ${f.gid}）`, value: Number(f.gid) }))]
-  if (tea.value.priorityGid > 0 && !list.some(o => o.value === tea.value.priorityGid))
-    list.splice(1, 0, { label: `${tea.value.priorityName || '已选优先雇佣人'}（GID ${tea.value.priorityGid}）`, value: tea.value.priorityGid })
-  return list
-})
-const priorityGidModel = computed<number>({
-  get: () => tea.value.priorityGid,
-  set: (value) => {
-    const gid = Number(value) || 0
-    tea.value.priorityGid = gid
-    tea.value.priorityName = String(friends.value.find(item => Number(item.gid) === gid)?.name || '').trim()
-  },
-})
+// [fnos-fork] 2026-10-27 优先雇佣人可多选：列表由 FnosPriorityFriendPicker 维护，手动输入 GID 时追加到末尾
+const priorityPicker = ref<InstanceType<typeof FnosPriorityFriendPicker> | null>(null)
 function applyPriorityManualGid() {
   const gid = Number.parseInt(String(priorityManualGid.value || ''), 10)
   if (!Number.isSafeInteger(gid) || gid <= 0) {
     toast.error('请输入正确的 GID')
     return
   }
-  priorityGidModel.value = gid
+  priorityPicker.value?.addGid(gid, String(friends.value.find(item => Number(item.gid) === gid)?.name || '').trim())
+  priorityManualGid.value = ''
 }
 const durationModel = computed<number>({
   get: () => tea.value.durationId,
@@ -171,7 +160,7 @@ async function load() {
     if (altRes.data?.ok)
       alt.value = { ...alt.value, ...altRes.data.data, holdForMaster: altRes.data.data?.holdForMaster !== false }
     if (teaRes.data?.ok) {
-      tea.value = { ...tea.value, ...teaRes.data.data }
+      tea.value = { ...tea.value, ...teaRes.data.data, priorityFriends: fnosPriorityFriendsFromConfig(teaRes.data.data) }
       durationOptions.value = teaRes.data.options?.durations || []
       talentOptions.value = teaRes.data.options?.talents || []
       workOptions.value = teaRes.data.options?.works || []
@@ -228,9 +217,12 @@ async function saveAlt(okText = '大号/小号设置已保存') {
 async function saveTea() {
   teaSaving.value = true
   try {
-    const res = await api.post('/api/fnos/milk-tea-auto-hire', tea.value, { headers: headers() })
+    // [fnos-fork] 旧字段 priorityGid/priorityName 同步为列表第一位（降级兼容）
+    const first = tea.value.priorityFriends[0]
+    const payload = { ...tea.value, priorityGid: first?.gid || 0, priorityName: first?.name || '' }
+    const res = await api.post('/api/fnos/milk-tea-auto-hire', payload, { headers: headers() })
     if (res.data?.data)
-      tea.value = { ...tea.value, ...res.data.data }
+      tea.value = { ...tea.value, ...res.data.data, priorityFriends: fnosPriorityFriendsFromConfig(res.data.data) }
     teaMigratedFromAlt.value = false
     reportSave(res, '奶茶雇佣与工作事项设置已保存')
   }
@@ -435,7 +427,7 @@ onMounted(() => {
               奶茶活动自动雇佣
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              员工位空出（到期）时自动雇人，可指定一个优先雇佣人，约每 10 分钟检查一次（员工下班后约 1 分钟内补雇）；任何账号都可开启；本账号被别人雇佣时还可以自动做工作事项。
+              员工位空出（到期）时自动雇人，可按顺序指定多个优先雇佣人，约每 10 分钟检查一次（员工下班后约 1 分钟内补雇）；任何账号都可开启；本账号被别人雇佣时还可以自动做工作事项。
             </p>
           </div>
         </div>
@@ -451,15 +443,9 @@ onMounted(() => {
             <p v-if="teaMigratedFromAlt" class="fnos-hint fnos-hint--box bg-blue-50 text-blue-700 dark:bg-blue-900/25 dark:text-blue-300">
               已沿用旧版小号设置：优先雇佣人为大号，时长按下方「雇佣时长」。点「保存」后按本卡片的设置执行，不再参考大号/小号。
             </p>
-            <div class="fnos-field-row">
+            <div class="fnos-field-row fnos-field-row--top">
               <div class="min-w-0 flex-1">
-                <BaseSelect
-                  v-model="priorityGidModel"
-                  label="优先雇佣人（从本账号的好友中选择）"
-                  :options="priorityOptions"
-                  filterable
-                  :placeholder="friendsLoading ? '正在读取好友列表...' : '不指定'"
-                />
+                <FnosPriorityFriendPicker ref="priorityPicker" v-model="tea.priorityFriends" :friends="friends" :loading="friendsLoading" />
               </div>
               <BaseButton class="shrink-0" variant="secondary" size="md" :loading="friendsLoading" @click="loadFriends(true)">
                 刷新好友
@@ -468,16 +454,16 @@ onMounted(() => {
             <p v-if="friendsError" class="fnos-hint text-amber-700 dark:text-amber-300">
               {{ friendsError }}
             </p>
-            <div v-if="friendsError || priorityOptions.length <= 1" class="fnos-field-row">
+            <div v-if="friendsError || !friends.length" class="fnos-field-row">
               <div class="min-w-0 flex-1">
-                <BaseInput v-model="priorityManualGid" label="或手动输入优先雇佣人 GID" placeholder="例如 4300123456" />
+                <BaseInput v-model="priorityManualGid" label="或手动输入 GID 添加优先雇佣人" placeholder="例如 4300123456" />
               </div>
               <BaseButton class="shrink-0" variant="secondary" size="md" @click="applyPriorityManualGid">
-                使用
+                添加
               </BaseButton>
             </div>
             <p class="fnos-hint text-gray-500 dark:text-gray-400">
-              优先雇佣人空闲时先雇他（不受职业限制）；他已被雇、冷却中或未指定时，从可雇佣好友里随机雇其他人。雇谁都按同一个「雇佣时长」。
+              按顺序优先雇佣，都不空闲时随机雇其他好友：有空员工位时，按列表顺序把当前空闲的优先雇佣人依次雇进来（不受职业限制）；列表里的人都已被雇、冷却中、已在本店上班或未指定时，从可雇佣好友里随机雇其他人。雇谁都按同一个「雇佣时长」。
             </p>
             <div class="fnos-select-grid">
               <BaseSelect v-model="durationModel" label="雇佣时长" :options="durationSelectOptions" />
@@ -603,6 +589,18 @@ onMounted(() => {
   display: flex;
   align-items: flex-end;
   gap: 0.5rem;
+}
+
+/* [fnos-fork] 多个优先雇佣人：列表较高，「刷新好友」与标题对齐；窄屏时换到列表下方，列表占满宽度 */
+.fnos-field-row--top {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.fnos-field-row--top > .min-w-0 {
+  flex: 1 1 18rem;
+}
+.fnos-field-row--top > .shrink-0 {
+  margin-top: 1.625rem;
 }
 
 /* 卡片单独占一行（<1280px）且够宽时，两个下拉框并排 */

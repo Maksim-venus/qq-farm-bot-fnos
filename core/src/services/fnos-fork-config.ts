@@ -13,7 +13,8 @@ export {};
 export interface FnosForkConfigs {
     alt: { enabled: boolean; masterGid: number; masterName: string; holdForMaster: boolean; timeoutMinutes: number; skipStealMaster: boolean; badOnlyMaster: boolean };
     tea: {
-        enabled: boolean; durationId: number; priorityGid: number; priorityName: string; priorityConfigured: boolean;
+        enabled: boolean; durationId: number; priorityFriends: Array<{ gid: number; name: string }>; // [fnos-fork] 2026-10-27 多个优先雇佣人
+        priorityGid: number; priorityName: string; priorityConfigured: boolean;
         talentId: number; allowRobots: boolean; autoWork: boolean; workType: number;
     };
     daily: { autoClaim: boolean; autoExchangeSeed: boolean };
@@ -75,9 +76,12 @@ function describeHire(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']):
     if (!tea.enabled) return '奶茶自动雇佣未启用';
     const eff = require('./fnos-milk-tea-auto-hire').resolveEffectiveHireConfig(tea, alt);
     const common = `雇佣时长 ${DURATION_TEXT[eff.durationId] || eff.durationId}；职业 ${TALENT_TEXT[eff.talentId] || eff.talentId}；${eff.allowRobots ? '允许' : '不'}雇系统员工`;
-    if (eff.priorityGid > 0) {
-        const who = eff.priorityName ? `${eff.priorityName}(${eff.priorityGid})` : `GID ${eff.priorityGid}`;
-        return `奶茶自动雇佣已启用（优先雇佣人 ${who}，否则随机雇其他好友${eff.migratedFromAlt ? '，沿用旧版小号设置' : ''}；${common}），会消耗奶茶券`;
+    // [fnos-fork] 2026-10-27 多个优先雇佣人按顺序列出
+    const friends: Array<{ gid: number; name: string }> = eff.priorityFriends || [];
+    if (friends.length > 0) {
+        const who = friends.map(f => (f.name ? `${f.name}(${f.gid})` : `GID ${f.gid}`)).join(' → ');
+        const rest = friends.length > 1 ? '按顺序优先雇佣，都不空闲时随机雇其他好友' : '否则随机雇其他好友';
+        return `奶茶自动雇佣已启用（优先雇佣人 ${who}，${rest}${eff.migratedFromAlt ? '，沿用旧版小号设置' : ''}；${common}），会消耗奶茶券`;
     }
     return `奶茶自动雇佣已启用（未指定优先雇佣人，随机雇好友；${common}），会消耗奶茶券`;
 }
