@@ -9,6 +9,9 @@ const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-accoun
 const { normalizeFnosMilkTeaAutoHire } = require('../../services/fnos-milk-tea-auto-hire');
 // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
 const { normalizeFnosMilkTeaDaily } = require('../../services/fnos-milk-tea-daily');
+// [fnos-fork] 奶茶自动制作 / 领工资；图鉴奖励领取 / 自动完成图鉴
+const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
+const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 
 const {
     globalConfig,
@@ -125,6 +128,8 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         fnosAltAccount: { ...cfg.fnosAltAccount },
         fnosMilkTeaAutoHire: { ...cfg.fnosMilkTeaAutoHire }, // [fnos-fork] 奶茶活动自动雇佣
         fnosMilkTeaDaily: { ...cfg.fnosMilkTeaDaily }, // [fnos-fork] 奶茶收益领取 / 种子兑换
+        fnosMilkTeaExtra: { ...cfg.fnosMilkTeaExtra }, // [fnos-fork] 奶茶自动制作 / 领工资
+        fnosIllustratedAuto: { ...cfg.fnosIllustratedAuto }, // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
         ui: { ...globalConfig.ui },
     } as any;
 }
@@ -305,6 +310,22 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
         next.fnosMilkTeaDaily = normalizeFnosMilkTeaDaily(cfg.fnosMilkTeaDaily, next.fnosMilkTeaDaily);
         if (JSON.stringify(next.fnosMilkTeaDaily) !== beforeDaily) {
             try { require('../../services/fnos-milk-tea-daily').onFnosMilkTeaDailyConfigChanged(); } catch { /* ignore */ }
+        }
+    }
+    // [fnos-fork] 奶茶自动制作 / 自动领工资
+    if (cfg.fnosMilkTeaExtra !== undefined && cfg.fnosMilkTeaExtra !== null) {
+        const beforeExtra = JSON.stringify(next.fnosMilkTeaExtra || null);
+        next.fnosMilkTeaExtra = normalizeFnosMilkTeaExtra(cfg.fnosMilkTeaExtra, next.fnosMilkTeaExtra);
+        if (JSON.stringify(next.fnosMilkTeaExtra) !== beforeExtra) {
+            try { require('../../services/fnos-milk-tea-extra').onFnosMilkTeaExtraConfigChanged(); } catch { /* ignore */ }
+        }
+    }
+    // [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴
+    if (cfg.fnosIllustratedAuto !== undefined && cfg.fnosIllustratedAuto !== null) {
+        const beforeIll = JSON.stringify(next.fnosIllustratedAuto || null);
+        next.fnosIllustratedAuto = normalizeFnosIllustratedAuto(cfg.fnosIllustratedAuto, next.fnosIllustratedAuto);
+        if (JSON.stringify(next.fnosIllustratedAuto) !== beforeIll) {
+            try { require('../../services/fnos-illustrated-auto').onFnosIllustratedAutoConfigChanged(); } catch { /* ignore */ }
         }
     }
 

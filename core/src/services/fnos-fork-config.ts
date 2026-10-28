@@ -18,6 +18,10 @@ export interface FnosForkConfigs {
         talentId: number; allowRobots: boolean; autoWork: boolean; workType: number;
     };
     daily: { autoClaim: boolean; autoExchangeSeed: boolean };
+    /** [fnos-fork] 2026-10-28 奶茶自动制作 / 自动领工资 */
+    extra: { autoCraft: boolean; craftGoldenCheese: boolean; autoClaimWages: boolean };
+    /** [fnos-fork] 2026-10-28 图鉴奖励自动领取 / 自动完成图鉴 */
+    illustrated: { autoClaimRewards: boolean; autoComplete: boolean };
     error: string;
 }
 
@@ -27,6 +31,8 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
     const { normalizeFnosAltAccount } = require('./farm/fnos-alt-account');
     const { normalizeFnosMilkTeaAutoHire } = require('./fnos-milk-tea-auto-hire');
     const { normalizeFnosMilkTeaDaily } = require('./fnos-milk-tea-daily');
+    const { normalizeFnosMilkTeaExtra } = require('./fnos-milk-tea-extra');
+    const { normalizeFnosIllustratedAuto } = require('./fnos-illustrated-auto');
     try {
         const store = require('../models/store');
         const snapshot = store.getConfigSnapshot(accountId) || {};
@@ -34,6 +40,8 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             alt: normalizeFnosAltAccount(snapshot.fnosAltAccount),
             tea: normalizeFnosMilkTeaAutoHire(snapshot.fnosMilkTeaAutoHire),
             daily: normalizeFnosMilkTeaDaily(snapshot.fnosMilkTeaDaily),
+            extra: normalizeFnosMilkTeaExtra(snapshot.fnosMilkTeaExtra),
+            illustrated: normalizeFnosIllustratedAuto(snapshot.fnosIllustratedAuto),
             error: '',
         };
     } catch (e: any) {
@@ -42,7 +50,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             lastReadErrorLogAt = Date.now();
             try { require('../utils/utils').logWarn('系统', `读取活动设置（大号/小号、奶茶）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
         }
-        return { alt: normalizeFnosAltAccount(undefined), tea: normalizeFnosMilkTeaAutoHire(undefined), daily: normalizeFnosMilkTeaDaily(undefined), error: message };
+        return { alt: normalizeFnosAltAccount(undefined), tea: normalizeFnosMilkTeaAutoHire(undefined), daily: normalizeFnosMilkTeaDaily(undefined), extra: normalizeFnosMilkTeaExtra(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), error: message };
     }
 }
 
@@ -90,6 +98,17 @@ function describeDaily(daily: FnosForkConfigs['daily']): string {
     return `奶茶收益每小时自动领取${daily.autoClaim ? '已启用' : '未启用'}；森野黄金芽种子每日兑换${daily.autoExchangeSeed ? '已启用（会消耗兑换商店货币）' : '未启用'}`;
 }
 
+function describeExtra(extra: FnosForkConfigs['extra']): string {
+    const craft = extra.autoCraft
+        ? `奶茶自动制作已启用（${extra.craftGoldenCheese ? '包括金露云酪' : '不做金露云酪，只做其他奶茶'}，会消耗背包里的对应果实）`
+        : '奶茶自动制作未启用';
+    return `${craft}；奶茶工资自动领取${extra.autoClaimWages ? '已启用' : '未启用'}`;
+}
+
+function describeIllustrated(ill: FnosForkConfigs['illustrated']): string {
+    return `图鉴奖励自动领取${ill.autoClaimRewards ? '已启用' : '未启用'}；自动完成图鉴${ill.autoComplete ? '已启用（会花金币买未收藏作物的种子并优先播种）' : '未启用'}`;
+}
+
 let lastStatusKey = '';
 
 /**
@@ -99,7 +118,7 @@ let lastStatusKey = '';
 function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const cfg = readFnosForkConfigs();
     if (cfg.error) return false;
-    const key = JSON.stringify([cfg.alt, cfg.tea, cfg.daily]);
+    const key = JSON.stringify([cfg.alt, cfg.tea, cfg.daily, cfg.extra, cfg.illustrated]);
     if (!force && key === lastStatusKey) return false;
     const first = lastStatusKey === '';
     lastStatusKey = key;
@@ -110,6 +129,9 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     log('小号', `${prefix}${describeAlt(cfg.alt)}`, { module: 'farm', event: '小号设置', result: cfg.alt.enabled ? 'enabled' : 'disabled', masterGid: cfg.alt.masterGid, holdForMaster: cfg.alt.holdForMaster, timeoutMinutes: cfg.alt.timeoutMinutes });
     log('奶茶雇佣', `${prefix}${describeTea(cfg.tea, cfg.alt)}`, { module: 'activity', event: '奶茶自动雇佣设置', result: cfg.tea.enabled ? 'enabled' : 'disabled' });
     log('奶茶收益', `${prefix}${describeDaily(cfg.daily)}`, { module: 'activity', event: '奶茶收益与兑换设置', result: cfg.daily.autoClaim || cfg.daily.autoExchangeSeed ? 'enabled' : 'disabled' });
+    // [fnos-fork] 2026-10-28：只在开启时或设置变化时打印，避免登录时多两行「未启用」
+    if (force ? (cfg.extra.autoCraft || cfg.extra.autoClaimWages) : true) log('奶茶制作', `${prefix}${describeExtra(cfg.extra)}`, { module: 'activity', event: '奶茶制作与工资设置', result: cfg.extra.autoCraft || cfg.extra.autoClaimWages ? 'enabled' : 'disabled' });
+    if (force ? (cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete) : true) log('图鉴', `${prefix}${describeIllustrated(cfg.illustrated)}`, { module: 'farm', event: '图鉴自动设置', result: cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete ? 'enabled' : 'disabled' });
     return true;
 }
 
@@ -130,4 +152,6 @@ module.exports = {
     describeAlt,
     describeTea,
     describeDaily,
+    describeExtra,
+    describeIllustrated,
 };

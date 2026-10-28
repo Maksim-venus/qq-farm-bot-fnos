@@ -19,7 +19,7 @@ export function fnosNormalizePriorityFriends(list: unknown): FnosPriorityFriend[
   const out: FnosPriorityFriend[] = []
   const seen = new Set<number>()
   for (const item of Array.isArray(list) ? list : []) {
-    const raw = (item && typeof item === 'object') ? item as Record<string, unknown> : { gid: item }
+    const raw: Record<string, unknown> = (item && typeof item === 'object') ? item as Record<string, unknown> : { gid: item }
     const gid = toGid(raw.gid)
     if (!gid || seen.has(gid))
       continue

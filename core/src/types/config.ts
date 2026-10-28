@@ -127,6 +127,17 @@ export interface AccountConfig {
     autoClaim: boolean;
     autoExchangeSeed: boolean;
   };
+  /** [fnos-fork] 2026-10-28 奶茶自动制作（可排除金露云酪）、自动领取工资（见 services/fnos-milk-tea-extra.ts） */
+  fnosMilkTeaExtra?: {
+    autoCraft: boolean;
+    craftGoldenCheese: boolean;
+    autoClaimWages: boolean;
+  };
+  /** [fnos-fork] 2026-10-28 图鉴奖励自动领取、自动完成图鉴（见 services/fnos-illustrated-auto.ts） */
+  fnosIllustratedAuto?: {
+    autoClaimRewards: boolean;
+    autoComplete: boolean;
+  };
 }
 
 export interface OfflineReminder {

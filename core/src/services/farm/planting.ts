@@ -746,6 +746,21 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
 
     if (landsToPlant.length === 0) return { plantedLands: [] };
 
+    // [fnos-fork] 自动完成图鉴：先把为图鉴买的待种种子各种 1 块，剩余空地再按原策略种（未开启/无待种时不发请求）
+    const fnosIllustratedPlanted: number[] = [];
+    try {
+        const fnosResult = await require('../fnos-illustrated-auto').plantFnosIllustratedSeeds(landsToPlant, { propagateErrors: options.propagateErrors });
+        fnosIllustratedPlanted.push(...fnosResult.plantedLandIds);
+        landsToPlant = fnosResult.remainingLandIds;
+        if (fnosResult.uncertain || landsToPlant.length === 0) {
+            if (fnosIllustratedPlanted.length > 0) await runFertilizerByConfig(fnosIllustratedPlanted, options);
+            return { plantedLands: [...new Set(fnosIllustratedPlanted)] };
+        }
+    } catch (e: any) {
+        logWarn('图鉴', `自动完成图鉴优先播种失败，本轮按原策略种植: ${e.message}`, { module: 'farm', event: '自动完成图鉴', result: 'error' });
+        if (options.propagateErrors) throw e;
+    }
+
     const accountStrategy = String(getPlantingStrategy() || '').trim();
 
     // 背包种子优先策略
@@ -771,7 +786,7 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
             return { plantedLands: [] };
         }
 
-        const plantedLands: number[] = bagResult.plantedLandIds || [];
+        const plantedLands: number[] = [...fnosIllustratedPlanted, ...(bagResult.plantedLandIds || [])]; // [fnos-fork] 含图鉴优先播种
 
         // 如果允许回退且有剩余空地，使用第二优先策略补种
         if (bagResult.fallbackAllowed && bagResult.remainingLandIds.length > 0) {
@@ -799,6 +814,8 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
 
     // 其他策略：从商店购买种植
     const shopResult = await plantFromShop(landsToPlant, state, undefined, options);
+    // [fnos-fork] 合并图鉴优先播种的地块
+    if (fnosIllustratedPlanted.length > 0) shopResult.plantedLands = [...new Set([...fnosIllustratedPlanted, ...(shopResult.plantedLands || [])])];
     if (shopResult.plantedLands && shopResult.plantedLands.length > 0) {
         await runFertilizerByConfig(shopResult.plantedLands, options);
     }

@@ -14,6 +14,12 @@ export {};
  * 奶茶收益每小时自动领取 / 兑换商店每日兑换森野黄金芽种子：
  *   GET  /api/fnos/milk-tea-daily         读取
  *   POST /api/fnos/milk-tea-daily         保存
+ * 奶茶自动制作（可排除金露云酪）/ 自动领取工资（2026-10-28）：
+ *   GET  /api/fnos/milk-tea-extra         读取
+ *   POST /api/fnos/milk-tea-extra         保存（请求里没带的字段沿用已保存的值）
+ * 图鉴奖励自动领取 / 自动完成图鉴（2026-10-28）：
+ *   GET  /api/fnos/illustrated-auto       读取
+ *   POST /api/fnos/illustrated-auto       保存（请求里没带的字段沿用已保存的值）
  * 以上都在前端「设置 → 活动设置」栏目。
  *
  * 保存走与设置页相同的 provider.saveSettings：写入账号配置（上游 2026-10-22 起为 data/account-configs/<id>.json），运行中的账号同步到 worker 并等待确认。
@@ -30,6 +36,8 @@ const {
     MILK_TEA_WORK_OPTIONS,
 } = require('../../services/fnos-milk-tea-auto-hire');
 const { normalizeFnosMilkTeaDaily, DEFAULT_FNOS_MILK_TEA_DAILY } = require('../../services/fnos-milk-tea-daily');
+const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
+const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 const { getAccId, handleApiError } = require('./middleware');
 
 function sendSaveResult(res: Response, data: any, pick: (d: any) => any): void {
@@ -136,6 +144,37 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
             handleApiError(res, e);
         }
     });
+
+    // [fnos-fork] 2026-10-28 奶茶自动制作 / 领工资、图鉴奖励领取 / 自动完成图鉴：同一套读写
+    const simpleRoutes: Array<[string, string, (input: any, fallback?: any) => any]> = [
+        ['/api/fnos/milk-tea-extra', 'fnosMilkTeaExtra', normalizeFnosMilkTeaExtra],
+        ['/api/fnos/illustrated-auto', 'fnosIllustratedAuto', normalizeFnosIllustratedAuto],
+    ];
+    for (const [route, key, normalize] of simpleRoutes) {
+        app.get(route, (req: Request, res: Response) => {
+            const id = getAccId(ctx, req);
+            if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+            try {
+                const snapshot = store.getConfigSnapshot(id);
+                res.json({ ok: true, data: normalize(snapshot && snapshot[key]) });
+            } catch (e: any) {
+                handleApiError(res, e);
+            }
+        });
+        app.post(route, async (req: Request, res: Response) => {
+            const id = getAccId(ctx, req);
+            if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+            try {
+                const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body : {};
+                const current = normalize(store.getConfigSnapshot(id)?.[key]);
+                const next = normalize(body, current);
+                const data = await ctx.provider.saveSettings(id, { [key]: next });
+                sendSaveResult(res, data, d => normalize(d[key]));
+            } catch (e: any) {
+                handleApiError(res, e);
+            }
+        });
+    }
 }
 
 module.exports = { mountFnosForkRoutes };

@@ -11,6 +11,9 @@ const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-accoun
 const { normalizeFnosMilkTeaAutoHire } = require('../../services/fnos-milk-tea-auto-hire');
 // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
 const { normalizeFnosMilkTeaDaily } = require('../../services/fnos-milk-tea-daily');
+// [fnos-fork] 奶茶自动制作 / 领工资；图鉴奖励领取 / 自动完成图鉴
+const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
+const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -341,6 +344,9 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         fnosMilkTeaAutoHire: normalizeFnosMilkTeaAutoHire(base.fnosMilkTeaAutoHire),
         // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
         fnosMilkTeaDaily: normalizeFnosMilkTeaDaily(base.fnosMilkTeaDaily),
+        // [fnos-fork] 奶茶自动制作 / 领工资；图鉴奖励领取 / 自动完成图鉴
+        fnosMilkTeaExtra: normalizeFnosMilkTeaExtra(base.fnosMilkTeaExtra),
+        fnosIllustratedAuto: normalizeFnosIllustratedAuto(base.fnosIllustratedAuto),
     };
 }
 
@@ -499,6 +505,14 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
     // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
     if (src.fnosMilkTeaDaily !== undefined && src.fnosMilkTeaDaily !== null) {
         cfg.fnosMilkTeaDaily = normalizeFnosMilkTeaDaily(src.fnosMilkTeaDaily, cfg.fnosMilkTeaDaily);
+    }
+    // [fnos-fork] 奶茶自动制作 / 领工资
+    if (src.fnosMilkTeaExtra !== undefined && src.fnosMilkTeaExtra !== null) {
+        cfg.fnosMilkTeaExtra = normalizeFnosMilkTeaExtra(src.fnosMilkTeaExtra, cfg.fnosMilkTeaExtra);
+    }
+    // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
+    if (src.fnosIllustratedAuto !== undefined && src.fnosIllustratedAuto !== null) {
+        cfg.fnosIllustratedAuto = normalizeFnosIllustratedAuto(src.fnosIllustratedAuto, cfg.fnosIllustratedAuto);
     }
 
     return cfg;

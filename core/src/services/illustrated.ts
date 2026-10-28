@@ -178,4 +178,7 @@ function claimIllustratedRewards(type: number) {
 module.exports = {
     getIllustratedSnapshot,
     claimIllustratedRewards,
+    // [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴（services/fnos-illustrated-auto.ts）只读调用
+    getIllustratedList,
+    getIllustratedLevels,
 };

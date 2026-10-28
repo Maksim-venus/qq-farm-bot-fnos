@@ -4,6 +4,7 @@
  * - 大号/小号：小号成熟作物留给大号偷，大号偷过才自动收获
  * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友，2026-10-27 起可多选并排序），统一的雇佣时长与职业可选或随机；2026.10.21.2 起与大小号解耦
  * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
+ * - 奶茶自动制作（可排除金露云酪）、自动领取工资；图鉴奖励自动领取、自动完成图鉴（2026-10-28）
  * 所在栏目（2026.10.21.3 起拆成两个独立栏目，都不在「自动控制」里）：
  * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱）
  * - section="activity"：设置 → 活动设置（奶茶自动雇佣/工作事项、奶茶收益与兑换）
@@ -17,6 +18,7 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
+import { fnosCraftHint, fnosNormalizeIllustratedAuto, fnosNormalizeMilkTeaExtra } from '@/utils/fnos-activity-extras' // [fnos-fork] 2026-10-28
 import { fnosPriorityFriendsFromConfig } from '@/utils/fnos-priority-friends'
 
 const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
@@ -34,6 +36,12 @@ const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityFriend
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
 const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
 const dailySaving = ref(false)
+// [fnos-fork] 2026-10-28 奶茶自动制作 / 领工资、图鉴自动
+const extra = ref(fnosNormalizeMilkTeaExtra(null))
+const extraSaving = ref(false)
+const illustrated = ref(fnosNormalizeIllustratedAuto(null))
+const illustratedSaving = ref(false)
+const craftHint = computed(() => fnosCraftHint(extra.value))
 const durationOptions = ref<Array<{ durationId: number, label: string, cost: number }>>([])
 const talentOptions = ref<Array<{ talentId: number, name: string }>>([])
 const friends = ref<FriendItem[]>([])
@@ -150,11 +158,17 @@ async function load() {
     return
   loading.value = true
   try {
-    const [altRes, teaRes, dailyRes] = await Promise.all([
+    const [altRes, teaRes, dailyRes, extraRes, illustratedRes] = await Promise.all([
       api.get('/api/fnos/alt-account', { headers: headers() }),
       api.get('/api/fnos/milk-tea-auto-hire', { headers: headers() }),
       api.get('/api/fnos/milk-tea-daily', { headers: headers() }),
+      api.get('/api/fnos/milk-tea-extra', { headers: headers() }),
+      api.get('/api/fnos/illustrated-auto', { headers: headers() }),
     ])
+    if (extraRes.data?.ok)
+      extra.value = fnosNormalizeMilkTeaExtra(extraRes.data.data)
+    if (illustratedRes.data?.ok)
+      illustrated.value = fnosNormalizeIllustratedAuto(illustratedRes.data.data)
     if (dailyRes.data?.ok)
       daily.value = { ...daily.value, ...dailyRes.data.data }
     if (altRes.data?.ok)
@@ -247,6 +261,38 @@ async function saveDaily() {
   }
   finally {
     dailySaving.value = false
+  }
+}
+
+async function saveExtra() {
+  extraSaving.value = true
+  try {
+    const res = await api.post('/api/fnos/milk-tea-extra', extra.value, { headers: headers() })
+    if (res.data?.data)
+      extra.value = fnosNormalizeMilkTeaExtra(res.data.data)
+    reportSave(res, '奶茶制作与工资设置已保存')
+  }
+  catch (e: any) {
+    toast.error(getApiErrorMessage(e, '保存失败'))
+  }
+  finally {
+    extraSaving.value = false
+  }
+}
+
+async function saveIllustrated() {
+  illustratedSaving.value = true
+  try {
+    const res = await api.post('/api/fnos/illustrated-auto', illustrated.value, { headers: headers() })
+    if (res.data?.data)
+      illustrated.value = fnosNormalizeIllustratedAuto(res.data.data)
+    reportSave(res, '图鉴设置已保存')
+  }
+  catch (e: any) {
+    toast.error(getApiErrorMessage(e, '保存失败'))
+  }
+  finally {
+    illustratedSaving.value = false
   }
 }
 
@@ -529,6 +575,86 @@ onMounted(() => {
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="dailySaving" @click="saveDaily">
               保存奶茶收益与兑换
+            </BaseButton>
+          </div>
+        </div>
+      </section>
+
+      <!-- [fnos-fork] 奶茶制作与工资（2026-10-28） -->
+      <section v-if="!isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-milk-tea-extra">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-pink-50 text-pink-600 dark:bg-pink-900/25 dark:text-pink-400">
+            <span class="i-carbon-cafe text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              奶茶制作与工资
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              账号运行时约每 10 分钟检查一次：把背包里的森野果实做成奶茶、领取打工工资。保存后约 8 秒先执行一次。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="extra.autoCraft" label="自动制作奶茶" />
+          </div>
+          <div v-if="extra.autoCraft" class="fnos-setting-item">
+            <BaseSwitch v-model="extra.craftGoldenCheese" label="也制作金露云酪（消耗森野黄金芽）" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            {{ craftHint }}只做店铺已解锁的配方；背包里锁定的果实不会动；结算期不制作。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="extra.autoClaimWages" label="自动领取工资（被雇佣打工的工资）" />
+          </div>
+          <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+            ⚠️ 制作会把对应果实整组用掉（不再能卖金币）。工资需要本账号的奶茶店已开业才能领取（游戏限制）。结果在日志「奶茶制作」「奶茶工资」里查看。
+          </p>
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="extraSaving" @click="saveExtra">
+              保存奶茶制作与工资
+            </BaseButton>
+          </div>
+        </div>
+      </section>
+
+      <!-- [fnos-fork] 图鉴（2026-10-28） -->
+      <section v-if="!isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-illustrated-auto">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-400">
+            <span class="i-carbon-notebook text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              图鉴
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              账号运行时约每 10 分钟检查一次作物图鉴和变异图鉴。保存后约 12 秒先执行一次。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="illustrated.autoClaimRewards" label="图鉴奖励自动领取" />
+          </div>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="illustrated.autoComplete" label="自动完成图鉴" />
+          </div>
+          <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
+            ⚠️ 自动完成图鉴会花金币：找出作物图鉴里未收藏、背包里没有种子、地里也没种着的作物，从种子商店买 1 个种子（只买已解锁、等级够、不需要解锁卡、未售罄且金币够的），每次检查最多买 1 个、同时最多 2 个待种；下次自动播种时先把它种下，种下或收藏后恢复原来的播种顺序。需要打开「自动控制」里的自动种植。结果在日志「图鉴」里查看。
+          </p>
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="illustratedSaving" @click="saveIllustrated">
+              保存图鉴设置
             </BaseButton>
           </div>
         </div>
