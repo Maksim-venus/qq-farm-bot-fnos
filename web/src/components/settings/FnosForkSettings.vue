@@ -580,9 +580,9 @@ onMounted(() => {
             <BaseSwitch v-model="daily.autoExchangeSeed" label="森野种子自动兑换（按最大数量）" />
           </div>
           <!-- [fnos-fork] 需求 27：8 种森野种子，勾选的按列表顺序兑换；按住手柄拖动或用上下按钮排序 -->
-          <div v-if="daily.autoExchangeSeed" class="fnos-setting-item" data-testid="fnos-seed-exchange-list">
-            <p class="mb-1.5 text-xs text-gray-500 dark:text-gray-400">
-              勾选要兑换的种子；货币不够全部换满时按从上到下的顺序兑换。
+          <div v-if="daily.autoExchangeSeed" class="flex flex-col gap-1.5 border border-gray-100 rounded-lg p-2 dark:border-gray-700/60" data-testid="fnos-seed-exchange-list">
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              勾选要兑换的种子；货币不够全部换满时按从上到下的顺序兑换（按住 ⠿ 拖动或用上下箭头调整顺序）。
             </p>
             <FnosSortableList
               v-slot="sort"
