@@ -5,6 +5,7 @@
  * - 奶茶活动自动雇佣：可选「优先雇佣人」（好友，2026-10-27 起可多选并排序），统一的雇佣时长与职业可选或随机；2026.10.21.2 起与大小号解耦
  * - 奶茶收益每小时自动领取、兑换商店每日兑换森野黄金芽种子（2026.10.21）
  * - 奶茶自动制作（可排除金露云酪）、自动领取工资；图鉴奖励自动领取、自动完成图鉴（2026-10-28）
+ * - 需求 27（2026-10-30）：店铺自动升级；森野种子自动兑换（8 种可勾选、可拖动排序，按最大数量）
  * 所在栏目（2026.10.21.3 起拆成两个独立栏目，都不在「自动控制」里）：
  * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱）
  * - section="activity"：设置 → 活动设置（奶茶自动雇佣/工作事项、奶茶收益与兑换）
@@ -13,12 +14,13 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
 import FnosPriorityFriendPicker from '@/components/fnos/FnosPriorityFriendPicker.vue' // [fnos-fork] 多个优先雇佣人
+import FnosSortableList from '@/components/fnos/FnosSortableList.vue' // [fnos-fork] 需求 27 种子兑换顺序
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
-import { fnosCraftHint, fnosNormalizeIllustratedAuto, fnosNormalizeMilkTeaExtra } from '@/utils/fnos-activity-extras' // [fnos-fork] 2026-10-28
+import { fnosCraftHint, fnosMoveSeedExchange, fnosNormalizeIllustratedAuto, fnosNormalizeMilkTeaDaily, fnosNormalizeMilkTeaExtra, fnosSeedExchangeHint, fnosSeedName } from '@/utils/fnos-activity-extras' // [fnos-fork] 2026-10-28；需求 27
 import { fnosPriorityFriendsFromConfig } from '@/utils/fnos-priority-friends'
 
 const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
@@ -27,14 +29,22 @@ const toast = useToastStore()
 
 interface AltAccount { enabled: boolean, masterGid: number, masterName: string, holdForMaster: boolean, timeoutMinutes: number, skipStealMaster: boolean, badOnlyMaster: boolean }
 interface MilkTeaAutoHire { enabled: boolean, durationId: number, priorityFriends: Array<{ gid: number, name: string }>, priorityGid: number, priorityName: string, priorityConfigured: boolean, talentId: number, allowRobots: boolean, autoWork: boolean, workType: number }
-interface MilkTeaDaily { autoClaim: boolean, autoExchangeSeed: boolean }
 interface FriendItem { gid: number | string, name?: string }
 
 // [fnos-fork] holdForMaster「成熟作物先留给大号偷」缺省为 true（旧配置没有该字段时保持原有行为）
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false })
 const tea = ref<MilkTeaAutoHire>({ enabled: false, durationId: 0, priorityFriends: [], priorityGid: 0, priorityName: '', priorityConfigured: false, talentId: 0, allowRobots: false, autoWork: false, workType: 0 })
 const workOptions = ref<Array<{ workType: number, name: string, description: string, risky: boolean }>>([])
-const daily = ref<MilkTeaDaily>({ autoClaim: false, autoExchangeSeed: false })
+const daily = ref(fnosNormalizeMilkTeaDaily(null)) // [fnos-fork] 需求 27：含 8 种森野种子的勾选与顺序
+const seedHint = computed(() => fnosSeedExchangeHint(daily.value))
+function moveSeed(from: number, to: number) {
+  daily.value.seedExchange = fnosMoveSeedExchange(daily.value.seedExchange, from, to)
+}
+function seedIndicatorStyle(indicator: { side: 'before' | 'after', axis: 'x' | 'y' } | null) {
+  if (!indicator)
+    return null
+  return { left: '0', right: '0', height: '3px', [indicator.side === 'before' ? 'top' : 'bottom']: '-5px' }
+}
 const dailySaving = ref(false)
 // [fnos-fork] 2026-10-28 奶茶自动制作 / 领工资、图鉴自动
 const extra = ref(fnosNormalizeMilkTeaExtra(null))
@@ -170,7 +180,7 @@ async function load() {
     if (illustratedRes.data?.ok)
       illustrated.value = fnosNormalizeIllustratedAuto(illustratedRes.data.data)
     if (dailyRes.data?.ok)
-      daily.value = { ...daily.value, ...dailyRes.data.data }
+      daily.value = fnosNormalizeMilkTeaDaily(dailyRes.data.data)
     if (altRes.data?.ok)
       alt.value = { ...alt.value, ...altRes.data.data, holdForMaster: altRes.data.data?.holdForMaster !== false }
     if (teaRes.data?.ok) {
@@ -253,7 +263,7 @@ async function saveDaily() {
   try {
     const res = await api.post('/api/fnos/milk-tea-daily', daily.value, { headers: headers() })
     if (res.data?.data)
-      daily.value = { ...daily.value, ...res.data.data }
+      daily.value = fnosNormalizeMilkTeaDaily(res.data.data)
     reportSave(res, '奶茶收益与兑换设置已保存')
   }
   catch (e: any) {
@@ -554,7 +564,7 @@ onMounted(() => {
               奶茶收益与兑换
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              账号运行时自动领取奶茶店收益、每天兑换一次兑换商店里的「森野黄金芽种子」。保存后约 5 秒先执行一次。
+              账号运行时自动领取奶茶店收益、每天兑换一次兑换商店里勾选的森野种子（按最大数量）。保存后约 5 秒先执行一次。
             </p>
           </div>
         </div>
@@ -567,10 +577,77 @@ onMounted(() => {
             <BaseSwitch v-model="daily.autoClaim" label="奶茶收益每小时自动领取" />
           </div>
           <div class="fnos-setting-item">
-            <BaseSwitch v-model="daily.autoExchangeSeed" label="每天兑换森野黄金芽种子" />
+            <BaseSwitch v-model="daily.autoExchangeSeed" label="森野种子自动兑换（按最大数量）" />
           </div>
+          <!-- [fnos-fork] 需求 27：8 种森野种子，勾选的按列表顺序兑换；按住手柄拖动或用上下按钮排序 -->
+          <div v-if="daily.autoExchangeSeed" class="fnos-setting-item" data-testid="fnos-seed-exchange-list">
+            <p class="mb-1.5 text-xs text-gray-500 dark:text-gray-400">
+              勾选要兑换的种子；货币不够全部换满时按从上到下的顺序兑换。
+            </p>
+            <FnosSortableList
+              v-slot="sort"
+              class="flex flex-col gap-1.5"
+              :item-count="daily.seedExchange.length"
+              @move="moveSeed"
+            >
+              <div
+                v-for="(item, index) in daily.seedExchange"
+                :key="item.id"
+                :data-fnos-sort-index="index"
+                class="relative flex items-center gap-2 border border-emerald-200 rounded-lg bg-emerald-50/50 px-2 py-1 dark:border-emerald-800/50 dark:bg-emerald-900/15"
+                :class="{ 'opacity-60 ring-2 ring-emerald-400': sort.draggingIndex === index }"
+              >
+                <div
+                  v-if="seedIndicatorStyle(sort.indicatorFor(index))"
+                  class="pointer-events-none absolute z-10 rounded-full bg-emerald-500"
+                  :style="seedIndicatorStyle(sort.indicatorFor(index)) || undefined"
+                />
+                <span class="h-6 min-w-6 flex shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1 text-xs text-white font-bold">
+                  {{ index + 1 }}
+                </span>
+                <label class="min-w-0 flex flex-1 cursor-pointer items-center gap-2 text-sm text-gray-800 dark:text-gray-100">
+                  <input v-model="item.enabled" type="checkbox" class="h-4 w-4 accent-emerald-600" :data-testid="`fnos-seed-${item.id}`">
+                  <span class="truncate">{{ fnosSeedName(item.id) }}</span>
+                </label>
+                <div
+                  class="h-9 w-7 flex shrink-0 cursor-grab touch-none select-none items-center justify-center rounded text-lg text-emerald-500 active:cursor-grabbing hover:bg-emerald-100 dark:hover:bg-gray-700"
+                  title="按住拖动排序"
+                  aria-label="按住拖动排序"
+                  role="button"
+                  @pointerdown="sort.startDrag(index, $event)"
+                  @dragstart.prevent
+                  @contextmenu.prevent
+                >
+                  <span class="i-carbon-draggable" />
+                </div>
+                <button
+                  type="button"
+                  class="h-9 w-8 flex shrink-0 items-center justify-center rounded text-gray-500 hover:bg-emerald-100 dark:text-gray-300 disabled:opacity-30 dark:hover:bg-gray-700"
+                  :disabled="index === 0"
+                  title="上移"
+                  aria-label="上移"
+                  @click="moveSeed(index, index - 1)"
+                >
+                  <span class="i-carbon-chevron-up" />
+                </button>
+                <button
+                  type="button"
+                  class="h-9 w-8 flex shrink-0 items-center justify-center rounded text-gray-500 hover:bg-emerald-100 dark:text-gray-300 disabled:opacity-30 dark:hover:bg-gray-700"
+                  :disabled="index === daily.seedExchange.length - 1"
+                  title="下移"
+                  aria-label="下移"
+                  @click="moveSeed(index, index + 1)"
+                >
+                  <span class="i-carbon-chevron-down" />
+                </button>
+              </div>
+            </FnosSortableList>
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            {{ seedHint }}
+          </p>
           <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-            ⚠️ 兑换会消耗兑换商店的货币（按游戏当时的价格），每天按剩余限购数量兑换，货币不够时只兑换买得起的数量。今日已兑换、已售罄、货币不足或结算期时写日志跳过，当天不再重试。结果在日志「奶茶收益」「奶茶兑换」里查看。
+            ⚠️ 兑换会消耗兑换商店的货币（价格和币种以游戏当时为准）。每种勾选的种子都按最大数量兑换：受剩余限购、当前货币和背包持有上限 9999 限制；没有限购的种子会用掉当时所有能用的该种货币。今日已兑换、已售罄、货币不足或结算期时写日志跳过，当天不再重试。结果在日志「奶茶收益」「奶茶兑换」里查看。
           </p>
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="dailySaving" @click="saveDaily">
@@ -591,7 +668,7 @@ onMounted(() => {
               奶茶制作与工资
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              账号运行时约每 10 分钟检查一次：把背包里的森野果实做成奶茶、领取打工工资。保存后约 8 秒先执行一次。
+              账号运行时约每 10 分钟检查一次：把背包里的森野果实做成奶茶、领取打工工资、升级店铺。保存后约 8 秒先执行一次。
             </p>
           </div>
         </div>
@@ -612,6 +689,13 @@ onMounted(() => {
           <div class="fnos-setting-item">
             <BaseSwitch v-model="extra.autoClaimWages" label="自动领取工资（被雇佣打工的工资）" />
           </div>
+          <!-- [fnos-fork] 需求 27 店铺自动升级 -->
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="extra.autoUpgradeShop" label="店铺自动升级" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            自己的奶茶店营业额达到下一级要求（游戏显示「可升级」）时自动升级并领取升级奖励，一次可连升多级；条件不够时约 30 分钟再看一次，满级后不再升级。需要本账号的奶茶店已开业。结果在日志「奶茶升级」里查看。
+          </p>
           <p class="fnos-hint fnos-hint--box bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
             ⚠️ 制作会把对应果实整组用掉（不再能卖金币）。工资需要本账号的奶茶店已开业才能领取（游戏限制）。结果在日志「奶茶制作」「奶茶工资」里查看。
           </p>

@@ -70,6 +70,8 @@ mock('utils/network', { sendMsgAsync: async (_service, method, body) => {
     return { body: encode(types.MilkTeaOperateReply, { activity_id: req.activity_id, operate_type: cmd, [field]: result }) };
 } });
 
+// [fnos-fork] 需求 27：默认 8 种森野种子顺序，只勾森野黄金芽种子（旧配置迁移后的样子）
+const G = [20529, 29005, 21435, 20021, 20528, 20527, 20526, 20525].map(id => ({ id, enabled: id === 29005 }));
 const store = require('../dist/models/store');
 const daily = require('../dist/services/fnos-milk-tea-daily');
 const { readFnosForkConfigs, onWorkerConfigApplied, logFnosForkStatus } = require('../dist/services/fnos-fork-config');
@@ -82,10 +84,10 @@ function workerApply(snapshot) {
 test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
 test('normalizeFnosMilkTeaDaily：默认两项都关闭；真实 store 默认值也是关闭', () => {
-    assert.deepEqual(daily.normalizeFnosMilkTeaDaily(undefined), { autoClaim: false, autoExchangeSeed: false });
-    assert.deepEqual(daily.normalizeFnosMilkTeaDaily({ autoClaim: 1, autoExchangeSeed: 0, junk: 1 }), { autoClaim: true, autoExchangeSeed: false });
-    assert.deepEqual(store.getConfigSnapshot('7').fnosMilkTeaDaily, { autoClaim: false, autoExchangeSeed: false });
-    assert.deepEqual(readFnosForkConfigs().daily, { autoClaim: false, autoExchangeSeed: false });
+    assert.deepEqual(daily.normalizeFnosMilkTeaDaily(undefined), { autoClaim: false, autoExchangeSeed: false, seedExchange: G });
+    assert.deepEqual(daily.normalizeFnosMilkTeaDaily({ autoClaim: 1, autoExchangeSeed: 0, junk: 1 }), { autoClaim: true, autoExchangeSeed: false, seedExchange: G });
+    assert.deepEqual(store.getConfigSnapshot('7').fnosMilkTeaDaily, { autoClaim: false, autoExchangeSeed: false, seedExchange: G });
+    assert.deepEqual(readFnosForkConfigs().daily, { autoClaim: false, autoExchangeSeed: false, seedExchange: G });
 });
 
 test('未开启时不发任何请求', async () => {
@@ -99,8 +101,8 @@ test('未开启时不发任何请求', async () => {
 test('开启自动领取：领取收益（操作号 59）并打中文日志；无收益时只记一次跳过；一小时内不重复', async () => {
     resetState();
     daily.resetFnosMilkTeaDailyRuntime();
-    workerApply({ fnosMilkTeaDaily: { autoClaim: true, autoExchangeSeed: false } });
-    assert.deepEqual(readFnosForkConfigs().daily, { autoClaim: true, autoExchangeSeed: false });
+    workerApply({ fnosMilkTeaDaily: { autoClaim: true, autoExchangeSeed: false, seedExchange: G } });
+    assert.deepEqual(readFnosForkConfigs().daily, { autoClaim: true, autoExchangeSeed: false, seedExchange: G });
     logs.length = 0;
     let r = await daily.runMilkTeaDailyTick({ nowMs: 1000 });
     assert.equal(r.claimed, true, logs.join('\n'));
@@ -175,12 +177,13 @@ test('已兑换 / 货币不足 / 找不到商品：写跳过日志，当天不�
     assert.deepEqual(logs, ['奶茶兑换|森野黄金芽种子兑换跳过：兑换商店里没有找到「森野黄金芽种子」']);
 });
 
-test('planSeedExchange：条件未满足不兑换；无限购每天只兑 1 个；果实不误判', () => {
+test('planSeedExchange：条件未满足不兑换；无限购按货币最大数量；果实不误判', () => {
     const seed = { id: '9', name: '', rewards: [{ id: 1, name: '森野黄金芽种子', count: 1 }], costs: [{ id: 1041, name: '奶茶券', count: 3 }] };
     const blocked = daily.planSeedExchange([{ ...seed, remaining: 5, available: false, conditions: [{ type: 'level', satisfied: false, current: 2, target: 5 }] }], { 1041: 100 });
     assert.equal(blocked.kind, 'unavailable');
     const unlimited = daily.planSeedExchange([{ ...seed, remaining: null, available: true, conditions: [] }], { 1041: 100 });
-    assert.equal(unlimited.count, 1);
+    assert.equal(unlimited.count, 33); // 需求 27：无限购也按最大数量（100/3）
+    assert.equal(unlimited.partial, false);
     assert.equal(daily.findSeedGoods([{ name: '黄金·森野黄金芽', rewards: [{ name: '黄金·森野黄金芽' }] }, { name: '', rewards: [{ name: '森野黄金芽' }] }]).length, 0);
 });
 
@@ -197,7 +200,7 @@ test('设置运行中变化 → 约 5 秒后执行一次，并打印状态日志
     logs.length = 0;
     workerApply({ fnosMilkTeaDaily: { autoClaim: true, autoExchangeSeed: true } });
     assert.ok(tasks.some(t => t.name === 'fnos_milk_tea_daily_first' && t.ms <= 10000), JSON.stringify(tasks));
-    assert.ok(logs.includes('奶茶收益|设置已更新：奶茶收益每小时自动领取已启用；森野黄金芽种子每日兑换已启用（会消耗兑换商店货币）'), logs.join('\n'));
+    assert.ok(logs.includes('奶茶收益|设置已更新：奶茶收益每小时自动领取已启用；森野黄金芽种子每日兑换已启用（按最大数量，会消耗兑换商店货币）'), logs.join('\n'));
     tasks.length = 0;
     workerApply({ stealDelaySeconds: 3 });
     assert.equal(tasks.length, 0);
@@ -207,8 +210,69 @@ test('设置运行中变化 → 约 5 秒后执行一次，并打印状态日志
 });
 
 test('持久化：保存后新进程读回（真实 store 写 store.json）', () => {
-    store.applyConfigSnapshot({ fnosMilkTeaDaily: { autoClaim: true, autoExchangeSeed: false } }, { accountId: '8' });
+    store.applyConfigSnapshot({ fnosMilkTeaDaily: { autoClaim: true, autoExchangeSeed: false, seedExchange: G } }, { accountId: '8' });
     const { execFileSync } = require('node:child_process');
     const out = execFileSync(process.execPath, ['-e', `const s=require(${JSON.stringify(path.join(__dirname, '../dist/models/store'))});console.log(JSON.stringify([s.getConfigSnapshot('8').fnosMilkTeaDaily, s.getConfigSnapshot('9').fnosMilkTeaDaily]))`], { env: { ...process.env, QQ_FARM_DATA_DIR: DATA_DIR } }).toString().trim().split('\n').pop();
-    assert.deepEqual(JSON.parse(out), [{ autoClaim: true, autoExchangeSeed: false }, { autoClaim: false, autoExchangeSeed: false }]);
+    assert.deepEqual(JSON.parse(out), [{ autoClaim: true, autoExchangeSeed: false, seedExchange: G }, { autoClaim: false, autoExchangeSeed: false, seedExchange: G }]);
+});
+
+// ============ [fnos-fork] 需求 27：8 种森野种子按顺序、按最大数量兑换 ============
+
+test('需求 27 迁移：旧配置只有 autoExchangeSeed → 只勾黄金芽；列表规整（去重、未知 id 丢弃、缺的补在后面不勾）', () => {
+    assert.deepEqual(daily.normalizeFnosMilkTeaDaily({ autoClaim: false, autoExchangeSeed: true }), { autoClaim: false, autoExchangeSeed: true, seedExchange: G });
+    const list = daily.normalizeSeedExchange([{ id: 20525, enabled: true }, { id: 20525, enabled: false }, { id: 1, enabled: true }, { id: 29005, enabled: false }]);
+    assert.deepEqual(list.slice(0, 2), [{ id: 20525, enabled: true }, { id: 29005, enabled: false }]);
+    assert.equal(list.length, 8);
+    assert.ok(list.slice(2).every(v => !v.enabled));
+    // 只改 autoClaim 时沿用 fallback 里的种子列表
+    const saved = daily.normalizeFnosMilkTeaDaily({ autoExchangeSeed: true, seedExchange: list });
+    assert.deepEqual(daily.normalizeFnosMilkTeaDaily({ autoClaim: true }, saved).seedExchange, list);
+});
+
+test('需求 27 planSeedExchanges：共用金币按顺序扣减，后面的只换剩下的；余额不为负；持有上限', () => {
+    const goods = [
+        { id: '1', name: '森野芭乐种子', rewards: [{ id: 20529, name: '森野芭乐种子', count: 1 }], costs: [{ id: 1001, name: '金币', count: 2000 }], remaining: 3, available: true, conditions: [] },
+        { id: '2', name: '森野甜莓种子', rewards: [{ id: 20525, name: '森野甜莓种子', count: 1 }], costs: [{ id: 1001, name: '金币', count: 1000 }], remaining: null, available: true, conditions: [] },
+        { id: '3', name: '森野柿子种子', rewards: [{ id: 21435, name: '森野柿子种子', count: 1 }], costs: [{ id: 1001, name: '金币', count: 2000 }], remaining: 5, available: true, conditions: [] },
+    ];
+    const entries = [{ id: 20529, enabled: true }, { id: 20525, enabled: true }, { id: 21435, enabled: true }, { id: 29005, enabled: false }];
+    const plans = daily.planSeedExchanges(goods, { 1001: 9500 }, entries);
+    assert.deepEqual(plans.map(p => [p.seed.name, p.plan.count ?? p.plan.kind]), [['森野芭乐种子', 3], ['森野甜莓种子', 3], ['森野柿子种子', 'poor']]);
+    // 6000 + 3000 = 9000 ≤ 9500
+    const full = daily.planSeedExchange(goods, { 1001: 1e9, 20525: 9990 }, { id: 20525, name: '森野甜莓种子' });
+    assert.equal(full.count, 9);
+    assert.equal(daily.planSeedExchange(goods, { 1001: 1e9, 20525: 9999 }, { id: 20525, name: '森野甜莓种子' }).kind, 'full');
+});
+
+test('需求 27 运行：按用户排的顺序依次兑换多种种子，日志逐个写；当天不重复', async () => {
+    resetState();
+    state.goods.push(
+        { id: 403, item: [{ id: 20525, count: 1 }], cost: [{ id: 1041, count: 20 }], purchase_limit: 5, purchased_count: 0, category_tag: 'seed', cond_hints: [] },
+        { id: 404, item: [{ id: 20529, count: 1 }], cost: [{ id: 1041, count: 50 }], purchase_limit: 10, purchased_count: 0, category_tag: 'seed', cond_hints: [] },
+    );
+    daily.resetFnosMilkTeaDailyRuntime();
+    const order = [{ id: 20525, enabled: true }, { id: 29005, enabled: true }, { id: 20529, enabled: true }];
+    logs.length = 0;
+    workerApply({ fnosMilkTeaDaily: { autoClaim: false, autoExchangeSeed: true, seedExchange: order } });
+    assert.ok(logs.some(l => l.includes('按顺序：森野甜莓种子 → 森野黄金芽种子 → 森野芭乐种子')), logs.join('\n'));
+    logs.length = 0;
+    const r = await daily.runMilkTeaDailyTick({ nowMs: 1000 });
+    assert.equal(r.exchanged, true);
+    // 200 奶茶券：甜莓 5×20=100 → 黄金芽 2×30=60 → 芭乐 只剩 40，不够 50
+    assert.deepEqual(writes.map(w => [String(w.buy.goods_id), Number(w.buy.count)]), [['403', 5], ['402', 2]]);
+    assert.equal(state.bag[0].count, 40);
+    assert.ok(logs.includes('奶茶兑换|森野甜莓种子已兑换：森野甜莓种子×5，花费 奶茶券×100'), logs.join('\n'));
+    assert.ok(logs.some(l => l.startsWith('奶茶兑换|森野芭乐种子兑换跳过：兑换「森野芭乐种子」货币不足：每个需要 奶茶券 50（现有 40）')), logs.join('\n'));
+    await daily.runMilkTeaDailyTick({ nowMs: 2 * 3600 * 1000 });
+    assert.equal(writes.length, 2);
+});
+
+test('需求 27：开启但一种都没勾 → 写一次跳过日志，不发请求', async () => {
+    resetState();
+    daily.resetFnosMilkTeaDailyRuntime();
+    workerApply({ fnosMilkTeaDaily: { autoClaim: false, autoExchangeSeed: true, seedExchange: G.map(v => ({ ...v, enabled: false })) } });
+    logs.length = 0;
+    await daily.runMilkTeaDailyTick({ nowMs: 1000 });
+    assert.equal(writes.length, 0);
+    assert.deepEqual(logs, ['奶茶兑换|森野种子兑换跳过：没有勾选要兑换的种子']);
 });

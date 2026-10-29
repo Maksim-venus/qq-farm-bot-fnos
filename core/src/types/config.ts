@@ -126,12 +126,16 @@ export interface AccountConfig {
   fnosMilkTeaDaily?: {
     autoClaim: boolean;
     autoExchangeSeed: boolean;
+    /** [fnos-fork] 需求 27：8 种森野种子按顺序、按最大数量兑换（缺省时只勾森野黄金芽种子） */
+    seedExchange?: Array<{ id: number; enabled: boolean }>;
   };
   /** [fnos-fork] 2026-10-28 奶茶自动制作（可排除金露云酪）、自动领取工资（见 services/fnos-milk-tea-extra.ts） */
   fnosMilkTeaExtra?: {
     autoCraft: boolean;
     craftGoldenCheese: boolean;
     autoClaimWages: boolean;
+    /** [fnos-fork] 需求 27：店铺自动升级 */
+    autoUpgradeShop?: boolean;
   };
   /** [fnos-fork] 2026-10-28 图鉴奖励自动领取、自动完成图鉴（见 services/fnos-illustrated-auto.ts） */
   fnosIllustratedAuto?: {

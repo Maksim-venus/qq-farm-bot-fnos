@@ -17,9 +17,9 @@ export interface FnosForkConfigs {
         priorityGid: number; priorityName: string; priorityConfigured: boolean;
         talentId: number; allowRobots: boolean; autoWork: boolean; workType: number;
     };
-    daily: { autoClaim: boolean; autoExchangeSeed: boolean };
+    daily: { autoClaim: boolean; autoExchangeSeed: boolean; seedExchange: Array<{ id: number; enabled: boolean }> }; // [fnos-fork] 需求 27 种子列表
     /** [fnos-fork] 2026-10-28 奶茶自动制作 / 自动领工资 */
-    extra: { autoCraft: boolean; craftGoldenCheese: boolean; autoClaimWages: boolean };
+    extra: { autoCraft: boolean; craftGoldenCheese: boolean; autoClaimWages: boolean; autoUpgradeShop: boolean }; // [fnos-fork] 需求 27 店铺自动升级
     /** [fnos-fork] 2026-10-28 图鉴奖励自动领取 / 自动完成图鉴 */
     illustrated: { autoClaimRewards: boolean; autoComplete: boolean };
     error: string;
@@ -95,14 +95,20 @@ function describeHire(tea: FnosForkConfigs['tea'], alt: FnosForkConfigs['alt']):
 }
 
 function describeDaily(daily: FnosForkConfigs['daily']): string {
-    return `奶茶收益每小时自动领取${daily.autoClaim ? '已启用' : '未启用'}；森野黄金芽种子每日兑换${daily.autoExchangeSeed ? '已启用（会消耗兑换商店货币）' : '未启用'}`;
+    // [fnos-fork] 需求 27：列出勾选的森野种子（按兑换顺序）
+    const { FNOS_EXCHANGE_SEEDS } = require('./fnos-milk-tea-daily');
+    const names = (daily.seedExchange || []).filter(v => v.enabled).map(v => (FNOS_EXCHANGE_SEEDS.find((s: any) => s.id === v.id) || { name: `物品 #${v.id}` }).name);
+    const exchange = !daily.autoExchangeSeed ? '森野种子每日兑换未启用'
+        : names.length === 1 && names[0] === '森野黄金芽种子' ? '森野黄金芽种子每日兑换已启用（按最大数量，会消耗兑换商店货币）'
+            : names.length ? `森野种子每日兑换已启用（按顺序：${names.join(' → ')}，按最大数量，会消耗兑换商店货币）` : '森野种子每日兑换已启用，但没有勾选种子';
+    return `奶茶收益每小时自动领取${daily.autoClaim ? '已启用' : '未启用'}；${exchange}`;
 }
 
 function describeExtra(extra: FnosForkConfigs['extra']): string {
     const craft = extra.autoCraft
         ? `奶茶自动制作已启用（${extra.craftGoldenCheese ? '包括金露云酪' : '不做金露云酪，只做其他奶茶'}，会消耗背包里的对应果实）`
         : '奶茶自动制作未启用';
-    return `${craft}；奶茶工资自动领取${extra.autoClaimWages ? '已启用' : '未启用'}`;
+    return `${craft}；奶茶工资自动领取${extra.autoClaimWages ? '已启用' : '未启用'}；店铺自动升级${extra.autoUpgradeShop ? '已启用' : '未启用'}`;
 }
 
 function describeIllustrated(ill: FnosForkConfigs['illustrated']): string {
@@ -130,7 +136,8 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     log('奶茶雇佣', `${prefix}${describeTea(cfg.tea, cfg.alt)}`, { module: 'activity', event: '奶茶自动雇佣设置', result: cfg.tea.enabled ? 'enabled' : 'disabled' });
     log('奶茶收益', `${prefix}${describeDaily(cfg.daily)}`, { module: 'activity', event: '奶茶收益与兑换设置', result: cfg.daily.autoClaim || cfg.daily.autoExchangeSeed ? 'enabled' : 'disabled' });
     // [fnos-fork] 2026-10-28：只在开启时或设置变化时打印，避免登录时多两行「未启用」
-    if (force ? (cfg.extra.autoCraft || cfg.extra.autoClaimWages) : true) log('奶茶制作', `${prefix}${describeExtra(cfg.extra)}`, { module: 'activity', event: '奶茶制作与工资设置', result: cfg.extra.autoCraft || cfg.extra.autoClaimWages ? 'enabled' : 'disabled' });
+    const extraOn = cfg.extra.autoCraft || cfg.extra.autoClaimWages || cfg.extra.autoUpgradeShop; // [fnos-fork] 需求 27
+    if (force ? extraOn : true) log('奶茶制作', `${prefix}${describeExtra(cfg.extra)}`, { module: 'activity', event: '奶茶制作与工资设置', result: extraOn ? 'enabled' : 'disabled' });
     if (force ? (cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete) : true) log('图鉴', `${prefix}${describeIllustrated(cfg.illustrated)}`, { module: 'farm', event: '图鉴自动设置', result: cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete ? 'enabled' : 'disabled' });
     return true;
 }

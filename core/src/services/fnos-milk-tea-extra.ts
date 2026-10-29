@@ -19,12 +19,25 @@ export {};
  * 真正的请求都经 milkTea.operateMilkTeaActivity 发出：上游在提交前会重新读取活动、核对果实数量/锁定状态、
  * 活动是否开放/结算期，并且所有奶茶操作串行。本文件只决定「何时做、做哪些」，并写中文日志。
  * 检查间隔 10 分钟（与奶茶雇人/工作事项一致）。
+ *
+ * [fnos-fork] 2026-10-30 需求 27：店铺自动升级
+ * - 升级：同活动操作号 61 milk_tea_upgrade（MilkTeaUpgradeReq 为空；MilkTeaUpgradeRsp.level = 升级后等级、
+ *   rewards = 升级奖励）。可升级依据为 GetGroup 里奶茶活动摘要 MilkTeaActivitySummary.can_upgrade（服务端计算，
+ *   与上游「店铺升级」弹窗按钮一致），进度用操作号 55 milk_tea_get_shop 的 shop.total_revenue / next_level_revenue
+ *   写进跳过日志；等级表 MilkTeaStoreLevelConfig（revenue_required、rewards）只用来判断是否已满级和显示。
+ * - 上游 operateMilkTeaActivity('upgrade') 提交前会复核 expectedLevel 与 can_upgrade，所以这里传入当前等级。
+ * - 条件不够时退避 30 分钟（营业额涨得慢，不必每 10 分钟都读）；失败也退避 30 分钟；满级后 6 小时才再看一次。
  */
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
 const FIRST_TICK_DELAY_MS = 8 * 1000;
 const GOLDEN_RECIPE_NAME = '金露云酪';
 const MAX_CRAFT_UIDS = 200; // 上游 craft 接口单次最多 200 组
+// [fnos-fork] 需求 27 店铺自动升级的退避
+const UPGRADE_WAIT_MS = 30 * 60 * 1000;
+const UPGRADE_MAXED_WAIT_MS = 6 * 60 * 60 * 1000;
+const MAX_UPGRADES_PER_TICK = 5;
+const MAX_SHOP_LEVEL = Math.max(0, ...(milkTeaConfig.MilkTeaStoreLevelConfig || []).map((v: any) => Number(v.level) || 0));
 
 export interface FnosMilkTeaExtraConfig {
     /** 自动制作奶茶 */
@@ -33,15 +46,17 @@ export interface FnosMilkTeaExtraConfig {
     craftGoldenCheese: boolean;
     /** 自动领取工资（被雇佣打工的工资） */
     autoClaimWages: boolean;
+    /** [fnos-fork] 需求 27：自己的奶茶店铺满足条件时自动升级 */
+    autoUpgradeShop: boolean;
 }
 
-const DEFAULT_FNOS_MILK_TEA_EXTRA: FnosMilkTeaExtraConfig = { autoCraft: false, craftGoldenCheese: false, autoClaimWages: false };
+const DEFAULT_FNOS_MILK_TEA_EXTRA: FnosMilkTeaExtraConfig = { autoCraft: false, craftGoldenCheese: false, autoClaimWages: false, autoUpgradeShop: false };
 
 function normalizeFnosMilkTeaExtra(input: unknown, fallback: FnosMilkTeaExtraConfig = DEFAULT_FNOS_MILK_TEA_EXTRA): FnosMilkTeaExtraConfig {
     const base = { ...DEFAULT_FNOS_MILK_TEA_EXTRA, ...(fallback || {}) };
     const src = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, any> : {};
     const pick = (key: keyof FnosMilkTeaExtraConfig) => (src[key] !== undefined ? !!src[key] : !!base[key]);
-    return { autoCraft: pick('autoCraft'), craftGoldenCheese: pick('craftGoldenCheese'), autoClaimWages: pick('autoClaimWages') };
+    return { autoCraft: pick('autoCraft'), craftGoldenCheese: pick('craftGoldenCheese'), autoClaimWages: pick('autoClaimWages'), autoUpgradeShop: pick('autoUpgradeShop') };
 }
 
 function num(value: any): number {
@@ -115,12 +130,33 @@ function claimableWageSlips(state: any): any[] {
     return (Array.isArray(state?.work?.slips) ? state.work.slips : []).filter((v: any) => num(v?.wage_status) === 1);
 }
 
+/**
+ * [fnos-fork] 需求 27：判断能否升级店铺（纯函数，输入为上游 getMilkTeaActivity('upgrade') 的结果）。
+ * 返回 { level } 或 { skip, kind, waitMs }。
+ */
+function planUpgrade(state: any): { level: number } | { skip: string; kind: string; waitMs: number } {
+    if (!state?.active) return { skip: '奶茶活动未开放或已结束', kind: 'inactive', waitMs: UPGRADE_MAXED_WAIT_MS };
+    if (!num(state.summary?.shop_open_at)) return { skip: '本账号奶茶店尚未开业', kind: 'closed', waitMs: UPGRADE_WAIT_MS };
+    const level = num(state.summary?.level) || num(state.shop?.level);
+    if (MAX_SHOP_LEVEL > 0 && level >= MAX_SHOP_LEVEL) return { skip: `店铺已满级（Lv.${level}）`, kind: 'max', waitMs: UPGRADE_MAXED_WAIT_MS };
+    if (!state.summary?.can_upgrade) {
+        const total = num(state.shop?.total_revenue) || num(state.summary?.total_revenue);
+        const nextRow = (milkTeaConfig.MilkTeaStoreLevelConfig || []).find((v: any) => Number(v.level) === level + 1) as any;
+        const target = num(state.shop?.next_level_revenue) || Number(nextRow?.revenue_required) || 0;
+        const progress = target > 0 ? `，营业额 ${total.toLocaleString('en-US')}/${target.toLocaleString('en-US')}` : '';
+        return { skip: `尚未达到升级条件（Lv.${level} → Lv.${level + 1}${progress}）`, kind: 'not_ready', waitMs: UPGRADE_WAIT_MS };
+    }
+    return { level };
+}
+
 // ============ 运行时（worker 内，每个账号一个进程） ============
 
 const lastLog: Record<string, string> = {};
+let upgradeNextAtMs = 0;
 
 function resetFnosMilkTeaExtraRuntime(): void {
     for (const k of Object.keys(lastLog)) delete lastLog[k];
+    upgradeNextAtMs = 0;
 }
 
 function readConfig(): FnosMilkTeaExtraConfig {
@@ -195,14 +231,54 @@ async function runWages(milkTea: any): Promise<boolean> {
     }
 }
 
-/** 一轮：按设置领取工资、制作奶茶。返回 { crafted, wages }。 */
-async function runMilkTeaExtraTick(options: { milkTea?: any } = {}) {
+/** [fnos-fork] 需求 27：店铺自动升级。返回本轮升了几级。 */
+async function runUpgrade(milkTea: any, nowMs: number): Promise<number> {
+    if (upgradeNextAtMs > nowMs) return 0;
+    const { log } = require('../utils/utils');
+    const meta = { module: 'activity', event: '奶茶店铺升级' };
+    let upgraded = 0;
+    let state: any;
+    try {
+        // 'upgrade' 页：GetGroup 摘要（can_upgrade、level）+ 操作号 55 店铺（营业额进度）
+        state = await milkTea.getMilkTeaActivity('upgrade');
+    } catch (e: any) {
+        upgradeNextAtMs = nowMs + UPGRADE_WAIT_MS;
+        logOnce('upgrade', '奶茶升级', `店铺自动升级跳过：读取奶茶店失败（${e.message}），30 分钟后再试`, { ...meta, result: 'error' }, true);
+        return 0;
+    }
+    while (upgraded < MAX_UPGRADES_PER_TICK) {
+        const plan = planUpgrade(state);
+        if ('skip' in plan) {
+            upgradeNextAtMs = nowMs + plan.waitMs;
+            if (!upgraded) logOnce('upgrade', '奶茶升级', `店铺自动升级跳过：${plan.skip}`, { ...meta, result: 'skip', kind: plan.kind });
+            return upgraded;
+        }
+        try {
+            const res = await milkTea.operateMilkTeaActivity('upgrade', { expectedLevel: plan.level });
+            const to = num(res?.result?.level) || plan.level + 1;
+            upgraded += 1;
+            lastLog.upgrade = '';
+            log('奶茶升级', `店铺自动升级：Lv.${plan.level} → Lv.${to}${res?.rewards?.length ? `，获得 ${describeItems(res.rewards)}` : ''}`, { ...meta, result: 'ok', from: plan.level, to });
+            if (!res?.activity) { upgradeNextAtMs = nowMs + UPGRADE_WAIT_MS; return upgraded; }
+            state = res.activity;
+        } catch (e: any) {
+            upgradeNextAtMs = nowMs + UPGRADE_WAIT_MS;
+            logOnce('upgrade', '奶茶升级', `店铺自动升级失败：${e.message}，30 分钟后再试`, { ...meta, result: 'error' }, true);
+            return upgraded;
+        }
+    }
+    return upgraded;
+}
+
+/** 一轮：按设置领取工资、制作奶茶、升级店铺。返回 { crafted, wages, upgraded }。 */
+async function runMilkTeaExtraTick(options: { milkTea?: any; nowMs?: number } = {}) {
     const cfg = readConfig();
-    const result = { crafted: false, wages: false };
-    if (!cfg.autoCraft && !cfg.autoClaimWages) return result;
+    const result = { crafted: false, wages: false, upgraded: 0 };
+    if (!cfg.autoCraft && !cfg.autoClaimWages && !cfg.autoUpgradeShop) return result;
     const milkTea = options.milkTea || require('./milk-tea');
     if (cfg.autoClaimWages) result.wages = await runWages(milkTea);
     if (cfg.autoCraft) result.crafted = await runCraft(milkTea, cfg);
+    if (cfg.autoUpgradeShop) result.upgraded = await runUpgrade(milkTea, options.nowMs || Date.now());
     return result;
 }
 
@@ -215,7 +291,7 @@ function startFnosMilkTeaExtra(scheduler: any, runExclusive: (name: string, fn: 
     const tick = () => runExclusive('fnos_milk_tea_extra', () => runMilkTeaExtraTick()).catch((e: any) => {
         if (Date.now() - lastTickErrorLogAt > 30 * 60 * 1000) {
             lastTickErrorLogAt = Date.now();
-            try { require('../utils/utils').logWarn('奶茶制作', `奶茶制作/工资检查出错：${e && e.message ? e.message : e}`, { module: 'activity', event: '奶茶自动制作', result: 'error' }); } catch { /* ignore */ }
+            try { require('../utils/utils').logWarn('奶茶制作', `奶茶制作/工资/升级检查出错：${e && e.message ? e.message : e}`, { module: 'activity', event: '奶茶自动制作', result: 'error' }); } catch { /* ignore */ }
         }
         return null;
     });
@@ -239,6 +315,8 @@ module.exports = {
     normalizeFnosMilkTeaExtra,
     planCraft,
     claimableWageSlips,
+    planUpgrade,
+    MAX_SHOP_LEVEL,
     runMilkTeaExtraTick,
     startFnosMilkTeaExtra,
     onFnosMilkTeaExtraConfigChanged,
