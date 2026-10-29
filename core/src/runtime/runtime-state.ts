@@ -86,6 +86,7 @@ function createRuntimeState(options: RuntimeStateOptions) {
         entry._searchText = `${entry.msg || ''} ${entry.tag || ''} ${JSON.stringify(entry.meta || {})}`.toLowerCase();
         globalLogs.push(entry);
         if (globalLogs.length > 1000) globalLogs.shift();
+        require('./fnos-log-categories').recordFnosLogCategories(entry); // [fnos-fork] 偷菜/报错分类缓冲
         runtimeEvents.emit('log', entry);
     }
 

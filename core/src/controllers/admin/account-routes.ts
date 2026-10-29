@@ -177,6 +177,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
                 isWarn: req.query.isWarn,
                 timeFrom: req.query.timeFrom || '',
                 timeTo: req.query.timeTo || '',
+                ...require('../../runtime/fnos-log-categories').fnosLogQueryOptions(req.query), // [fnos-fork] category/level
             };
 
             for (const accId of accountIds) {
@@ -187,7 +188,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             }
 
             // 按时间排序并限制数量
-            allLogs.sort((a: any, b: any) => (b.time || 0) - (a.time || 0));
+            allLogs.sort((a: any, b: any) => (Number(b.ts) || 0) - (Number(a.ts) || 0)); // [fnos-fork] 原按 time 字符串相减得 NaN，改按 ts
             const limitedLogs = allLogs.slice(0, options.limit);
 
             return res.json({ ok: true, data: limitedLogs });
@@ -203,6 +204,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             isWarn: req.query.isWarn,
             timeFrom: req.query.timeFrom || '',
             timeTo: req.query.timeTo || '',
+            ...require('../../runtime/fnos-log-categories').fnosLogQueryOptions(req.query), // [fnos-fork] category/level
         };
         const list = ctx.provider.getLogs(id, options);
         res.json({ ok: true, data: list });

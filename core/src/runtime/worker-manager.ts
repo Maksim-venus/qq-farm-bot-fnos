@@ -342,6 +342,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
             if (worker.logs.length > 1000) worker.logs.shift();
             globalLogs.push(logEntry);
             if (globalLogs.length > 1000) globalLogs.shift();
+            require('./fnos-log-categories').recordFnosLogCategories(logEntry); // [fnos-fork] 偷菜/报错分类缓冲
             if (typeof onWorkerLog === 'function') {
                 onWorkerLog(logEntry, accountId, worker.name);
             }

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import type { FnosErrorLevelFilter, FnosLogView } from '@/utils/fnos-log-categories'
 import { useIntervalFn } from '@vueuse/core'
+import { NTab, NTabs } from 'naive-ui/es/tabs'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
@@ -12,6 +14,7 @@ import { getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
+import { FNOS_ERROR_LEVEL_OPTIONS, FNOS_LOG_VIEWS, fnosBuildLogCategoryParams, fnosEmptyLogText, fnosIsCategoryLogView } from '@/utils/fnos-log-categories'
 
 const statusStore = useStatusStore()
 const accountStore = useAccountStore()
@@ -76,8 +79,12 @@ const filter = reactive({
   isWarn: '',
 })
 
+// [fnos-fork] 运行日志分栏：全部 / 偷菜日志 / 报错日志（分类视图走服务端独立缓冲）
+const logView = ref<FnosLogView>('all')
+const fnosErrorLevel = ref<FnosErrorLevelFilter>('')
+
 const hasActiveLogFilter = computed(() =>
-  !!(filter.module || filter.event || filter.keyword || filter.isWarn),
+  !!(filter.module || filter.event || filter.keyword || filter.isWarn) || fnosIsCategoryLogView(logView.value),
 )
 
 const modules = [
@@ -387,6 +394,7 @@ async function refresh(forceReloadLogs = false) {
         event: filter.event || undefined,
         keyword: filter.keyword || undefined,
         isWarn: filter.isWarn === 'warn' ? true : filter.isWarn === 'info' ? false : undefined,
+        ...fnosBuildLogCategoryParams(logView.value, fnosErrorLevel.value), // [fnos-fork]
       })
     }
 
@@ -398,6 +406,11 @@ async function refresh(forceReloadLogs = false) {
 function onLogFilterChange() {
   refresh(true)
 }
+
+// [fnos-fork] 切换分栏后立即重新拉取（切回「全部」也要拉一次全量）
+watch([logView, fnosErrorLevel], () => {
+  refresh(true)
+})
 
 function onLogSearchTrigger() {
   refresh(true)
@@ -673,9 +686,24 @@ useIntervalFn(updateCountdowns, 1000)
             </div>
           </div>
 
+          <!-- [fnos-fork] 运行日志分栏 -->
+          <div class="fnos-log-views mb-3">
+            <NTabs v-model:value="logView" type="segment" size="small" class="fnos-log-views__tabs">
+              <NTab v-for="view in FNOS_LOG_VIEWS" :key="view.value" :name="view.value">
+                <span class="inline-flex items-center gap-1 whitespace-nowrap"><span :class="view.icon" />{{ view.label }}</span>
+              </NTab>
+            </NTabs>
+            <BaseSelect
+              v-if="logView === 'error'"
+              v-model="fnosErrorLevel"
+              class="fnos-log-views__level"
+              :options="FNOS_ERROR_LEVEL_OPTIONS"
+            />
+          </div>
+
           <div ref="logContainer" class="log-list max-h-[50vh] min-h-0 flex-1 overflow-y-auto" @scroll="onLogScroll">
             <div v-if="!allLogs.length" class="py-8 text-center text-gray-400">
-              暂无日志
+              {{ fnosEmptyLogText(logView) }}
             </div>
             <div
               v-for="group in logGroups"
@@ -1061,6 +1089,24 @@ useIntervalFn(updateCountdowns, 1000)
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.fnos-log-views {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fnos-log-views__tabs {
+  width: auto;
+  min-width: 18rem;
+  max-width: 24rem;
+}
+
+.fnos-log-views__level {
+  width: 8.5rem;
 }
 
 .log-filters__buttons {

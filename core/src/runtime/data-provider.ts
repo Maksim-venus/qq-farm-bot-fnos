@@ -79,6 +79,14 @@ function createDataProvider(options: DataProviderOptions) {
             const max = Math.max(1, Number(opts.limit) || 100);
             const rawRef = normalizeAccountRef(accountRef);
             const accountId = resolveAccountRefId(accountRef);
+            // [fnos-fork] 偷菜/报错分类：从独立环形缓冲取，不受全量 1000 条上限挤占
+            const fnosLogs = require('./fnos-log-categories');
+            const fnosCategory = fnosLogs.normalizeFnosLogCategory(opts.fnosCategory);
+            if (fnosCategory) {
+                if (rawRef && rawRef !== 'all' && !accountId) return [];
+                const scoped = fnosLogs.getFnosCategoryLogs(fnosCategory, (!rawRef || rawRef === 'all') ? '' : String(accountId), fnosLogs.normalizeFnosErrorLevel(opts.fnosLevel));
+                return filterLogs(scoped, opts).slice(-max);
+            }
             if (!rawRef || rawRef === 'all') {
                 return filterLogs(globalLogs, opts).slice(-max);
             }
@@ -96,12 +104,14 @@ function createDataProvider(options: DataProviderOptions) {
 
             if (!rawRef || rawRef === 'all') {
                 globalLogs.length = 0;
+                require('./fnos-log-categories').clearFnosCategoryLogs(''); // [fnos-fork]
                 return { cleared: 'all' };
             }
 
             if (!accountId) return { cleared: 0 };
 
             const accId = String(accountId || '');
+            require('./fnos-log-categories').clearFnosCategoryLogs(accId); // [fnos-fork]
             const before = globalLogs.length;
             for (let i = globalLogs.length - 1; i >= 0; i--) {
                 if (String(globalLogs[i].accountId || '') === accId) {
