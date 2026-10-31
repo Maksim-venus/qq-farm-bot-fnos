@@ -519,8 +519,8 @@ onMounted(() => {
             v-model.number="stealRatio.thresholdPercent"
             type="number"
             :min="1"
-            :max="100"
-            label="阈值（%）"
+            :max="100000"
+            label="阈值（%，可超过 100）"
           />
           <p class="fnos-hint text-gray-500 dark:text-gray-400">
             生涯收获为 0、生涯偷菜大于 0 时视为超过任意阈值。两者都是 0 视为 0%，不触发。这是对方的生涯总偷菜和总收获，不是只统计偷本账号的数量。

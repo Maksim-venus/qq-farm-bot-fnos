@@ -216,7 +216,7 @@ const sortedFriends = computed(() => {
 const stealRatioSettings = ref(fnosNormalizeStealRatio(null))
 const stealFilterMode = ref<'all' | 'above' | 'below' | 'range'>('all')
 const stealRangeMin = ref(0)
-const stealRangeMax = ref(100)
+const stealRangeMax = ref<number | ''>('')
 const stealRatioLoading = ref(false)
 const stealRatioReady = ref(true)
 const stealFilterOptions = [
@@ -305,8 +305,8 @@ const filteredFriends = computed(() => {
     friendCareer.value[String(friend?.gid ?? '')],
     stealFilterMode.value,
     stealRatioSettings.value.thresholdPercent,
-    Number(stealRangeMin.value),
-    Number(stealRangeMax.value),
+    stealRangeMin.value,
+    stealRangeMax.value,
   ))
 })
 
@@ -1049,15 +1049,15 @@ async function handleBatchAddKnownFriendGids() {
             </div>
             <template v-if="stealFilterMode === 'range'">
               <div class="w-28">
-                <BaseInput v-model.number="stealRangeMin" type="number" :min="0" :max="100" label="最低 %" />
+                <BaseInput v-model.number="stealRangeMin" type="number" :min="0" label="最低 %" />
               </div>
               <div class="w-28">
-                <BaseInput v-model.number="stealRangeMax" type="number" :min="0" :max="100" label="最高 %" />
+                <BaseInput v-model.number="stealRangeMax" type="number" :min="0" label="最高 %" placeholder="不限" />
               </div>
             </template>
           </div>
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            阈值 {{ stealRatioSettings.thresholdPercent }}%（设置 → 大小号协作）。高于阈值指严格超过；生涯收获为 0 且有偷菜时显示「只偷不收」。
+            阈值 {{ stealRatioSettings.thresholdPercent }}%（设置 → 大小号协作）。高于阈值指严格超过；偷收比可以超过 100%；区间最高留空表示不限。生涯收获为 0 且有偷菜时显示「只偷不收」。
             <span v-if="stealRatioLoading">正在读取生涯数据…</span>
           </p>
         </div>

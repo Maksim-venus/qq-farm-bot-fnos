@@ -28,7 +28,8 @@ const { readJsonFile, writeJsonFileAtomic } = require('../json-db');
 
 const DEFAULT_THRESHOLD_PERCENT = 80;
 const MIN_THRESHOLD_PERCENT = 1;
-const MAX_THRESHOLD_PERCENT = 100;
+// [fnos-fork] 偷收比可以超过 100%（偷菜次数多于收获），阈值上限放宽到 100000%
+const MAX_THRESHOLD_PERCENT = 100000;
 const CHECK_INTERVAL_MS = 3 * 60 * 1000;
 const FIRST_TICK_DELAY_MS = 20 * 1000;
 const DELETE_INTERVAL_MS = 10 * 60 * 1000;

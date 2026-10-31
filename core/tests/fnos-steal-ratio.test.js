@@ -39,6 +39,9 @@ test('缺省四项全关、阈值 80；非法阈值回退；没带的开关沿�
     assert.equal(kept.autoDelete, true);
     assert.equal(normalizeFnosStealRatio({ thresholdPercent: 0 }).thresholdPercent, 80);
     assert.equal(normalizeFnosStealRatio({ thresholdPercent: 80.6 }).thresholdPercent, 81);
+    assert.equal(normalizeFnosStealRatio({ thresholdPercent: 300 }).thresholdPercent, 300);
+    assert.equal(isStealRatioAbove(100, 301, 300), true);
+    assert.equal(isStealRatioAbove(100, 300, 300), false);
 });
 
 test('偷收比 = 生涯偷菜 / 生涯收获；等于阈值不触发，只偷不收触发', () => {

@@ -36,7 +36,7 @@ export function fnosNormalizeStealRatio(input: unknown, fallback: FnosStealRatio
   const src = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, any> : {}
   const raw = src.thresholdPercent !== undefined ? Number(src.thresholdPercent) : base.thresholdPercent
   const rounded = Number.isFinite(raw) ? Math.round(raw) : 80
-  const thresholdPercent = rounded >= 1 && rounded <= 100 ? rounded : (base.thresholdPercent || 80)
+  const thresholdPercent = rounded >= 1 && rounded <= 100000 ? rounded : (base.thresholdPercent || 80)
   const flag = (key: keyof FnosStealRatioConfig) => (src[key] !== undefined ? !!src[key] : !!base[key])
   return {
     thresholdPercent,
@@ -67,14 +67,14 @@ export function fnosStealRatioAbove(harvest: unknown, steal: unknown, thresholdP
 
 /**
  * 好友列表筛选。还没读到生涯数据时，只有「全部」算命中，避免把未知好友误判成高或低。
- * 自定义区间含两端；只偷不收只在区间上限达到 100 时出现。
+ * 自定义区间含两端；偷收比可超过 100%。上限留空表示不限，只偷不收只在上限留空时出现。
  */
 export function fnosFriendMatchesStealFilter(
   career: { harvest?: number, steal?: number } | null | undefined,
   mode: FnosStealFilterMode,
   thresholdPercent: number,
-  rangeMin: number,
-  rangeMax: number,
+  rangeMin: number | string | null | undefined,
+  rangeMax: number | string | null | undefined,
 ): boolean {
   if (mode === 'all')
     return true
@@ -85,15 +85,16 @@ export function fnosFriendMatchesStealFilter(
     return info.infinite || info.percent > thresholdPercent
   if (mode === 'below')
     return !info.infinite && info.percent <= thresholdPercent
-  let min = Number(rangeMin)
-  let max = Number(rangeMax)
+  const blank = (v: unknown) => v === '' || v === null || v === undefined
+  let min = blank(rangeMin) ? 0 : Number(rangeMin)
+  let max = blank(rangeMax) ? Number.POSITIVE_INFINITY : Number(rangeMax)
   if (!Number.isFinite(min))
     min = 0
-  if (!Number.isFinite(max))
-    max = 100
+  if (Number.isNaN(max))
+    max = Number.POSITIVE_INFINITY
   if (min > max)
     [min, max] = [max, min]
   if (info.infinite)
-    return max >= 100
+    return max === Number.POSITIVE_INFINITY
   return info.percent >= min && info.percent <= max
 }
