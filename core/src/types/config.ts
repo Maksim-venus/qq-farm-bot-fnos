@@ -142,6 +142,17 @@ export interface AccountConfig {
     autoClaimRewards: boolean;
     autoComplete: boolean;
   };
+  /**
+   * [fnos-fork] 2026-10-31 偷收比。公式：生涯偷菜 / 生涯收获 × 100%，严格大于阈值才触发。
+   * 四项开关独立，默认关。见 services/friend/fnos-steal-ratio.ts。
+   */
+  fnosStealRatio?: {
+    thresholdPercent: number;
+    ignoreApplications: boolean;
+    listFilter: boolean;
+    barkOnSteal: boolean;
+    autoDelete: boolean;
+  };
 }
 
 export interface OfflineReminder {

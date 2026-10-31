@@ -33,6 +33,8 @@ const {
     evaluateLevelFilter,
     evaluateHarvestStealFilter,
 } = require('./application-filter');
+// [fnos-fork] 偷收比超过阈值时拒绝好友申请（与「自动通过好友申请」独立，默认关）
+const { readFnosStealRatio, decideStealRatioApplication } = require('./fnos-steal-ratio');
 const {
     extractReplyFriends,
     clearAllInvalidKnownFriendGidCooldowns,
@@ -544,7 +546,9 @@ export function onFriendApplicationReceived(applications: any[]): void {
  * 检查并处理所有待处理的好友申请
  */
 async function checkAndAcceptApplications(): Promise<void> {
-    if (!isAutomationOn('friend_auto_accept')) return;
+    // [fnos-fork] 仅打开「忽略高偷收比申请」时也要处理，不能等自动通过好友申请
+    const stealRatio = readFnosStealRatio();
+    if (!isAutomationOn('friend_auto_accept') && !stealRatio.ignoreApplications) return;
     try {
         const reply: any = await getApplications();
         const applications: any[] = reply.applications || [];
@@ -558,13 +562,22 @@ async function checkAndAcceptApplications(): Promise<void> {
     }
 }
 
+// [fnos-fork] 偷收比定时检查复用同一套申请处理
+export async function checkFriendApplicationsNow(): Promise<void> {
+    await checkAndAcceptApplications();
+}
+
 async function processFriendApplications(applications: any[]): Promise<void> {
-    if (!isAutomationOn('friend_auto_accept')) return;
+    const stealRatio = readFnosStealRatio();
+    const autoAccept = isAutomationOn('friend_auto_accept');
+    // [fnos-fork] 忽略高偷收比申请可以单独开；没开时行为与上游一致
+    if (!autoAccept && !stealRatio.ignoreApplications) return;
     const list: any[] = Array.isArray(applications) ? applications : [];
     if (list.length === 0) return;
 
     const config = getApplicationFilterConfig();
-    const checkRatio = isHarvestStealFilterEnabled(config);
+    const checkRatio = autoAccept && isHarvestStealFilterEnabled(config);
+    const needCareer = !!stealRatio.ignoreApplications || checkRatio;
     const accountId: string = process.env.FARM_ACCOUNT_ID || '';
     const blacklist: Set<number> = new Set(getFriendBlacklist(accountId));
     const toAccept: number[] = [];
@@ -577,35 +590,57 @@ async function processFriendApplications(applications: any[]): Promise<void> {
         const level: number = toNum(app && app.level);
         if (!gid) continue;
 
-        if (blacklist.has(gid)) {
+        if (autoAccept && blacklist.has(gid)) {
             toReject.push({ gid, name, reason: '已在本地黑名单' });
             continue;
         }
 
-        const levelDecision = evaluateLevelFilter(level, config);
-        if (levelDecision.action === 'reject') {
-            toReject.push({ gid, name, reason: levelDecision.reason || '等级不足' });
+        if (autoAccept) {
+            const levelDecision = evaluateLevelFilter(level, config);
+            if (levelDecision.action === 'reject') {
+                toReject.push({ gid, name, reason: levelDecision.reason || '等级不足' });
+                continue;
+            }
+        }
+
+        let career: any = null;
+        if (needCareer) {
+            try {
+                career = await getCareerInfo(gid);
+            } catch (e: any) {
+                logWarn('申请', `${name} 生涯查询失败，暂不处理: ${e && e.message ? e.message : e}`);
+                if (i < list.length - 1) await randomDelay(150, 300);
+                continue;
+            }
+        }
+
+        // [fnos-fork] 偷收比超过阈值则拒绝，不进入自动通过
+        if (stealRatio.ignoreApplications && career) {
+            const stealDecision = decideStealRatioApplication(career.harvest, career.steal, stealRatio.thresholdPercent, true);
+            if (stealDecision.action === 'reject') {
+                toReject.push({ gid, name, reason: stealDecision.reason || '偷收比过高' });
+                if (i < list.length - 1) await randomDelay(150, 300);
+                continue;
+            }
+        }
+
+        if (!autoAccept) {
+            if (i < list.length - 1 && needCareer) await randomDelay(150, 300);
             continue;
         }
 
         if (!checkRatio) {
             toAccept.push(gid);
-            continue;
-        }
-
-        try {
-            const career = await getCareerInfo(gid);
+        } else {
             const ratioDecision = evaluateHarvestStealFilter(career.harvest, career.steal, config);
             if (ratioDecision.action === 'reject') {
                 toReject.push({ gid, name, reason: ratioDecision.reason || '收偷比不足' });
             } else {
                 toAccept.push(gid);
             }
-        } catch (e: any) {
-            logWarn('申请', `${name} 生涯查询失败，暂不处理: ${e && e.message ? e.message : e}`);
         }
 
-        if (i < list.length - 1 && checkRatio) {
+        if (i < list.length - 1 && needCareer) {
             await randomDelay(150, 300);
         }
     }

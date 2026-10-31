@@ -18,12 +18,14 @@ import LandCard from '@/components/LandCard.vue'
 import PageTabs from '@/components/PageTabs.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
+import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseTextarea from '@/components/ui/BaseTextarea.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import { useAccountStore } from '@/stores/account'
 import { useFriendStore } from '@/stores/friend'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
+import { fnosFriendMatchesStealFilter, fnosNormalizeStealRatio, fnosStealRatioInfo } from '@/utils/fnos-steal-ratio' // [fnos-fork] 偷收比筛选
 import { interactionItemTargetReason } from '@/utils/interaction-item-rules'
 
 const accountStore = useAccountStore()
@@ -210,18 +212,102 @@ const sortedFriends = computed(() => {
   })
 })
 
+// [fnos-fork] 偷收比筛选：开关在「设置 → 大小号协作」，默认关
+const stealRatioSettings = ref(fnosNormalizeStealRatio(null))
+const stealFilterMode = ref<'all' | 'above' | 'below' | 'range'>('all')
+const stealRangeMin = ref(0)
+const stealRangeMax = ref(100)
+const stealRatioLoading = ref(false)
+const stealRatioReady = ref(true)
+const stealFilterOptions = [
+  { label: '全部', value: 'all' },
+  { label: '高于阈值', value: 'above' },
+  { label: '不高于阈值', value: 'below' },
+  { label: '自定义区间', value: 'range' },
+]
+
+function friendStealRatioText(friend: any) {
+  const career = friendCareer.value[String(friend?.gid ?? '')]
+  if (!career)
+    return ''
+  return fnosStealRatioInfo(career.harvest, career.steal).text
+}
+
+async function loadStealRatioSettings() {
+  stealFilterMode.value = 'all'
+  stealRatioReady.value = true
+  if (!currentAccountId.value) {
+    stealRatioSettings.value = fnosNormalizeStealRatio(null)
+    return
+  }
+  try {
+    const res = await api.get('/api/fnos/steal-ratio', {
+      skipErrorToast: true,
+      headers: { 'x-account-id': currentAccountId.value },
+    } as any)
+    stealRatioSettings.value = fnosNormalizeStealRatio(res.data?.ok ? res.data.data : null)
+  }
+  catch {
+    stealRatioSettings.value = fnosNormalizeStealRatio(null)
+  }
+}
+
+async function ensureStealRatios() {
+  if (!stealRatioSettings.value.listFilter || stealFilterMode.value === 'all' || !currentAccountId.value)
+    return
+  const missing = friends.value
+    .map((friend: any) => Number(friend?.gid) || 0)
+    .filter(gid => gid > 0 && !friendCareer.value[String(gid)])
+  if (missing.length === 0) {
+    stealRatioReady.value = true
+    return
+  }
+  stealRatioLoading.value = true
+  stealRatioReady.value = false
+  try {
+    for (let i = 0; i < missing.length; i += 12) {
+      const res = await api.post('/api/fnos/steal-ratio/lookup', { gids: missing.slice(i, i + 12) }, {
+        timeout: 60000,
+        headers: { 'x-account-id': currentAccountId.value },
+      })
+      const rows = Array.isArray(res.data?.data) ? res.data.data : []
+      const next = { ...friendCareer.value }
+      for (const row of rows)
+        next[String(row.gid)] = { harvest: Number(row.harvest) || 0, steal: Number(row.steal) || 0 }
+      friendCareer.value = next
+    }
+    stealRatioReady.value = true
+  }
+  catch (e: any) {
+    toast.error(getApiErrorMessage(e, '读取偷收比失败'))
+    stealFilterMode.value = 'all'
+    stealRatioReady.value = true
+  }
+  finally {
+    stealRatioLoading.value = false
+  }
+}
+
 const filteredFriends = computed(() => {
   const keyword = searchKeyword.value.trim().toLowerCase()
-  const list = sortedFriends.value
-  if (!keyword)
+  let list = sortedFriends.value
+  if (keyword) {
+    list = list.filter((friend: any) => {
+      const name = String(friend?.name || '').toLowerCase()
+      const gid = String(friend?.gid || '')
+      const uin = String(friend?.uin || '')
+      return name.includes(keyword) || gid.includes(keyword) || uin.includes(keyword)
+    })
+  }
+  if (!stealRatioSettings.value.listFilter || stealFilterMode.value === 'all' || !stealRatioReady.value)
     return list
-
-  return list.filter((friend: any) => {
-    const name = String(friend?.name || '').toLowerCase()
-    const gid = String(friend?.gid || '')
-    const uin = String(friend?.uin || '')
-    return name.includes(keyword) || gid.includes(keyword) || uin.includes(keyword)
-  })
+  return list.filter((friend: any) => fnosFriendMatchesStealFilter(
+    friendCareer.value[String(friend?.gid ?? '')],
+    stealFilterMode.value,
+    stealRatioSettings.value.thresholdPercent,
+    Number(stealRangeMin.value),
+    Number(stealRangeMax.value),
+  ))
 })
 
 const totalPages = computed(() => Math.ceil(filteredFriends.value.length / pageSize) || 1)
@@ -267,6 +353,17 @@ function friendPetBadge(friend: any) {
 
 watch(searchKeyword, () => {
   currentPage.value = 1
+})
+watch(stealFilterMode, () => {
+  currentPage.value = 1
+  void ensureStealRatios()
+})
+watch([stealRangeMin, stealRangeMax], () => {
+  currentPage.value = 1
+})
+watch(friends, () => {
+  if (stealFilterMode.value !== 'all')
+    void ensureStealRatios()
 })
 
 const filteredInteractRecords = computed(() => {
@@ -492,6 +589,9 @@ watch(currentAccountId, () => {
   friendStore.resetInteractionState()
   friendStore.resetFriendLandState()
 })
+watch(currentAccountId, () => {
+  void loadStealRatioSettings()
+}, { immediate: true })
 watch(friendDataLoadScope, (scope) => {
   if (!scope) {
     friendsLoadedAccount.value = ''
@@ -942,6 +1042,25 @@ async function handleBatchAddKnownFriendGids() {
 
     <template v-else>
       <div v-if="activeTab === 'friends'" class="space-y-4">
+        <div v-if="stealRatioSettings.listFilter" class="farm-card rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
+          <div class="flex flex-wrap items-end gap-3">
+            <div class="min-w-44 flex-1">
+              <BaseSelect v-model="stealFilterMode" label="偷收比" :options="stealFilterOptions" />
+            </div>
+            <template v-if="stealFilterMode === 'range'">
+              <div class="w-28">
+                <BaseInput v-model.number="stealRangeMin" type="number" :min="0" :max="100" label="最低 %" />
+              </div>
+              <div class="w-28">
+                <BaseInput v-model.number="stealRangeMax" type="number" :min="0" :max="100" label="最高 %" />
+              </div>
+            </template>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            阈值 {{ stealRatioSettings.thresholdPercent }}%（设置 → 大小号协作）。高于阈值指严格超过；生涯收获为 0 且有偷菜时显示「只偷不收」。
+            <span v-if="stealRatioLoading">正在读取生涯数据…</span>
+          </p>
+        </div>
         <div v-if="currentAccountId && isQqAccount" class="mb-4 border farm-card border-amber-200 rounded-2xl bg-white p-4 shadow-md dark:border-amber-700/50 dark:bg-gray-800">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1011,6 +1130,9 @@ async function handleBatchAddKnownFriendGids() {
         </div>
 
         <template v-else>
+          <div v-if="filteredFriends.length === 0" class="farm-card rounded-2xl bg-white p-8 text-center text-gray-500 shadow-md dark:bg-gray-800">
+            没有符合当前偷收比筛选的好友
+          </div>
           <div
             v-for="friend in paginatedFriends"
             :key="friend.gid"
@@ -1043,6 +1165,7 @@ async function handleBatchAddKnownFriendGids() {
                   <strong class="friend-name" :title="friend.name">{{ friend.name }}</strong>
                   <span class="friend-gid">{{ friend.gid }}</span>
                   <span v-if="blacklistGidSet.has(Number(friend.gid))" class="f-tag f-tag--blocked">已屏蔽</span>
+                  <span v-if="friendStealRatioText(friend)" class="f-tag f-tag--ratio" title="生涯偷菜 / 生涯收获">偷收比 {{ friendStealRatioText(friend) }}</span>
                 </div>
                 <div class="friend-tags">
                   <span v-if="getFriendLevel(friend) > 0" class="f-tag f-tag--level">Lv.{{ getFriendLevel(friend) }}</span>
@@ -1619,6 +1742,11 @@ async function handleBatchAddKnownFriendGids() {
 .f-tag--blocked {
   color: var(--ui-muted);
   background: var(--ui-surface-soft);
+}
+
+.f-tag--ratio {
+  color: var(--ui-warning);
+  background: var(--ui-warning-soft);
 }
 
 .f-tag--steal {

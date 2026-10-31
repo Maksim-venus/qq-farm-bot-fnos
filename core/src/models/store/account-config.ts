@@ -130,6 +130,7 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         fnosMilkTeaDaily: { ...cfg.fnosMilkTeaDaily }, // [fnos-fork] 奶茶收益领取 / 种子兑换
         fnosMilkTeaExtra: { ...cfg.fnosMilkTeaExtra }, // [fnos-fork] 奶茶自动制作 / 领工资
         fnosIllustratedAuto: { ...cfg.fnosIllustratedAuto }, // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
+        fnosStealRatio: { ...cfg.fnosStealRatio }, // [fnos-fork] 偷收比
         ui: { ...globalConfig.ui },
     } as any;
 }
@@ -326,6 +327,14 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
         next.fnosIllustratedAuto = normalizeFnosIllustratedAuto(cfg.fnosIllustratedAuto, next.fnosIllustratedAuto);
         if (JSON.stringify(next.fnosIllustratedAuto) !== beforeIll) {
             try { require('../../services/fnos-illustrated-auto').onFnosIllustratedAutoConfigChanged(); } catch { /* ignore */ }
+        }
+    }
+    // [fnos-fork] 偷收比
+    if (cfg.fnosStealRatio !== undefined && cfg.fnosStealRatio !== null) {
+        const beforeSteal = JSON.stringify(next.fnosStealRatio || null);
+        next.fnosStealRatio = require('../../services/friend/fnos-steal-ratio').normalizeFnosStealRatio(cfg.fnosStealRatio, next.fnosStealRatio);
+        if (JSON.stringify(next.fnosStealRatio) !== beforeSteal) {
+            try { require('../../services/friend/fnos-steal-ratio').onFnosStealRatioConfigChanged(); } catch { /* ignore */ }
         }
     }
 

@@ -416,6 +416,8 @@ async function runStartupSequence(canContinue: () => boolean = () => loginReady)
         // [fnos-fork] 奶茶自动制作 / 自动领工资；图鉴奖励自动领取 / 自动完成图鉴（都未开启时每轮直接返回，不发请求）
         require('../services/fnos-milk-tea-extra').startFnosMilkTeaExtra(workerScheduler, runExclusiveAutomationTask);
         require('../services/fnos-illustrated-auto').startFnosIllustratedAuto(workerScheduler, runExclusiveAutomationTask);
+        // [fnos-fork] 偷收比：忽略高比例申请、来偷菜 Bark、自动删除（开关都关时不发请求）
+        require('../services/friend/fnos-steal-ratio').startFnosStealRatio(workerScheduler, runExclusiveAutomationTask);
     } catch (e: any) {
         log('系统', `登录启动序列执行失败: ${e.message}`, { module: 'system', event: '启动序列', result: 'error' });
     }
@@ -679,6 +681,7 @@ async function startBot(config: any): Promise<void> {
         }
         // 登录成功后，以当前金币/经验/点券作为统计基线，并清空会话增量
         const latest = getUserState();
+        try { require('../services/friend/fnos-steal-ratio').rememberSelfGid(); } catch { /* [fnos-fork] 记下本账号 GID，供其他账号排除大小号 */ }
         const accountId = process.env.FARM_ACCOUNT_ID || '';
         initStatsWithPersistence(accountId, Number(latest.gold || 0), Number(latest.exp || 0), Number(latest.coupon || 0));
         resetSessionGains();
@@ -853,6 +856,9 @@ async function handleApiCall(msg: any): Promise<void> {
                 break;
             case 'delFriend':
                 result = await deleteFriend(args[0]);
+                break;
+            case 'lookupStealRatios': // [fnos-fork] 好友页按偷收比筛选时批量查生涯
+                result = await require('../services/friend/fnos-steal-ratio').lookupStealRatios(args[0]);
                 break;
             case 'getSeeds':
                 result = await getAvailableSeeds(args[0] === true);

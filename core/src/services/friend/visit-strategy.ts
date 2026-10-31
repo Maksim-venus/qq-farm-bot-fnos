@@ -212,14 +212,27 @@ function addFriendToBlacklist(friendGid: any, friendName: string, reason: string
     });
     if (!sent) return false;
 
-    logWarn('好友', `检测到封禁好友，已自动加入黑名单: ${friendName || `GID:${gid}`}`, {
-        module: 'friend',
-        event: '加黑名单',
-        result: 'auto_blocked',
-        friendName: friendName || `GID:${gid}`,
-        friendGid: gid,
-        reason: String(reason || ''),
-    });
+    // [fnos-fork] 偷收比自动删除会带上明确原因；原来的封禁自动拉黑文案保持不变
+    const customReason = String(reason || '').trim();
+    if (customReason && customReason !== '手动删除好友') {
+        log('好友', `已将 ${friendName || `GID:${gid}`} 加入黑名单：${customReason}`, {
+            module: 'friend',
+            event: '加黑名单',
+            result: 'ok',
+            friendName: friendName || `GID:${gid}`,
+            friendGid: gid,
+            reason: customReason,
+        });
+    } else {
+        logWarn('好友', `检测到封禁好友，已自动加入黑名单: ${friendName || `GID:${gid}`}`, {
+            module: 'friend',
+            event: '加黑名单',
+            result: 'auto_blocked',
+            friendName: friendName || `GID:${gid}`,
+            friendGid: gid,
+            reason: String(reason || ''),
+        });
+    }
     return true;
 }
 
@@ -944,7 +957,7 @@ export function removeFriendFromFriendsListCache(friendGid: any): void {
     }
 }
 
-export async function deleteFriend(friendGid: any): Promise<{ ok: true; gid: number }> {
+export async function deleteFriend(friendGid: any, reason?: string): Promise<{ ok: true; gid: number }> {
     const gid: number = toNum(friendGid);
     if (!gid) throw new Error('无效的好友 GID');
 
@@ -952,18 +965,21 @@ export async function deleteFriend(friendGid: any): Promise<{ ok: true; gid: num
         ? friendsListCache.find((friend: any) => toNum(friend.gid) === gid)
         : null;
     const name: string = String((cached && cached.name) || '').trim() || `GID:${gid}`;
+    // [fnos-fork] reason 仅偷收比自动删除传入；手动删除保持原日志
+    const why = String(reason || '').trim();
 
     await delFriend(gid);
     removeFriendFromFriendsListCache(gid);
-    removeKnownFriendGid(gid, name, '手动删除好友');
-    addFriendToBlacklist(gid, name, '手动删除好友');
+    removeKnownFriendGid(gid, name, why || '手动删除好友');
+    addFriendToBlacklist(gid, name, why || '手动删除好友');
 
-    log('好友', `已删除好友: ${name}`, {
+    log('好友', why ? `已删除好友: ${name}（${why}）` : `已删除好友: ${name}`, {
         module: 'friend',
         event: '删除好友',
         result: 'ok',
         friendName: name,
         friendGid: gid,
+        reason: why || undefined,
     });
     return { ok: true, gid };
 }

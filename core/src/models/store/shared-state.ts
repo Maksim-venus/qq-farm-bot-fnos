@@ -14,6 +14,8 @@ const { normalizeFnosMilkTeaDaily } = require('../../services/fnos-milk-tea-dail
 // [fnos-fork] 奶茶自动制作 / 领工资；图鉴奖励领取 / 自动完成图鉴
 const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
+// [fnos-fork] 偷收比：忽略高偷收比申请、好友页筛选、Bark、自动删除
+const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -347,6 +349,8 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         // [fnos-fork] 奶茶自动制作 / 领工资；图鉴奖励领取 / 自动完成图鉴
         fnosMilkTeaExtra: normalizeFnosMilkTeaExtra(base.fnosMilkTeaExtra),
         fnosIllustratedAuto: normalizeFnosIllustratedAuto(base.fnosIllustratedAuto),
+        // [fnos-fork] 偷收比
+        fnosStealRatio: normalizeFnosStealRatio(base.fnosStealRatio),
     };
 }
 
@@ -513,6 +517,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
     // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
     if (src.fnosIllustratedAuto !== undefined && src.fnosIllustratedAuto !== null) {
         cfg.fnosIllustratedAuto = normalizeFnosIllustratedAuto(src.fnosIllustratedAuto, cfg.fnosIllustratedAuto);
+    }
+    // [fnos-fork] 偷收比
+    if (src.fnosStealRatio !== undefined && src.fnosStealRatio !== null) {
+        cfg.fnosStealRatio = normalizeFnosStealRatio(src.fnosStealRatio, cfg.fnosStealRatio);
     }
 
     return cfg;
