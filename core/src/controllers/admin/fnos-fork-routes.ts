@@ -38,6 +38,7 @@ const {
 const { normalizeFnosMilkTeaDaily, DEFAULT_FNOS_MILK_TEA_DAILY } = require('../../services/fnos-milk-tea-daily');
 const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
+const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
 const { getAccId, handleApiError } = require('./middleware');
 
 function sendSaveResult(res: Response, data: any, pick: (d: any) => any): void {
@@ -175,6 +176,42 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
             }
         });
     }
+
+    // [fnos-fork] 2026-10-31 偷收比：四项开关独立，缺字段沿用已保存值
+    app.get('/api/fnos/steal-ratio', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const snapshot = store.getConfigSnapshot(id);
+            res.json({ ok: true, data: normalizeFnosStealRatio(snapshot && snapshot.fnosStealRatio) });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+    app.post('/api/fnos/steal-ratio', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body : {};
+            const current = normalizeFnosStealRatio(store.getConfigSnapshot(id)?.fnosStealRatio);
+            const next = normalizeFnosStealRatio(body, current);
+            const data = await ctx.provider.saveSettings(id, { fnosStealRatio: next });
+            sendSaveResult(res, data, d => normalizeFnosStealRatio(d.fnosStealRatio));
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+    app.post('/api/fnos/steal-ratio/lookup', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const gids = Array.isArray(req.body?.gids) ? req.body.gids : [];
+            const data = await ctx.provider.lookupStealRatios(id, gids);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
 }
 
 module.exports = { mountFnosForkRoutes };

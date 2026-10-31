@@ -149,6 +149,7 @@ function createDataProvider(options: DataProviderOptions) {
         ),
         doFriendOp: (accountRef: string, gid: number, opType: string) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType, true),
         delFriend: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'delFriend', gid),
+        lookupStealRatios: (accountRef: string, gids: unknown) => callWorkerApi(resolveAccountRefId(accountRef), 'lookupStealRatios', gids), // [fnos-fork] 好友页偷收比筛选
         getBag: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
         getBagSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBagSeeds'),
         getDiamondBalance: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getDiamondBalance'),
@@ -328,6 +329,7 @@ function createDataProvider(options: DataProviderOptions) {
                 'fnosMilkTeaDaily', // [fnos-fork] 奶茶收益领取 / 种子兑换
                 'fnosMilkTeaExtra', // [fnos-fork] 奶茶自动制作 / 领工资
                 'fnosIllustratedAuto', // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
+                'fnosStealRatio', // [fnos-fork] 偷收比
             ]) {
                 copyIfPresent(key);
             }

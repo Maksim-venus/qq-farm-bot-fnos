@@ -7,7 +7,7 @@
  * - 奶茶自动制作（可排除金露云酪）、自动领取工资；图鉴奖励自动领取、自动完成图鉴（2026-10-28）
  * - 需求 27（2026-10-30）：店铺自动升级；森野种子自动兑换（8 种可勾选、可拖动排序，按最大数量）
  * 所在栏目（2026.10.21.3 起拆成两个独立栏目，都不在「自动控制」里）：
- * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱）
+ * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱、偷收比）
  * - section="activity"：设置 → 活动设置（奶茶自动雇佣/工作事项、奶茶收益与兑换）
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
@@ -22,6 +22,7 @@ import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
 import { fnosCraftHint, fnosMoveSeedExchange, fnosNormalizeIllustratedAuto, fnosNormalizeMilkTeaDaily, fnosNormalizeMilkTeaExtra, fnosSeedExchangeHint, fnosSeedName } from '@/utils/fnos-activity-extras' // [fnos-fork] 2026-10-28；需求 27
 import { fnosPriorityFriendsFromConfig } from '@/utils/fnos-priority-friends'
+import { fnosNormalizeStealRatio } from '@/utils/fnos-steal-ratio' // [fnos-fork] 偷收比
 
 const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
 const isCoop = computed(() => props.section === 'coop')
@@ -51,6 +52,9 @@ const extra = ref(fnosNormalizeMilkTeaExtra(null))
 const extraSaving = ref(false)
 const illustrated = ref(fnosNormalizeIllustratedAuto(null))
 const illustratedSaving = ref(false)
+// [fnos-fork] 偷收比：四项开关独立，默认关
+const stealRatio = ref(fnosNormalizeStealRatio(null))
+const stealSaving = ref(false)
 const craftHint = computed(() => fnosCraftHint(extra.value))
 const durationOptions = ref<Array<{ durationId: number, label: string, cost: number }>>([])
 const talentOptions = ref<Array<{ talentId: number, name: string }>>([])
@@ -168,13 +172,16 @@ async function load() {
     return
   loading.value = true
   try {
-    const [altRes, teaRes, dailyRes, extraRes, illustratedRes] = await Promise.all([
+    const [altRes, teaRes, dailyRes, extraRes, illustratedRes, stealRes] = await Promise.all([
       api.get('/api/fnos/alt-account', { headers: headers() }),
       api.get('/api/fnos/milk-tea-auto-hire', { headers: headers() }),
       api.get('/api/fnos/milk-tea-daily', { headers: headers() }),
       api.get('/api/fnos/milk-tea-extra', { headers: headers() }),
       api.get('/api/fnos/illustrated-auto', { headers: headers() }),
+      api.get('/api/fnos/steal-ratio', { headers: headers() }),
     ])
+    if (stealRes.data?.ok)
+      stealRatio.value = fnosNormalizeStealRatio(stealRes.data.data)
     if (extraRes.data?.ok)
       extra.value = fnosNormalizeMilkTeaExtra(extraRes.data.data)
     if (illustratedRes.data?.ok)
@@ -287,6 +294,22 @@ async function saveExtra() {
   }
   finally {
     extraSaving.value = false
+  }
+}
+
+async function saveStealRatio() {
+  stealSaving.value = true
+  try {
+    const res = await api.post('/api/fnos/steal-ratio', stealRatio.value, { headers: headers() })
+    if (res.data?.data)
+      stealRatio.value = fnosNormalizeStealRatio(res.data.data)
+    reportSave(res, '偷收比设置已保存')
+  }
+  catch (e: any) {
+    toast.error(getApiErrorMessage(e, '保存失败'))
+  }
+  finally {
+    stealSaving.value = false
   }
 }
 
@@ -467,6 +490,68 @@ onMounted(() => {
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="altSaving" @click="saveAlt('小号照顾大号设置已保存')">
               保存
+            </BaseButton>
+          </div>
+        </div>
+      </section>
+
+      <!-- [fnos-fork] 偷收比 -->
+      <section v-if="isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-steal-ratio">
+        <div class="mb-4 flex items-start gap-3">
+          <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600 dark:bg-orange-900/25 dark:text-orange-400">
+            <span class="i-carbon-chart-relationship text-xl" />
+          </div>
+          <div class="min-w-0">
+            <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+              偷收比
+            </h4>
+            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+              偷收比 = 生涯偷菜 ÷ 生涯收获 × 100%，和好友卡片上的「收偷比」是同一组生涯数据。超过下面的百分比才触发（默认 80%，刚好等于不算）。四项可以单独开，默认都关。
+            </p>
+          </div>
+        </div>
+
+        <div v-if="loading" class="py-4 text-center text-sm text-gray-500">
+          <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
+        </div>
+        <div v-else class="fnos-fork-card__body">
+          <BaseInput
+            v-model.number="stealRatio.thresholdPercent"
+            type="number"
+            :min="1"
+            :max="100"
+            label="阈值（%）"
+          />
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            生涯收获为 0、生涯偷菜大于 0 时视为超过任意阈值。两者都是 0 视为 0%，不触发。这是对方的生涯总偷菜和总收获，不是只统计偷本账号的数量。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="stealRatio.ignoreApplications" label="忽略高偷收比好友申请" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            有人申请加好友时，偷收比超过阈值就拒绝该申请（不会一直挂着）。没超过的申请不会因此被接受；要自动通过仍用「自动控制」里的「自动通过好友申请」。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="stealRatio.listFilter" label="好友页显示偷收比筛选" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            打开后，好友页可以按高于阈值、不高于阈值或自定义区间过滤。筛选时会读取好友的生涯数据。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="stealRatio.barkOnSteal" label="高偷收比来偷菜时发 Bark" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            用「系统设置 → 下线提醒」里已配置的 Bark（渠道须为 Bark）。同一好友 30 分钟内只推一次。开启后先记下当前访客记录，不补发更早的偷菜。「静音也提醒」与下线提醒同一个开关。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="stealRatio.autoDelete" label="自动删除高偷收比好友" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            约每 10 分钟最多删 1 人，并写入黑名单，避免马上被自动通过加回来。大小号协作里配置的大号，以及本机其他账号里已登录过的小号，都不会删。日志标签「偷收比」。
+          </p>
+          <div class="fnos-fork-card__footer">
+            <BaseButton variant="primary" size="sm" :loading="stealSaving" @click="saveStealRatio">
+              保存偷收比
             </BaseButton>
           </div>
         </div>

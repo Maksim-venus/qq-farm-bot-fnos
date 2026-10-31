@@ -22,6 +22,14 @@ export interface FnosForkConfigs {
     extra: { autoCraft: boolean; craftGoldenCheese: boolean; autoClaimWages: boolean; autoUpgradeShop: boolean }; // [fnos-fork] 需求 27 店铺自动升级
     /** [fnos-fork] 2026-10-28 图鉴奖励自动领取 / 自动完成图鉴 */
     illustrated: { autoClaimRewards: boolean; autoComplete: boolean };
+    /** [fnos-fork] 2026-10-31 偷收比 */
+    stealRatio: {
+        thresholdPercent: number;
+        ignoreApplications: boolean;
+        listFilter: boolean;
+        barkOnSteal: boolean;
+        autoDelete: boolean;
+    };
     error: string;
 }
 
@@ -33,6 +41,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
     const { normalizeFnosMilkTeaDaily } = require('./fnos-milk-tea-daily');
     const { normalizeFnosMilkTeaExtra } = require('./fnos-milk-tea-extra');
     const { normalizeFnosIllustratedAuto } = require('./fnos-illustrated-auto');
+    const { normalizeFnosStealRatio } = require('./friend/fnos-steal-ratio');
     try {
         const store = require('../models/store');
         const snapshot = store.getConfigSnapshot(accountId) || {};
@@ -42,6 +51,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             daily: normalizeFnosMilkTeaDaily(snapshot.fnosMilkTeaDaily),
             extra: normalizeFnosMilkTeaExtra(snapshot.fnosMilkTeaExtra),
             illustrated: normalizeFnosIllustratedAuto(snapshot.fnosIllustratedAuto),
+            stealRatio: normalizeFnosStealRatio(snapshot.fnosStealRatio),
             error: '',
         };
     } catch (e: any) {
@@ -50,7 +60,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             lastReadErrorLogAt = Date.now();
             try { require('../utils/utils').logWarn('系统', `读取活动设置（大号/小号、奶茶）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
         }
-        return { alt: normalizeFnosAltAccount(undefined), tea: normalizeFnosMilkTeaAutoHire(undefined), daily: normalizeFnosMilkTeaDaily(undefined), extra: normalizeFnosMilkTeaExtra(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), error: message };
+        return { alt: normalizeFnosAltAccount(undefined), tea: normalizeFnosMilkTeaAutoHire(undefined), daily: normalizeFnosMilkTeaDaily(undefined), extra: normalizeFnosMilkTeaExtra(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), stealRatio: normalizeFnosStealRatio(undefined), error: message };
     }
 }
 
@@ -124,7 +134,7 @@ let lastStatusKey = '';
 function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const cfg = readFnosForkConfigs();
     if (cfg.error) return false;
-    const key = JSON.stringify([cfg.alt, cfg.tea, cfg.daily, cfg.extra, cfg.illustrated]);
+    const key = JSON.stringify([cfg.alt, cfg.tea, cfg.daily, cfg.extra, cfg.illustrated, cfg.stealRatio]);
     if (!force && key === lastStatusKey) return false;
     const first = lastStatusKey === '';
     lastStatusKey = key;
@@ -139,6 +149,10 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const extraOn = cfg.extra.autoCraft || cfg.extra.autoClaimWages || cfg.extra.autoUpgradeShop; // [fnos-fork] 需求 27
     if (force ? extraOn : true) log('奶茶制作', `${prefix}${describeExtra(cfg.extra)}`, { module: 'activity', event: '奶茶制作与工资设置', result: extraOn ? 'enabled' : 'disabled' });
     if (force ? (cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete) : true) log('图鉴', `${prefix}${describeIllustrated(cfg.illustrated)}`, { module: 'farm', event: '图鉴自动设置', result: cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete ? 'enabled' : 'disabled' });
+    // [fnos-fork] 偷收比：只在开启时或设置变化时打印
+    const { describeFnosStealRatio } = require('./friend/fnos-steal-ratio');
+    const stealOn = cfg.stealRatio.ignoreApplications || cfg.stealRatio.listFilter || cfg.stealRatio.barkOnSteal || cfg.stealRatio.autoDelete;
+    if (force ? stealOn : true) log('偷收比', `${prefix}${describeFnosStealRatio(cfg.stealRatio)}`, { module: 'friend', event: '偷收比设置', result: stealOn ? 'enabled' : 'disabled', thresholdPercent: cfg.stealRatio.thresholdPercent });
     return true;
 }
 
