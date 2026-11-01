@@ -19,13 +19,14 @@ function loadModule(name) {
 
 const m = loadModule('fnos-steal-ratio')
 
-test('缺省配置四项开关全关，阈值 80；没带的字段沿用已保存值', () => {
+test('缺省配置四项开关全关，在线期间删除默认关，阈值 80；没带的字段沿用已保存值', () => {
   assert.deepEqual(m.fnosNormalizeStealRatio(undefined), {
     thresholdPercent: 80,
     ignoreApplications: false,
     listFilter: false,
     barkOnSteal: false,
     autoDelete: false,
+    autoDeleteOnlineStealer: false,
   })
   const next = m.fnosNormalizeStealRatio({ barkOnSteal: true }, {
     thresholdPercent: 70,
@@ -33,11 +34,25 @@ test('缺省配置四项开关全关，阈值 80；没带的字段沿用已保�
     listFilter: false,
     barkOnSteal: false,
     autoDelete: false,
+    autoDeleteOnlineStealer: true,
   })
   assert.equal(next.thresholdPercent, 70)
   assert.equal(next.ignoreApplications, true)
   assert.equal(next.barkOnSteal, true)
   assert.equal(next.autoDelete, false)
+  assert.equal(next.autoDeleteOnlineStealer, true)
+  const onlyOnline = m.fnosNormalizeStealRatio({ autoDeleteOnlineStealer: true }, {
+    thresholdPercent: 70,
+    ignoreApplications: false,
+    listFilter: true,
+    barkOnSteal: false,
+    autoDelete: true,
+    autoDeleteOnlineStealer: false,
+  })
+  assert.equal(onlyOnline.autoDeleteOnlineStealer, true)
+  assert.equal(onlyOnline.autoDelete, true)
+  assert.equal(onlyOnline.listFilter, true)
+  assert.equal(m.fnosNormalizeStealRatio({ thresholdPercent: 75 }).autoDeleteOnlineStealer, false)
   assert.equal(m.fnosNormalizeStealRatio({ thresholdPercent: 0 }).thresholdPercent, 80)
   assert.equal(m.fnosNormalizeStealRatio({ thresholdPercent: 101 }).thresholdPercent, 101)
   assert.equal(m.fnosNormalizeStealRatio({ thresholdPercent: 250 }).thresholdPercent, 250)

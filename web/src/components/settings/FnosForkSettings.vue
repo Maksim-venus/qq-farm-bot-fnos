@@ -7,7 +7,7 @@
  * - 奶茶自动制作（可排除金露云酪）、自动领取工资；图鉴奖励自动领取、自动完成图鉴（2026-10-28）
  * - 需求 27（2026-10-30）：店铺自动升级；森野种子自动兑换（8 种可勾选、可拖动排序，按最大数量）
  * 所在栏目（2026.10.21.3 起拆成两个独立栏目，都不在「自动控制」里）：
- * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱、偷收比）
+ * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱、偷收比、在线期间来偷菜自动删除）
  * - section="activity"：设置 → 活动设置（奶茶自动雇佣/工作事项、奶茶收益与兑换）
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
@@ -52,7 +52,7 @@ const extra = ref(fnosNormalizeMilkTeaExtra(null))
 const extraSaving = ref(false)
 const illustrated = ref(fnosNormalizeIllustratedAuto(null))
 const illustratedSaving = ref(false)
-// [fnos-fork] 偷收比：四项开关独立，默认关
+// [fnos-fork] 偷收比：四项开关独立，默认关；在线期间来偷菜自动删除与阈值无关，默认关
 const stealRatio = ref(fnosNormalizeStealRatio(null))
 const stealSaving = ref(false)
 const craftHint = computed(() => fnosCraftHint(extra.value))
@@ -506,7 +506,7 @@ onMounted(() => {
               偷收比
             </h4>
             <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              偷收比 = 生涯偷菜 ÷ 生涯收获 × 100%，和好友卡片上的「收偷比」是同一组生涯数据。超过下面的百分比才触发（默认 80%，刚好等于不算）。四项可以单独开，默认都关。
+              偷收比 = 生涯偷菜 ÷ 生涯收获 × 100%，和好友卡片上的「收偷比」是同一组生涯数据。超过下面的百分比才触发（默认 80%，刚好等于不算）。前四项可以单独开，默认都关。最下面的「在线期间来偷菜的自动删除」不看偷收比，也是默认关。
             </p>
           </div>
         </div>
@@ -548,6 +548,13 @@ onMounted(() => {
           </div>
           <p class="fnos-hint text-gray-500 dark:text-gray-400">
             约每 10 分钟最多删 1 人，并写入黑名单，避免马上被自动通过加回来。大小号协作里配置的大号，以及本机其他账号里已登录过的小号，都不会删。日志标签「偷收比」。
+          </p>
+          <div class="fnos-setting-item">
+            <BaseSwitch v-model="stealRatio.autoDeleteOnlineStealer" label="在线期间来偷菜的自动删除" />
+          </div>
+          <p class="fnos-hint text-gray-500 dark:text-gray-400">
+            和偷收比阈值无关，默认关。只删除这次上线之后、程序正在运行时新检测到的偷菜（和「高偷收比来偷菜时发 Bark」用的是同一条访客记录）。掉线、程序停止，以及重连后补拉到的历史记录都不删；每次重新上线都会重新记下上线时刻和基线。启动后第一次拉到的记录只做基线。
+            不删大小号协作里的大号、本机登录过的小号，也不删奶茶「优先雇佣人」。多人同时来偷时排队，两次删除至少间隔 1 分钟，同一个人在这段在线里不重复删。删除前后写入运行日志的「偷菜日志」，原因是「在线期间偷菜」。下线提醒的渠道是 Bark 时，删除成功会再推一条，推送失败不影响删除。
           </p>
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="stealSaving" @click="saveStealRatio">

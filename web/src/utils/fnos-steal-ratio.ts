@@ -13,6 +13,8 @@ export interface FnosStealRatioConfig {
   listFilter: boolean
   barkOnSteal: boolean
   autoDelete: boolean
+  /** 在线期间来偷菜的自动删除，与阈值和上面四项无关，默认关 */
+  autoDeleteOnlineStealer: boolean
 }
 
 export interface FnosStealRatioInfo {
@@ -29,6 +31,7 @@ const DEFAULTS: FnosStealRatioConfig = {
   listFilter: false,
   barkOnSteal: false,
   autoDelete: false,
+  autoDeleteOnlineStealer: false,
 }
 
 export function fnosNormalizeStealRatio(input: unknown, fallback: FnosStealRatioConfig = DEFAULTS): FnosStealRatioConfig {
@@ -44,6 +47,7 @@ export function fnosNormalizeStealRatio(input: unknown, fallback: FnosStealRatio
     listFilter: flag('listFilter'),
     barkOnSteal: flag('barkOnSteal'),
     autoDelete: flag('autoDelete'),
+    autoDeleteOnlineStealer: flag('autoDeleteOnlineStealer'),
   }
 }
 
