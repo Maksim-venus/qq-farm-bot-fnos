@@ -292,7 +292,7 @@ watch(isSidebarCollapsed, closeFlyouts)
         <template #trigger>
           <div class="sidebar-brand__identity min-w-0 flex items-center gap-2.5">
             <BrandMark class="brand-mark" :size="28" />
-            <span v-show="!isSidebarCollapsed" class="min-w-0 truncate text-sm font-semibold font-display">
+            <span v-show="!isSidebarCollapsed" class="min-w-0 truncate text-sm font-display font-semibold">
               QQ农场智能助手
             </span>
           </div>
@@ -337,7 +337,7 @@ watch(isSidebarCollapsed, closeFlyouts)
                 {{ nasUserStore.user?.username || '飞牛用户' }}
               </span>
               <div class="mt-0.5 flex items-center gap-1.5">
-                <span class="admin-badge rounded-lg px-1.5 py-0.2 text-[10px] font-medium leading-tight">
+                <span class="admin-badge rounded-lg px-1.5 py-0.2 text-[10px] leading-tight font-medium">
                   {{ nasUserStore.user?.isAdmin === false ? '飞牛用户' : '飞牛管理员' }}
                 </span>
               </div>
@@ -386,7 +386,7 @@ watch(isSidebarCollapsed, closeFlyouts)
                   <div class="mt-0.5 flex items-center gap-1.5">
                     <span
                       v-if="platform"
-                      class="rounded-lg px-1.5 py-0.2 text-[10px] font-medium leading-tight"
+                      class="rounded-lg px-1.5 py-0.2 text-[10px] leading-tight font-medium"
                       :class="getPlatformClass(currentAccount?.platform)"
                     >
                       {{ platform }}
@@ -441,7 +441,7 @@ watch(isSidebarCollapsed, closeFlyouts)
                     <div class="flex items-center gap-1.5">
                       <span
                         v-if="getPlatformLabel(acc.platform)"
-                        class="rounded-lg px-1.5 py-0.2 text-[10px] font-medium leading-tight"
+                        class="rounded-lg px-1.5 py-0.2 text-[10px] leading-tight font-medium"
                         :class="getPlatformClass(acc.platform)"
                       >
                         {{ getPlatformLabel(acc.platform) }}
@@ -487,7 +487,7 @@ watch(isSidebarCollapsed, closeFlyouts)
       <button
         v-if="connectionStatus.text === '未连接'"
         type="button"
-        class="sidebar-relogin-btn mt-2 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors"
+        class="sidebar-relogin-btn mt-2 w-full flex items-center gap-2 rounded-xl px-3 py-2 text-sm transition-colors font-medium"
         @click="accountToEdit = currentAccount; showAccountModal = true; showAccountDropdown = false"
       >
         <div class="i-carbon-renew shrink-0 text-base" />
@@ -744,7 +744,7 @@ watch(isSidebarCollapsed, closeFlyouts)
 
 .sidebar-tooltip-content strong {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: var(--fw-600);
 }
 
 .sidebar-tooltip-content span {
@@ -780,7 +780,7 @@ nav a:hover {
 .router-link-active {
   background: var(--ui-primary-soft) !important;
   color: var(--ui-primary) !important;
-  font-weight: 600;
+  font-weight: var(--fw-600);
   box-shadow: inset 0 0 0 1px rgba(67, 141, 99, 0.13) !important;
   border-radius: 8px;
   opacity: 1 !important;
@@ -793,7 +793,7 @@ nav a:hover {
 .router-link-exact-active {
   background: var(--ui-primary-soft) !important;
   color: var(--ui-primary) !important;
-  font-weight: 600;
+  font-weight: var(--fw-600);
   box-shadow: inset 0 0 0 1px rgba(67, 141, 99, 0.13) !important;
   border-radius: 8px;
   opacity: 1 !important;

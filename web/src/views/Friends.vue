@@ -1673,7 +1673,7 @@ async function handleBatchAddKnownFriendGids() {
   overflow: hidden;
   color: var(--ui-ink);
   font-size: 15px;
-  font-weight: 650;
+  font-weight: var(--fw-650);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1720,7 +1720,7 @@ async function handleBatchAddKnownFriendGids() {
 
 .f-tag--level {
   color: var(--ui-ink);
-  font-weight: 600;
+  font-weight: var(--fw-600);
 }
 
 .f-tag--pet-unknown {
@@ -1752,25 +1752,25 @@ async function handleBatchAddKnownFriendGids() {
 .f-tag--steal {
   color: var(--ui-primary);
   background: var(--ui-primary-soft);
-  font-weight: 600;
+  font-weight: var(--fw-600);
 }
 
 .f-tag--water {
   color: var(--ui-blue);
   background: var(--ui-blue-soft);
-  font-weight: 600;
+  font-weight: var(--fw-600);
 }
 
 .f-tag--weed {
   color: #8a6b1f;
   background: var(--ui-warning-soft);
-  font-weight: 600;
+  font-weight: var(--fw-600);
 }
 
 .f-tag--bug {
   color: var(--ui-danger);
   background: var(--ui-danger-soft);
-  font-weight: 600;
+  font-weight: var(--fw-600);
 }
 
 .dark .f-tag--weed {

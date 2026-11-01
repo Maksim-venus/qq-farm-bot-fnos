@@ -472,7 +472,7 @@ h2,
 h3 {
   margin: 0;
   color: var(--ink);
-  font-weight: 700;
+  font-weight: var(--fw-700);
   letter-spacing: 0;
 }
 
@@ -489,7 +489,7 @@ h3 {
   border-radius: 999px;
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   white-space: nowrap;
   cursor: pointer;
   transition:
@@ -535,7 +535,7 @@ summary:focus-visible {
   color: var(--muted);
   background: rgba(120, 110, 95, 0.1);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   white-space: nowrap;
 }
 .tag--on {
@@ -614,14 +614,14 @@ summary:focus-visible {
 .hero__eyebrow {
   color: var(--accent);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   letter-spacing: 0.06em;
 }
 .hero__copy h2 {
   margin: 6px 0 8px;
   font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif;
   font-size: 30px;
-  font-weight: 900;
+  font-weight: var(--fw-900);
   line-height: 1.25;
   letter-spacing: 0.06em;
 }
@@ -738,7 +738,7 @@ summary:focus-visible {
 .stick strong {
   font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif;
   font-size: 26px;
-  font-weight: 900;
+  font-weight: var(--fw-900);
   letter-spacing: 0.16em;
   text-indent: 0.16em;
 }
@@ -746,7 +746,7 @@ summary:focus-visible {
   min-height: 20px;
   color: var(--accent);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
 }
 .stick--active {
   border-color: var(--accent);
@@ -801,7 +801,7 @@ summary:focus-visible {
   color: var(--seal);
   font-family: 'Noto Serif SC', 'Songti SC', SimSun, serif;
   font-size: 22px;
-  font-weight: 900;
+  font-weight: var(--fw-900);
   opacity: 0.85;
   transform: rotate(8deg);
 }
@@ -809,7 +809,7 @@ summary:focus-visible {
   margin: 0;
   font-family: 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', SimSun, serif;
   font-size: 24px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   line-height: 1.8;
   letter-spacing: 0.08em;
   white-space: pre-line;
@@ -864,7 +864,7 @@ summary:focus-visible {
 .day__label {
   color: var(--muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
 }
 .day__name {
   min-height: 2.8em;
@@ -988,7 +988,7 @@ summary:focus-visible {
 .rung li em {
   color: var(--accent);
   font-style: normal;
-  font-weight: 700;
+  font-weight: var(--fw-700);
 }
 .rung--ready .tag {
   color: #9a6b0c;
@@ -1043,7 +1043,7 @@ summary:focus-visible {
 .task__count small {
   color: var(--muted);
   font-size: 14px;
-  font-weight: 400;
+  font-weight: var(--fw-400);
 }
 .task--meter {
   background: rgba(255, 255, 255, 0.55);
@@ -1059,7 +1059,7 @@ summary:focus-visible {
   gap: 8px;
   padding: 16px 24px;
   font-size: 15px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   cursor: pointer;
   list-style: none;
 }
@@ -1111,7 +1111,7 @@ summary:focus-visible {
 }
 .segmented button[aria-selected='true'] {
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--fw-700);
   background: #fff;
   box-shadow: 0 1px 3px rgba(55, 45, 30, 0.12);
 }
@@ -1156,7 +1156,7 @@ summary:focus-visible {
 .rules .rules__title {
   margin-top: 16px;
   color: var(--accent);
-  font-weight: 700;
+  font-weight: var(--fw-700);
 }
 
 @media (max-width: 900px) {

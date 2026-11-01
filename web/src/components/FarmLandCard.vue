@@ -37,6 +37,7 @@ const SOILS: Record<number, { short: string, name: string }> = {
   3: { short: '黑土', name: '黑土地' },
   4: { short: '金土', name: '金土地' },
   5: { short: '紫金', name: '紫金土地' },
+  6: { short: '蓝晶', name: '蓝晶土地' },
 }
 const level = computed(() => {
   const lv = Number(land.value.level) || 0
@@ -377,7 +378,7 @@ const ariaLabel = computed(() => {
   color: var(--soil-ink);
   background: var(--soil-chip);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   line-height: 16px;
   white-space: nowrap;
 }
@@ -388,7 +389,7 @@ const ariaLabel = computed(() => {
   margin-left: auto;
   color: var(--soil-ink);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   font-variant-numeric: tabular-nums;
 }
 .plot__check {
@@ -446,7 +447,7 @@ const ariaLabel = computed(() => {
   margin-top: 4px;
   overflow: hidden;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: var(--fw-650);
   line-height: 16px;
   text-align: center;
   text-overflow: ellipsis;
@@ -466,7 +467,7 @@ const ariaLabel = computed(() => {
   gap: 3px;
   color: var(--ui-warning);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   font-variant-numeric: tabular-nums;
 }
 .plot__state {
@@ -478,7 +479,7 @@ const ariaLabel = computed(() => {
   padding: 0 7px;
   border-radius: 999px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   line-height: 18px;
   white-space: nowrap;
 }
@@ -497,7 +498,7 @@ const ariaLabel = computed(() => {
 .plot__state.is-muted {
   color: var(--ui-subtle);
   padding: 0;
-  font-weight: 500;
+  font-weight: var(--fw-500);
 }
 
 .plot__bar {
@@ -608,7 +609,7 @@ const ariaLabel = computed(() => {
   color: var(--ui-muted);
   background: color-mix(in srgb, var(--ui-ink) 8%, transparent);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: var(--fw-700);
   line-height: 18px;
   cursor: help;
   font-variant-numeric: tabular-nums;
@@ -667,5 +668,14 @@ const ariaLabel = computed(() => {
   .plot__bar i {
     transition: none;
   }
+}
+.plot--lv6 {
+  --soil-bg: #eef8fd;
+  --soil-line: #b5d9eb;
+  --soil-ink: #367caa;
+  --soil-chip: #d7edf8;
+}
+.dark .plot--lv6 {
+  --soil-tint: #82bddf;
 }
 </style>
