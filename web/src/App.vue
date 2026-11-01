@@ -5,21 +5,17 @@ import { NGlobalStyle } from 'naive-ui/es/global-style'
 import { dateZhCN, zhCN } from 'naive-ui/es/locales'
 import { NMessageProvider } from 'naive-ui/es/message'
 import { NNotificationProvider } from 'naive-ui/es/notification'
-import { darkTheme } from 'naive-ui/es/themes'
-import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
 import { RouterView } from 'vue-router'
 import ToastContainer from '@/components/ToastContainer.vue'
-import { useAppStore } from '@/stores/app'
 import { createNaiveThemeOverrides } from '@/ui/naive-theme'
 
-const { isDark } = storeToRefs(useAppStore())
-const themeOverrides = computed(() => createNaiveThemeOverrides(isDark.value))
+// [fnos-fork] 固定浅色，不再使用 naive-ui darkTheme。
+const themeOverrides = createNaiveThemeOverrides()
 </script>
 
 <template>
   <NConfigProvider
-    :theme="isDark ? darkTheme : null"
+    :theme="null"
     :theme-overrides="themeOverrides"
     :locale="zhCN"
     :date-locale="dateZhCN"

@@ -69,6 +69,11 @@ export interface UIConfig {
   theme?: string
 }
 
+// [fnos-fork] 界面主题固定浅色。服务端若仍保存 dark，读入时覆盖，不回写（主题接口保持兼容）。
+function lockLightUi(ui: UIConfig | undefined | null): UIConfig {
+  return { ...(ui || {}), theme: 'light' }
+}
+
 export interface SettingsState {
   plantingStrategy: string
   preferredSeedId: number
@@ -158,7 +163,7 @@ function createDefaultSettings(): SettingsState {
     intervals: {},
     friendQuietHours: { enabled: false, start: '23:00', end: '07:00', continueFarm: true },
     automation: {},
-    ui: {},
+    ui: { theme: 'light' }, // [fnos-fork]
     offlineReminder: {
       channel: 'webhook',
       endpoint: '',
@@ -224,7 +229,7 @@ export const useSettingStore = defineStore('setting', () => {
         ...(cloneValue(data.friendQuietHours) || {}),
       },
       automation: cloneValue(data.automation || defaults.automation),
-      ui: cloneValue(data.ui || defaults.ui),
+      ui: lockLightUi(cloneValue(data.ui || defaults.ui)), // [fnos-fork]
       offlineReminder: {
         ...defaults.offlineReminder,
         ...(cloneValue(data.offlineReminder) || {}),

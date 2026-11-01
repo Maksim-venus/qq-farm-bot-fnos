@@ -1,27 +1,43 @@
-import { usePreferredDark, useStorage } from '@vueuse/core'
+import { useStorage } from '@vueuse/core'
 import { defineStore } from 'pinia'
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'theme_mode'
+
+// [fnos-fork] 飞牛版只保留浅色且不可修改。忽略 localStorage 里的 dark/system，以及系统 prefers-color-scheme。
+function enforceLightTheme() {
+  const root = document.documentElement
+  root.classList.remove('dark')
+  if (root.getAttribute('data-theme') === 'dark')
+    root.removeAttribute('data-theme')
+  root.style.colorScheme = 'light'
+  try {
+    // 与原先 vueuse useStorage 一样写成 JSON，老用户已存的 "dark" 会被盖成浅色。
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify('light'))
+  }
+  catch {
+    // 无法写 localStorage 时，本次会话仍然是浅色。
+  }
+}
 
 export const useAppStore = defineStore('app', () => {
   const sidebarOpen = ref(false)
   // 活动详情有自己的标题栏，打开时布局隐藏通用页头并让活动外壳撑满内容区。
   const activityDetailOpen = ref(false)
   const sidebarCollapsed = useStorage('sidebar_collapsed', false)
-  // 默认跟随系统；index.html 中的内联脚本在首屏渲染前读取同一个键，避免闪烁。
-  const themeMode = useStorage<ThemeMode>('theme_mode', 'system')
-  const preferredDark = usePreferredDark()
-  const isDark = computed(() => themeMode.value === 'dark' || (themeMode.value === 'system' && preferredDark.value))
+  // [fnos-fork] 固定浅色，不再从 localStorage 读取主题。
+  const themeMode = ref<ThemeMode>('light')
+  const isDark = computed(() => false)
 
-  watch(isDark, (dark) => {
-    const root = document.documentElement
-    root.classList.toggle('dark', dark)
-    root.style.colorScheme = dark ? 'dark' : 'light'
-  }, { immediate: true })
+  enforceLightTheme()
 
   function setThemeMode(mode: ThemeMode) {
-    themeMode.value = mode
+    // [fnos-fork] 主题入口已去掉；保留函数是为了兼容旧调用，任何值都保持浅色。
+    void mode
+    themeMode.value = 'light'
+    enforceLightTheme()
   }
 
   function toggleSidebar() {

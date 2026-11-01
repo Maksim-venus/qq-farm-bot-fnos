@@ -3,6 +3,8 @@ import { defineConfig, presetAttributify, presetIcons, presetUno } from 'unocss'
 const FONT_WEIGHTS = { light: 300, normal: 400, medium: 500, semibold: 600, bold: 700, extrabold: 800, black: 900 }
 
 export default defineConfig({
+  // [fnos-fork] dark: 工具类只匹配不会出现的 .fnos-theme-dark，深色变体永不激活。
+  dark: { dark: '.fnos-theme-dark' },
   theme: {
     fontFamily: {
       sans: 'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',

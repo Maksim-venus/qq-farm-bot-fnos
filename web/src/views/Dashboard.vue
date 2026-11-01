@@ -621,12 +621,10 @@ useIntervalFn(updateCountdowns, 1000)
       </section>
     </div>
 
-    <!-- Main Content Flex -->
-    <div class="flex flex-1 flex-col items-stretch gap-6 md:flex-row">
-      <!-- Logs (Left Column) -->
-      <div class="flex flex-1 flex-col gap-6 md:w-3/4">
-        <!-- Logs -->
-        <div class="flex flex-1 flex-col farm-card rounded-2xl bg-white p-5 shadow-md md:overflow-hidden dark:bg-gray-800">
+    <!-- [fnos-fork] 宽屏：运行日志高度跟随右侧列，底边与「今日统计」对齐；日志在卡片内滚动。 -->
+    <div class="dash-split">
+      <div class="dash-split__logs">
+        <div class="dash-log-card farm-card rounded-2xl bg-white p-5 shadow-md dark:bg-gray-800">
           <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <h3 class="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold">
               <span class="i-carbon-document" /> <span>运行日志</span>
@@ -701,7 +699,7 @@ useIntervalFn(updateCountdowns, 1000)
             />
           </div>
 
-          <div ref="logContainer" class="log-list max-h-[50vh] min-h-0 flex-1 overflow-y-auto" @scroll="onLogScroll">
+          <div ref="logContainer" class="log-list" @scroll="onLogScroll">
             <div v-if="!allLogs.length" class="py-8 text-center text-gray-400">
               {{ fnosEmptyLogText(logView) }}
             </div>
@@ -728,7 +726,7 @@ useIntervalFn(updateCountdowns, 1000)
       </div>
 
       <!-- Right Column Stack -->
-      <div class="min-w-0 flex flex-col gap-6 md:w-1/4 md:self-start">
+      <div class="dash-split__side">
         <!-- Next Checks -->
         <div class="flex flex-col farm-card rounded-2xl bg-white p-6 shadow-md dark:bg-gray-800">
           <h3 class="mb-4 flex items-center gap-2 text-lg font-display font-medium">
@@ -1084,6 +1082,31 @@ useIntervalFn(updateCountdowns, 1000)
   }
 }
 
+/* [fnos-fork] 运行日志高度跟随右侧「下次巡查倒计时 + 今日统计」，底边与今日统计对齐。 */
+.dash-split {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.dash-split__side {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.dash-log-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.dash-log-card > :not(.log-list) {
+  flex-shrink: 0;
+}
+
 .log-filters {
   display: grid;
   min-width: 0;
@@ -1135,11 +1158,42 @@ useIntervalFn(updateCountdowns, 1000)
 }
 
 .log-list {
+  min-height: 0;
+  flex: 1 1 auto;
   padding: 6px;
+  overflow-y: auto;
   border-radius: var(--ui-radius-control);
   background: var(--ui-surface-soft);
   font-size: 13px;
   line-height: 1.55;
+}
+
+/* [fnos-fork] 窄屏单列时日志列表单独限高，避免把今日统计顶到屏幕外。 */
+@media (max-width: 767px) {
+  .log-list {
+    max-height: min(50vh, 28rem);
+  }
+}
+
+@media (min-width: 768px) {
+  .dash-split {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  /* 日志卡片不参与行高计算，行高由右侧列决定，卡片再铺满这一行。 */
+  .dash-split__logs {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .dash-log-card {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
 }
 
 .log-row {
