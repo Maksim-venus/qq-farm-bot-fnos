@@ -29,6 +29,7 @@ export interface FnosForkConfigs {
         listFilter: boolean;
         barkOnSteal: boolean;
         autoDelete: boolean;
+        autoDeleteOnlineStealer: boolean;
     };
     error: string;
 }
@@ -151,7 +152,7 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     if (force ? (cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete) : true) log('图鉴', `${prefix}${describeIllustrated(cfg.illustrated)}`, { module: 'farm', event: '图鉴自动设置', result: cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete ? 'enabled' : 'disabled' });
     // [fnos-fork] 偷收比：只在开启时或设置变化时打印
     const { describeFnosStealRatio } = require('./friend/fnos-steal-ratio');
-    const stealOn = cfg.stealRatio.ignoreApplications || cfg.stealRatio.listFilter || cfg.stealRatio.barkOnSteal || cfg.stealRatio.autoDelete;
+    const stealOn = cfg.stealRatio.ignoreApplications || cfg.stealRatio.listFilter || cfg.stealRatio.barkOnSteal || cfg.stealRatio.autoDelete || cfg.stealRatio.autoDeleteOnlineStealer;
     if (force ? stealOn : true) log('偷收比', `${prefix}${describeFnosStealRatio(cfg.stealRatio)}`, { module: 'friend', event: '偷收比设置', result: stealOn ? 'enabled' : 'disabled', thresholdPercent: cfg.stealRatio.thresholdPercent });
     return true;
 }

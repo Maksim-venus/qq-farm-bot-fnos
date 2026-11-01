@@ -177,7 +177,7 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         });
     }
 
-    // [fnos-fork] 2026-10-31 偷收比：四项开关独立，缺字段沿用已保存值
+    // [fnos-fork] 2026-10-31 偷收比：四项开关独立；autoDeleteOnlineStealer 与阈值无关。缺字段沿用已保存值
     app.get('/api/fnos/steal-ratio', (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
