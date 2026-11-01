@@ -150,6 +150,33 @@ function mountFriendRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
+    // [fnos-fork] 按 GID 加好友（测试）：Enter 取凭证 → Leave → ApplyFriend
+    app.post('/api/friend/:gid/apply', async (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+
+        const gid = Number(req.params.gid);
+        if (!Number.isFinite(gid) || gid <= 0) {
+            return res.status(400).json({ ok: false, error: '无效的 GID' });
+        }
+
+        try {
+            const data = await ctx.provider.applyFriendByGid(id, gid);
+            if (data && data.ok === false) {
+                return res.json({
+                    ok: false,
+                    error: data.error || '加好友失败',
+                    ...(data.errorMessage ? { errorMessage: data.errorMessage } : {}),
+                    ...(data.errorCode ? { errorCode: data.errorCode } : {}),
+                    data,
+                });
+            }
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            handleApiError(res, e);
+        }
+    });
+
     // API: 游戏内删除好友
     app.post('/api/friend/:gid/delete', async (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
