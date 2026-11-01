@@ -150,6 +150,7 @@ function createDataProvider(options: DataProviderOptions) {
         ),
         doFriendOp: (accountRef: string, gid: number, opType: string) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType, true),
         delFriend: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'delFriend', gid),
+        applyFriendByGid: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'applyFriendByGid', gid), // [fnos-fork] 按 GID 加好友（测试）
         lookupStealRatios: (accountRef: string, gids: unknown) => callWorkerApi(resolveAccountRefId(accountRef), 'lookupStealRatios', gids), // [fnos-fork] 好友页偷收比筛选
         getBag: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
         getBagSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBagSeeds'),

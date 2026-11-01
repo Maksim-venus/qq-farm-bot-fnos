@@ -196,6 +196,9 @@ async function loadProto(): Promise<void> {
     types.RejectFriendsReply = root.lookupType('gamepb.friendpb.RejectFriendsReply');
     types.DelFriendRequest = root.lookupType('gamepb.friendpb.DelFriendRequest');
     types.DelFriendReply = root.lookupType('gamepb.friendpb.DelFriendReply');
+    // [fnos-fork] 按 GID 加好友（测试）
+    types.ApplyFriendRequest = root.lookupType('gamepb.friendpb.ApplyFriendRequest');
+    types.ApplyFriendReply = root.lookupType('gamepb.friendpb.ApplyFriendReply');
     types.SyncAllFriendsRequest = root.lookupType('gamepb.friendpb.SyncAllRequest');
     types.SyncAllFriendsReply = root.lookupType('gamepb.friendpb.SyncAllReply');
     types.GetGameFriendsRequest = root.lookupType('gamepb.friendpb.GetGameFriendsRequest');

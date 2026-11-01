@@ -14,6 +14,7 @@ import { computed, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
 import CareerHarvestSteal from '@/components/CareerHarvestSteal.vue'
 import ConfirmModal from '@/components/ConfirmModal.vue'
+import FnosApplyFriendByGid from '@/components/fnos/FnosApplyFriendByGid.vue' // [fnos-fork] 按 GID 加好友（测试）
 import LandCard from '@/components/LandCard.vue'
 import PageTabs from '@/components/PageTabs.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
@@ -1042,6 +1043,8 @@ async function handleBatchAddKnownFriendGids() {
 
     <template v-else>
       <div v-if="activeTab === 'friends'" class="space-y-4">
+        <!-- [fnos-fork] 按 GID 加好友（测试），组件内 details 默认收起 -->
+        <FnosApplyFriendByGid />
         <div v-if="stealRatioSettings.listFilter" class="farm-card rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
           <div class="flex flex-wrap items-end gap-3">
             <div class="min-w-44 flex-1">

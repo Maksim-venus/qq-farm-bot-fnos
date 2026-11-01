@@ -861,6 +861,9 @@ async function handleApiCall(msg: any): Promise<void> {
             case 'delFriend':
                 result = await deleteFriend(args[0]);
                 break;
+            case 'applyFriendByGid': // [fnos-fork] 按 GID 加好友（测试）
+                result = await require('../services/friend/fnos-apply-friend').applyFriendByGid(args[0]);
+                break;
             case 'lookupStealRatios': // [fnos-fork] 好友页按偷收比筛选时批量查生涯
                 result = await require('../services/friend/fnos-steal-ratio').lookupStealRatios(args[0]);
                 break;

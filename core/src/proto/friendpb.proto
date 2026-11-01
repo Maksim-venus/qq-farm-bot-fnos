@@ -152,6 +152,16 @@ message DelFriendRequest {
 
 message DelFriendReply {}
 
+// --- 申请加好友 ---
+// [fnos-fork] 抓包：先 VisitService.Enter，把 EnterReply.apply_key（field 10）原样放进 field 2；field 3 抓包为 0。
+message ApplyFriendRequest {
+    int64 friend_gid = 1;   // 对方 gid
+    string apply_key = 2;   // EnterReply.apply_key 原样
+    int64 source = 3;       // 抓包为 0，含义未确认（可能是来源）
+}
+
+message ApplyFriendReply {}
+
 // --- 设置屏蔽申请 ---
 message SetBlockApplicationsRequest {
     bool block = 1;

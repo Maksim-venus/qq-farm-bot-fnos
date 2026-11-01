@@ -35,6 +35,8 @@ message EnterReply {
     repeated gamepb.plantpb.LandInfo lands = 2;     // 好友的所有土地
     BriefDogInfo brief_dog_info = 3;                // 好友当前上场的狗
     // field 4: nudge_info (不需要)
+    // [fnos-fork] 加好友凭证，形如 64位hex:gid。ApplyFriend 的 field 2 原样带上，不能本地拼造。
+    string apply_key = 10;
     gamepb.weatherpb.WeatherStatus weather = 13;    // 当前好友农场的现场天气（最新版权威来源）
 }
 
