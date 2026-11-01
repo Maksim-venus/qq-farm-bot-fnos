@@ -4,7 +4,6 @@ import { NButton } from 'naive-ui/es/button'
 import { storeToRefs } from 'pinia'
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import ThemeSwitcher from '@/components/ThemeSwitcher.vue'
 import { menuRoutes } from '@/router/menu'
 import { useAppStore } from '@/stores/app'
 
@@ -38,7 +37,7 @@ function toggleNavigation() {
       </h1>
     </div>
     <div class="flex shrink-0 items-center gap-1">
-      <ThemeSwitcher />
+      <!-- [fnos-fork] 主题切换已移除，只保留浅色。 -->
       <NButton quaternary circle aria-controls="app-sidebar" :aria-expanded="navigationExpanded" :aria-label="navigationToggleLabel" :title="navigationToggleLabel" @click="toggleNavigation">
         <div class="text-xl" :class="navigationIcon" />
       </NButton>

@@ -8,14 +8,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <title>QQ农场智能助手</title>
     <script>
-      // 首屏前应用主题，避免先白后黑的闪烁；与 stores/app.ts 使用同一个 theme_mode。
+      // [fnos-fork] 首屏即固定浅色：忽略已保存的 dark/system 和 prefers-color-scheme，不给 html 加 dark / data-theme=dark。
       (function () {
         try {
-          var raw = localStorage.getItem('theme_mode') || 'system'
-          var mode = raw.replace(/"/g, '')
-          var dark = mode === 'dark' || (mode === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-          if (dark) document.documentElement.classList.add('dark')
-          document.documentElement.style.colorScheme = dark ? 'dark' : 'light'
+          var root = document.documentElement
+          root.classList.remove('dark')
+          if (root.getAttribute('data-theme') === 'dark')
+            root.removeAttribute('data-theme')
+          root.style.colorScheme = 'light'
+          localStorage.setItem('theme_mode', '"light"')
         } catch (e) {}
       })()
     </script>
