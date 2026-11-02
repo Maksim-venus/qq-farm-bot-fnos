@@ -23,6 +23,12 @@ export {};
  * 以上都在前端「设置 → 活动设置」栏目。
  *
  * 保存走与设置页相同的 provider.saveSettings：写入账号配置（上游 2026-10-22 起为 data/account-configs/<id>.json），运行中的账号同步到 worker 并等待确认。
+ *
+ * 游戏公告（只读，2026-11-02）：
+ *   GET /api/fnos/bulletins?accountId=…     当前账号的公告标题列表
+ *   GET /api/fnos/bulletins/:id             一条公告的标题、正文、起止时间、图片
+ * 账号用 x-account-id（也接受 query accountId）。管理员校验沿用入口的 X-Trim-Isadmin。
+ * 只调游戏的 GetBulletinList / GetBulletinDetail，不报已读。
  */
 
 const store = require('../../models/store');
@@ -39,7 +45,29 @@ const { normalizeFnosMilkTeaDaily, DEFAULT_FNOS_MILK_TEA_DAILY } = require('../.
 const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
-const { getAccId, handleApiError } = require('./middleware');
+const { describeBulletinAccessError, parseBulletinId } = require('../../services/fnos-bulletin');
+const { getAccId, handleApiError, resolveAccId } = require('./middleware');
+
+function bulletinAccountId(ctx: AdminContext, req: Request): string {
+    const headerId = getAccId(ctx, req);
+    if (headerId) return headerId;
+    const raw = req.query?.accountId;
+    const queryId = Array.isArray(raw) ? raw[0] : raw;
+    return queryId ? resolveAccId(ctx, queryId) : '';
+}
+
+function sendBulletinError(res: Response, error: any): void {
+    const message = describeBulletinAccessError(error);
+    if (message) {
+        res.json({
+            ok: false,
+            error: message,
+            errorCode: message.includes('未登录') ? 'ACCOUNT_NOT_LOGGED_IN' : 'ACCOUNT_OFFLINE',
+        });
+        return;
+    }
+    handleApiError(res, error);
+}
 
 function sendSaveResult(res: Response, data: any, pick: (d: any) => any): void {
     const unconfirmed = data && data.status === 'unconfirmed';
@@ -201,6 +229,32 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
             handleApiError(res, e);
         }
     });
+    // [fnos-fork] 游戏公告只读查看。空列表也是成功。
+    app.get('/api/fnos/bulletins', async (req: Request, res: Response) => {
+        const id = bulletinAccountId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: '请先选择账号' });
+        try {
+            const data = await ctx.provider.getBulletinList(id);
+            const bulletins = data && Array.isArray(data.bulletins) ? data.bulletins : [];
+            res.json({ ok: true, data: { bulletins } });
+        } catch (e: any) {
+            sendBulletinError(res, e);
+        }
+    });
+
+    app.get('/api/fnos/bulletins/:id', async (req: Request, res: Response) => {
+        const accountId = bulletinAccountId(ctx, req);
+        if (!accountId) return res.status(400).json({ ok: false, error: '请先选择账号' });
+        const bulletinId = parseBulletinId(req.params.id);
+        if (!bulletinId) return res.status(400).json({ ok: false, error: '公告编号无效' });
+        try {
+            const data = await ctx.provider.getBulletinDetail(accountId, bulletinId);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            sendBulletinError(res, e);
+        }
+    });
+
     app.post('/api/fnos/steal-ratio/lookup', async (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
         if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });

@@ -151,6 +151,8 @@ function createDataProvider(options: DataProviderOptions) {
         doFriendOp: (accountRef: string, gid: number, opType: string) => callWorkerApi(resolveAccountRefId(accountRef), 'doFriendOp', gid, opType, true),
         delFriend: (accountRef: string, gid: number) => callWorkerApi(resolveAccountRefId(accountRef), 'delFriend', gid),
         lookupStealRatios: (accountRef: string, gids: unknown) => callWorkerApi(resolveAccountRefId(accountRef), 'lookupStealRatios', gids), // [fnos-fork] 好友页偷收比筛选
+        getBulletinList: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBulletinList'), // [fnos-fork] 游戏公告列表
+        getBulletinDetail: (accountRef: string, bulletinId: unknown) => callWorkerApi(resolveAccountRefId(accountRef), 'getBulletinDetail', bulletinId), // [fnos-fork] 游戏公告正文
         getBag: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBag'),
         getBagSeeds: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getBagSeeds'),
         getDiamondBalance: (accountRef: string) => callWorkerApi(resolveAccountRefId(accountRef), 'getDiamondBalance'),

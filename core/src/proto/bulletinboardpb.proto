@@ -9,6 +9,8 @@ message BulletinItem {
     int64 status = 3;       // 1=已读
     // field 4 reserved
     int64 type = 5;         // 类型
+    // [fnos-fork] 列表封面。抓包 frame 59 的 GateMessage.body 里每条 item 的 field 6 是图片 URL，可缺省。合并上游时保留。
+    string image_url = 6;
 }
 
 // ============ 请求/回复 ============
@@ -35,6 +37,7 @@ message BulletinDetail {
     // 其他字段待逆向确认
 }
 
+// [fnos-fork] 字段编号用抓包 frame 110 核对过：title=1、content=2、begin_time=3、end_time=4、image_url=5。合并上游时保留。
 message GetBulletinDetailReply {
     string title = 1;
     string content = 2;

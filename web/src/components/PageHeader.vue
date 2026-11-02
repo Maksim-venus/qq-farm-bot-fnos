@@ -2,8 +2,9 @@
 import { useMediaQuery } from '@vueuse/core'
 import { NButton } from 'naive-ui/es/button'
 import { storeToRefs } from 'pinia'
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import BulletinBoardDialog from '@/components/fnos/BulletinBoardDialog.vue'
 import { menuRoutes } from '@/router/menu'
 import { useAppStore } from '@/stores/app'
 
@@ -19,6 +20,8 @@ const navigationIcon = computed(() => {
     return 'i-carbon-menu'
   return navigationExpanded.value ? 'i-carbon-side-panel-close' : 'i-carbon-side-panel-open'
 })
+
+const bulletinOpen = ref(false)
 
 function toggleNavigation() {
   if (isDesktop.value)
@@ -37,7 +40,11 @@ function toggleNavigation() {
       </h1>
     </div>
     <div class="flex shrink-0 items-center gap-1">
-      <!-- [fnos-fork] 主题切换已移除，只保留浅色。 -->
+      <!-- [fnos-fork] 主题切换已移除，只保留浅色。原按钮位置改为只读「游戏公告」。合并上游时保留，不要恢复 ThemeSwitcher。 -->
+      <NButton quaternary circle aria-haspopup="dialog" :aria-expanded="bulletinOpen" aria-label="游戏公告" title="游戏公告" @click="bulletinOpen = true">
+        <div class="i-carbon-bullhorn text-xl" />
+      </NButton>
+      <BulletinBoardDialog v-model:show="bulletinOpen" />
       <NButton quaternary circle aria-controls="app-sidebar" :aria-expanded="navigationExpanded" :aria-label="navigationToggleLabel" :title="navigationToggleLabel" @click="toggleNavigation">
         <div class="text-xl" :class="navigationIcon" />
       </NButton>

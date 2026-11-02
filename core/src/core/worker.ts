@@ -815,6 +815,12 @@ async function handleApiCall(msg: any): Promise<void> {
             case 'getCollectionsSnapshot':
                 result = await require('../services/collections').getCollectionsSnapshot();
                 break;
+            case 'getBulletinList': // [fnos-fork] 游戏公告列表，只读
+                result = await require('../services/fnos-bulletin').getBulletinList();
+                break;
+            case 'getBulletinDetail': // [fnos-fork] 游戏公告正文，只读，不报已读
+                result = await require('../services/fnos-bulletin').getBulletinDetail(args[0]);
+                break;
             case 'claimIllustratedRewards':
                 result = await require('../services/illustrated').claimIllustratedRewards(args[0]);
                 break;

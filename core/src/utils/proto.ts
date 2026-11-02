@@ -380,7 +380,7 @@ async function loadProto(): Promise<void> {
     types.DismissInteractPopupRequest = root.lookupType('gamepb.interactpb.DismissInteractPopupRequest');
     types.DismissInteractPopupReply = root.lookupType('gamepb.interactpb.DismissInteractPopupReply');
 
-    // 公告板（补充）
+    // [fnos-fork] 公告详情。游戏公告只读查看会用到，合并上游时保留这两行注册。
     types.GetBulletinDetailRequest = root.lookupType('gamepb.bulletinboardpb.GetBulletinDetailRequest');
     types.GetBulletinDetailReply = root.lookupType('gamepb.bulletinboardpb.GetBulletinDetailReply');
 
