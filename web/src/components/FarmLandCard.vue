@@ -109,7 +109,7 @@ const needs = computed(() => {
   ].filter(Boolean) as Array<{ key: string, icon: string, title: string }>
 })
 
-const failedMutantIcons = ref(new Set<number>())
+const failedMutantIcons = ref(new Set<string>())
 
 const traits = computed(() => {
   if (isFollower.value || isLocked.value || isEmpty.value)
@@ -127,11 +127,27 @@ const traits = computed(() => {
     if (!name)
       continue
     const desc = String(effect?.description || effect?.desc || '').trim()
+    const collections = id === 18 && Array.isArray(effect.collections) ? effect.collections : []
+    for (const collection of collections) {
+      const key = `m${id}:${collection.seriesId}:${collection.itemId}`
+      list.push({
+        key,
+        kind: 'mutant',
+        image: failedMutantIcons.value.has(key) ? '' : safeImage(String(collection.image || '')),
+        icon: 'i-carbon-trophy',
+        title: `藏品变异 · ${collection.name}`,
+      })
+    }
+    if (collections.length)
+      continue
+    const key = `m${id}${name}`
     list.push({
-      key: `m${id}${name}`,
+      key,
       kind: 'mutant',
-      image: id > 0 && !failedMutantIcons.value.has(id) ? gatewayPath(`/game-config/seed_images_named/mutant/${id}.png`) : '',
-      icon: 'i-carbon-star',
+      // 官方配置的藏品图标仍指向奶茶；没有具体藏品时显示通用藏品标记。
+      // [fnos-fork] 变异图标走飞牛网关前缀
+      image: id > 0 && id !== 18 && !failedMutantIcons.value.has(key) ? gatewayPath(`/game-config/seed_images_named/mutant/${id}.png`) : '',
+      icon: id === 18 ? 'i-carbon-trophy' : 'i-carbon-star',
       title: desc ? `变异 · ${name}：${desc}` : `变异 · ${name}`,
     })
   }
@@ -161,9 +177,7 @@ const hiddenTitle = computed(() => hiddenTags.value.map(item => item.title).join
 const allTitle = computed(() => allTags.value.map(item => item.title).join('\n'))
 
 function markMutantFailed(key: string) {
-  const id = Number(/^m(\d+)/.exec(key)?.[1]) || 0
-  if (id > 0)
-    failedMutantIcons.value = new Set(failedMutantIcons.value).add(id)
+  failedMutantIcons.value = new Set(failedMutantIcons.value).add(key)
 }
 
 const interactive = computed(() => props.selectable || props.openable)

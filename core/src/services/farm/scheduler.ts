@@ -4,6 +4,7 @@ export {};
  */
 
 const { CONFIG } = require('../../config/config');
+const { getPlantById, getItemById } = require('../../config/gameConfig');
 const { isAutomationOn, getAutomation, getFertilizerBuyOrganicCount, getFertilizerBuyOrganicThresholdHours, getFertilizerBuyNormalCount, getFertilizerBuyNormalThresholdHours, getFertilizerBuyCheckIntervalMinutes } = require('../../models/store');
 const { getUserState, networkEvents } = require('../../utils/network');
 const { toNum, log, logWarn, randomDelay } = require('../../utils/utils');
@@ -86,6 +87,14 @@ async function runMultiSeasonFertilizer(growingLandIds: any[], propagateErrors: 
     }
 }
 
+function autoHarvestLandIds(status: any): number[] {
+    if (getAutomation().farm_harvest_tiangong !== false) return status.harvestable;
+    const tiangongLandIds = new Set(status.harvestableInfo
+        .filter((info: any) => Number(getItemById(getPlantById(info.plantId)?.seed_id)?.rarity) === 4)
+        .map((info: any) => info.landId));
+    return status.harvestable.filter((id: number) => !tiangongLandIds.has(id));
+}
+
 /**
  * smart 有机肥可能让作物在本轮成熟。施肥后只重查并收获一次，避免形成请求循环。
  * 跟随收获也会走多季补肥：这批作物进入下一季后，主循环里的补肥已经跑完了。
@@ -104,7 +113,7 @@ async function harvestMatureOwnLandsOnce(actions: string[], propagateErrors: boo
     if (lands.length === 0) return 0;
 
     const ownGid = toNum(getUserState().gid);
-    let harvestable = analyzeLands(lands, false, ownGid).harvestable;
+    let harvestable = autoHarvestLandIds(analyzeLands(lands, false, ownGid));
     if (harvestable.length === 0) return 0;
     // [fnos-fork] 大号/小号：自动流程（非手动）下过滤留给大号的地
     let altFiltered = false;
@@ -255,7 +264,7 @@ async function runFarmOperation(
     if (opType === 'all' || opType === 'harvest') {
         // [fnos-fork] 大号/小号：自动巡田（opType=all 且非手动）时，小号只收大号已偷过的地。
         // 手动点「收获」「一键全收」视为用户明确要求，不受限制。
-        let harvestTargets: number[] = status.harvestable;
+        let harvestTargets: number[] = opType === 'all' ? autoHarvestLandIds(status) : status.harvestable;
         let altFiltered = false;
         // 没有可收的地也调用一次，用来清理「首次发现可收」计时（2026.10.20.3）
         if (opType === 'all' && !propagateErrors) {
