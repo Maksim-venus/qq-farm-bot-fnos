@@ -23,7 +23,7 @@ const { mountActivityCenterRoutes } = require('./activity-center-routes');
 const { mountCommerceRoutes } = require('./commerce-routes');
 const { mountWxLoginRoutes } = require('./wx-login-routes');
 const { mountQqLoginRoutes } = require('./qq-login-routes');
-const { mountFnosForkRoutes } = require('./fnos-fork-routes'); // [fnos-fork] 大号/小号、奶茶自动雇佣
+const { mountFnosForkRoutes } = require('./fnos-fork-routes'); // [fnos-fork] 大号/小号、奶茶自动雇佣、游戏公告
 const { getGatewayUser } = require('./middleware');
 const {
     setupSocketIO,
