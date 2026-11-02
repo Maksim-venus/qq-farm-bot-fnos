@@ -66,8 +66,10 @@ test('59 号帧解码出三条公告，只有第一条带 image_url，空回包�
     const listed = await bulletin.getBulletinList(async (service, method, body) => {
         calls.push({ service, method, body: Buffer.from(body) });
         const request = types.GetBulletinListRequest.decode(body);
-        assert.equal(Number(request.count), bulletin.BULLETIN_LIST_COUNT);
-        assert.equal(Number(request.page_size || 0), 0);
+        assert.equal(Number(request.count), 0);
+        assert.equal(Number(request.page_size), 6);
+        assert.equal(Number(request.page_size), bulletin.BULLETIN_LIST_PAGE_SIZE);
+        assert.equal(Buffer.from(body).toString("hex"), "08001006");
         return { body: frameBody(59) };
     });
 

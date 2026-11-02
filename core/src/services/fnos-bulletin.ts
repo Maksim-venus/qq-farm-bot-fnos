@@ -5,7 +5,8 @@ export {};
  *
  * 只调用 BulletinBoardService.GetBulletinList / GetBulletinDetail。
  * 不发送已读上报，也不调用任何会改游戏状态的接口。
- * GetBulletinList 的 count/page_size 客户端请求是加密的，抓包对不上，按 proto 只传 count=20。
+ * GetBulletinList：解密真实客户端请求为 {1: 0, 2: 6}，即 count(field 1)=0、page_size(field 2)=6。
+ * 早先只传 count=20 时服务器返回空列表（2026-11-02 实测），所以照抄客户端参数。
  * 回包为空时返回空列表，不报错。
  */
 
@@ -13,7 +14,8 @@ const { gatewayPath } = require('../config/fnos');
 const { toNum } = require('../utils/utils');
 
 const BULLETIN_SERVICE = 'gamepb.bulletinboardpb.BulletinBoardService';
-const BULLETIN_LIST_COUNT = 20;
+const BULLETIN_LIST_COUNT = 0;
+const BULLETIN_LIST_PAGE_SIZE = 6;
 
 type BulletinSender = (service: string, method: string, body: Uint8Array) => Promise<{ body?: Uint8Array }>;
 
@@ -81,7 +83,7 @@ function protoTypes(): Record<string, any> {
 
 function encodeListRequest(): Uint8Array {
     const Request = protoTypes().GetBulletinListRequest;
-    return Request.encode(Request.fromObject({ count: BULLETIN_LIST_COUNT })).finish();
+    return Request.encode(Request.fromObject({ count: BULLETIN_LIST_COUNT, page_size: BULLETIN_LIST_PAGE_SIZE })).finish();
 }
 
 function encodeDetailRequest(id: number): Uint8Array {
@@ -108,6 +110,7 @@ async function getBulletinDetail(rawId: unknown, send?: BulletinSender) {
 module.exports = {
     BULLETIN_SERVICE,
     BULLETIN_LIST_COUNT,
+    BULLETIN_LIST_PAGE_SIZE,
     bulletinImageUrl,
     normalizeBulletinItem,
     normalizeBulletinList,
