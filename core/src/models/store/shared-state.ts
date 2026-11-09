@@ -549,6 +549,13 @@ accountFallbackConfig = {
     knownFriendGids: [],
     knownFriendGidSyncCooldownSec: DEFAULT_KNOWN_FRIEND_GID_SYNC_COOLDOWN_SEC,
     friendsListCacheTtlSec: DEFAULT_FRIENDS_LIST_CACHE_TTL_SEC,
+    // [fnos-fork] 未加载 store 前的兜底配置也带上 fnos 字段默认值，与 cloneAccountConfig 结果一致
+    fnosAltAccount: normalizeFnosAltAccount(undefined),
+    fnosMilkTeaAutoHire: normalizeFnosMilkTeaAutoHire(undefined),
+    fnosMilkTeaDaily: normalizeFnosMilkTeaDaily(undefined),
+    fnosMilkTeaExtra: normalizeFnosMilkTeaExtra(undefined),
+    fnosIllustratedAuto: normalizeFnosIllustratedAuto(undefined),
+    fnosStealRatio: normalizeFnosStealRatio(undefined),
 };
 
 const globalConfig: GlobalConfig = {
