@@ -16,6 +16,7 @@ const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extr
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 // [fnos-fork] 偷收比：忽略高偷收比申请、好友页筛选、Bark、自动删除
 const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
+const { parseHourOfDay } = require('../../utils/hour-of-day');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -130,6 +131,7 @@ const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
     fertilizerBuyNormalCount: 1,
     fertilizerBuyNormalThresholdHours: 10,
     fertilizerBuyCheckIntervalMinutes: 60,
+    emailClaimHour: 10,
     bagSeedPriority: [],
     bagSeedMultiLandReservationEnabled: false,
     bagSeedLandTypes: {},
@@ -167,6 +169,10 @@ function normalizeFriendsListCacheTtlSec(input: unknown, fallback: number = DEFA
     const value = Number.parseInt(input as string, 10);
     const base = Number.isFinite(value) ? value : fallback;
     return Math.max(10, Math.min(INTERVAL_MAX_SEC, base));
+}
+
+function normalizeEmailClaimHour(input: unknown, fallback: number = DEFAULT_ACCOUNT_CONFIG.emailClaimHour): number {
+    return parseHourOfDay(input) ?? parseHourOfDay(fallback) ?? DEFAULT_ACCOUNT_CONFIG.emailClaimHour;
 }
 
 function normalizeAutoAcceptFriendMinLevel(input: unknown, fallback: number = 0): number {
@@ -329,6 +335,7 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         fertilizerBuyNormalCount: Math.max(0, Math.min(10000, Number(base.fertilizerBuyNormalCount) || 0)),
         fertilizerBuyNormalThresholdHours: Math.max(0, Math.min(990, Number(base.fertilizerBuyNormalThresholdHours) || 0)),
         fertilizerBuyCheckIntervalMinutes: Math.max(1, Math.min(1440, Number(base.fertilizerBuyCheckIntervalMinutes) || 30)),
+        emailClaimHour: normalizeEmailClaimHour(base.emailClaimHour, DEFAULT_ACCOUNT_CONFIG.emailClaimHour),
         bagSeedPriority: normalizeBagSeedPriority(base.bagSeedPriority),
         bagSeedMultiLandReservationEnabled: base.bagSeedMultiLandReservationEnabled !== undefined
             ? !!base.bagSeedMultiLandReservationEnabled
@@ -462,6 +469,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
 
     if (src.fertilizerBuyCheckIntervalMinutes !== undefined && src.fertilizerBuyCheckIntervalMinutes !== null) {
         cfg.fertilizerBuyCheckIntervalMinutes = Math.max(1, Math.min(1440, Number(src.fertilizerBuyCheckIntervalMinutes) || 30));
+    }
+
+    if (src.emailClaimHour !== undefined && src.emailClaimHour !== null) {
+        cfg.emailClaimHour = normalizeEmailClaimHour(src.emailClaimHour, cfg.emailClaimHour);
     }
 
     if (src.bagSeedPriority !== undefined && src.bagSeedPriority !== null) {
@@ -677,6 +688,7 @@ module.exports = {
     normalizeKnownFriendGids,
     normalizeKnownFriendGidSyncCooldownSec,
     normalizeFriendsListCacheTtlSec,
+    normalizeEmailClaimHour,
     normalizeBagSeedPriority,
     normalizeBagSeedLandTypes,
     normalizeBagSeedFallbackStrategy,
