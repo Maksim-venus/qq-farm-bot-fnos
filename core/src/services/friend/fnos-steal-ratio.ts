@@ -21,7 +21,7 @@ export {};
  *                       action_type=1）。server_time > 0 视为可靠时间，必须晚于本次登录/重连成功；
  *                       没有可靠时间的记录用「上线后第一次拉取作基线，之后新增的才算」。
  *                       每次重连重置上线时刻并重建基线，掉线期间和启动后第一次拉到的历史记录不删。
- *                       排除名单与 autoDelete 相同，另外再排除本账号奶茶「优先雇佣人」。
+ *                       排除名单与 autoDelete 相同（奶茶「优先雇佣人」排除随奶茶 fork 功能于 2026-11-15 下架）。
  *                       删除走 DelFriend，排队且两次至少间隔 1 分钟，同一 gid 本段在线不重复删。
  *
  * 小号 GID 记在 data/fnos-account-gids.json（账号登录后写入）。还没登录过这一版的小号，
@@ -565,31 +565,10 @@ function readProtectedGidList(): number[] {
     return collectProtectedGids(loadAltRelationSnapshots(), self > 0 ? [self] : []);
 }
 
-/** 本账号奶茶「优先雇佣人」。自动雇佣没开也排除，避免把指定要雇的好友删掉。 */
-function readPriorityHireGids(): number[] {
-    try {
-        const id = String(process.env.FARM_ACCOUNT_ID || '');
-        const raw = require('../../models/store').getConfigSnapshot(id);
-        const { normalizeFnosMilkTeaAutoHire } = require('../fnos-milk-tea-auto-hire');
-        const tea = normalizeFnosMilkTeaAutoHire(raw && raw.fnosMilkTeaAutoHire);
-        const gids: number[] = [];
-        for (const friend of tea.priorityFriends || []) {
-            const gid = Math.floor(Number(friend && friend.gid) || 0);
-            if (gid > 0 && !gids.includes(gid)) gids.push(gid);
-        }
-        const legacy = Math.floor(Number(tea.priorityGid) || 0);
-        if (legacy > 0 && !gids.includes(legacy)) gids.push(legacy);
-        return gids;
-    } catch {
-        return [];
-    }
-}
-
 function readOnlineStealProtectedGids(): number[] {
     return collectOnlineStealProtectedGids({
         snaps: loadAltRelationSnapshots(),
         extraGids: currentSelfGid() > 0 ? [currentSelfGid()] : [],
-        priorityGids: readPriorityHireGids(),
     });
 }
 

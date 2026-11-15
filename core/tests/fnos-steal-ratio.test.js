@@ -204,7 +204,6 @@ test('配置写入账号文件后读回；大小号 GID 不在删除保护名单
         m.writeSelfGid('3', 333);
         m.writeSelfGid('4', 444);
         store.applyConfigSnapshot({
-            fnosMilkTeaAutoHire: { priorityFriends: [{ gid: 777, name: '优先' }], priorityConfigured: true },
             fnosStealRatio: { autoDeleteOnlineStealer: true },
         }, { accountId: '2' });
         const snap = store.getConfigSnapshot('2');
@@ -236,7 +235,7 @@ test('配置写入账号文件后读回；大小号 GID 不在删除保护名单
     assert.equal(out.after.autoDeleteOnlineStealer, true);
     assert.equal(out.after.ignoreApplications, true);
     assert.equal(out.after.autoDelete, false);
-    assert.ok(out.onlineProtected.includes(777));
+    assert.equal(out.onlineProtected.includes(777), false); // 奶茶「优先雇佣人」排除已随奶茶 fork 功能下架
     assert.ok(out.onlineProtected.includes(100));
     assert.ok(out.onlineProtected.includes(222));
     assert.equal(out.onlineProtected.includes(444), false);

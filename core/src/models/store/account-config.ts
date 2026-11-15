@@ -6,12 +6,7 @@ const { assertEmailClaimHour } = require('../../utils/hour-of-day');
 const { readKnownFriendGidsCache, writeKnownFriendGidsCache } = require('./gid-cache');
 // [fnos-fork] 大号/小号
 const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-account');
-// [fnos-fork] 奶茶活动自动雇佣
-const { normalizeFnosMilkTeaAutoHire } = require('../../services/fnos-milk-tea-auto-hire');
-// [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
-const { normalizeFnosMilkTeaDaily } = require('../../services/fnos-milk-tea-daily');
-// [fnos-fork] 奶茶自动制作 / 领工资；图鉴奖励领取 / 自动完成图鉴
-const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
+// [fnos-fork] 图鉴奖励领取 / 自动完成图鉴（奶茶 fork 功能已于 2026-11-15 下架）
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 
 const {
@@ -130,9 +125,6 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         autoAcceptHarvestStealSteal: cfg.autoAcceptHarvestStealSteal,
         // [fnos-fork] 大号/小号
         fnosAltAccount: { ...cfg.fnosAltAccount },
-        fnosMilkTeaAutoHire: { ...cfg.fnosMilkTeaAutoHire }, // [fnos-fork] 奶茶活动自动雇佣
-        fnosMilkTeaDaily: { ...cfg.fnosMilkTeaDaily }, // [fnos-fork] 奶茶收益领取 / 种子兑换
-        fnosMilkTeaExtra: { ...cfg.fnosMilkTeaExtra }, // [fnos-fork] 奶茶自动制作 / 领工资
         fnosIllustratedAuto: { ...cfg.fnosIllustratedAuto }, // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
         fnosStealRatio: { ...cfg.fnosStealRatio }, // [fnos-fork] 偷收比
         ui: { ...globalConfig.ui },
@@ -305,30 +297,6 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
     // [fnos-fork] 大号/小号
     if (cfg.fnosAltAccount !== undefined && cfg.fnosAltAccount !== null) {
         next.fnosAltAccount = normalizeFnosAltAccount(cfg.fnosAltAccount, next.fnosAltAccount);
-    }
-    // [fnos-fork] 奶茶活动自动雇佣
-    if (cfg.fnosMilkTeaAutoHire !== undefined && cfg.fnosMilkTeaAutoHire !== null) {
-        const beforeTea = JSON.stringify(next.fnosMilkTeaAutoHire || null);
-        next.fnosMilkTeaAutoHire = normalizeFnosMilkTeaAutoHire(cfg.fnosMilkTeaAutoHire, next.fnosMilkTeaAutoHire);
-        if (JSON.stringify(next.fnosMilkTeaAutoHire) !== beforeTea) {
-            try { require('../../services/fnos-milk-tea-auto-hire').onFnosMilkTeaAutoHireConfigChanged(); } catch { /* ignore */ }
-        }
-    }
-    // [fnos-fork] 奶茶收益自动领取 / 森野黄金芽种子每日兑换
-    if (cfg.fnosMilkTeaDaily !== undefined && cfg.fnosMilkTeaDaily !== null) {
-        const beforeDaily = JSON.stringify(next.fnosMilkTeaDaily || null);
-        next.fnosMilkTeaDaily = normalizeFnosMilkTeaDaily(cfg.fnosMilkTeaDaily, next.fnosMilkTeaDaily);
-        if (JSON.stringify(next.fnosMilkTeaDaily) !== beforeDaily) {
-            try { require('../../services/fnos-milk-tea-daily').onFnosMilkTeaDailyConfigChanged(); } catch { /* ignore */ }
-        }
-    }
-    // [fnos-fork] 奶茶自动制作 / 自动领工资
-    if (cfg.fnosMilkTeaExtra !== undefined && cfg.fnosMilkTeaExtra !== null) {
-        const beforeExtra = JSON.stringify(next.fnosMilkTeaExtra || null);
-        next.fnosMilkTeaExtra = normalizeFnosMilkTeaExtra(cfg.fnosMilkTeaExtra, next.fnosMilkTeaExtra);
-        if (JSON.stringify(next.fnosMilkTeaExtra) !== beforeExtra) {
-            try { require('../../services/fnos-milk-tea-extra').onFnosMilkTeaExtraConfigChanged(); } catch { /* ignore */ }
-        }
     }
     // [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴
     if (cfg.fnosIllustratedAuto !== undefined && cfg.fnosIllustratedAuto !== null) {

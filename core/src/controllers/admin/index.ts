@@ -23,7 +23,7 @@ const { mountActivityCenterRoutes } = require('./activity-center-routes');
 const { mountCommerceRoutes } = require('./commerce-routes');
 const { mountWxLoginRoutes } = require('./wx-login-routes');
 const { mountQqLoginRoutes } = require('./qq-login-routes');
-const { mountFnosForkRoutes } = require('./fnos-fork-routes'); // [fnos-fork] 大号/小号、奶茶自动雇佣、游戏公告
+const { mountFnosForkRoutes } = require('./fnos-fork-routes'); // [fnos-fork] 大号/小号、图鉴、偷收比、游戏公告
 const { getGatewayUser } = require('./middleware');
 const {
     setupSocketIO,
@@ -100,7 +100,7 @@ function startAdminServer(dataProvider: any): void {
     mountQqLoginRoutes(app, ctx);
     mountFarmRoutes(app, ctx);
     mountFriendRoutes(app, ctx);
-    mountFnosForkRoutes(app, ctx); // [fnos-fork] 大号/小号、奶茶自动雇佣
+    mountFnosForkRoutes(app, ctx); // [fnos-fork] 大号/小号、图鉴、偷收比
     mountAccountRoutes(app, ctx);
     mountActivityCenterRoutes(app, ctx);
     mountCommerceRoutes(app, ctx);

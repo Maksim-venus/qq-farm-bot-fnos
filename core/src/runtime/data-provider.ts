@@ -334,9 +334,6 @@ function createDataProvider(options: DataProviderOptions) {
                 'autoAcceptHarvestStealHarvest',
                 'autoAcceptHarvestStealSteal',
                 'fnosAltAccount', // [fnos-fork] 大号/小号
-                'fnosMilkTeaAutoHire', // [fnos-fork] 奶茶活动自动雇佣
-                'fnosMilkTeaDaily', // [fnos-fork] 奶茶收益领取 / 种子兑换
-                'fnosMilkTeaExtra', // [fnos-fork] 奶茶自动制作 / 领工资
                 'fnosIllustratedAuto', // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
                 'fnosStealRatio', // [fnos-fork] 偷收比
             ]) {

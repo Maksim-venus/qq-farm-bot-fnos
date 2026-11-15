@@ -8,19 +8,10 @@ export {};
  * 大号/小号：
  *   GET  /api/fnos/alt-account            读取（账号未运行也能读）
  *   POST /api/fnos/alt-account            保存
- * 奶茶活动自动雇佣（2026.10.21.2 起含优先雇佣人，与大小号解耦）：
- *   GET  /api/fnos/milk-tea-auto-hire     读取设置 + 可选时长/职业
- *   POST /api/fnos/milk-tea-auto-hire     保存
- * 奶茶收益每小时自动领取 / 兑换商店每日兑换森野黄金芽种子：
- *   GET  /api/fnos/milk-tea-daily         读取
- *   POST /api/fnos/milk-tea-daily         保存
- * 奶茶自动制作（可排除金露云酪）/ 自动领取工资（2026-10-28）：
- *   GET  /api/fnos/milk-tea-extra         读取
- *   POST /api/fnos/milk-tea-extra         保存（请求里没带的字段沿用已保存的值）
  * 图鉴奖励自动领取 / 自动完成图鉴（2026-10-28）：
  *   GET  /api/fnos/illustrated-auto       读取
  *   POST /api/fnos/illustrated-auto       保存（请求里没带的字段沿用已保存的值）
- * 以上都在前端「设置 → 活动设置」栏目。
+ * 图鉴在前端「设置 → 自动控制」栏目（2026-11-15 起）；奶茶 fork 接口（milk-tea-auto-hire / -daily / -extra）已于 2026-11-15 下架。
  *
  * 保存走与设置页相同的 provider.saveSettings：写入账号配置（上游 2026-10-22 起为 data/account-configs/<id>.json），运行中的账号同步到 worker 并等待确认。
  *
@@ -33,16 +24,6 @@ export {};
 
 const store = require('../../models/store');
 const { normalizeFnosAltAccount, DEFAULT_FNOS_ALT_ACCOUNT } = require('../../services/farm/fnos-alt-account');
-const {
-    normalizeFnosMilkTeaAutoHire,
-    resolveEffectiveHireConfig,
-    DEFAULT_FNOS_MILK_TEA_AUTO_HIRE,
-    MILK_TEA_DURATION_OPTIONS,
-    MILK_TEA_TALENT_OPTIONS,
-    MILK_TEA_WORK_OPTIONS,
-} = require('../../services/fnos-milk-tea-auto-hire');
-const { normalizeFnosMilkTeaDaily, DEFAULT_FNOS_MILK_TEA_DAILY } = require('../../services/fnos-milk-tea-daily');
-const { normalizeFnosMilkTeaExtra } = require('../../services/fnos-milk-tea-extra');
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
 const { describeBulletinAccessError, parseBulletinId } = require('../../services/fnos-bulletin');
@@ -111,72 +92,8 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         }
     });
 
-    app.get('/api/fnos/milk-tea-auto-hire', (req: Request, res: Response) => {
-        const id = getAccId(ctx, req);
-        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
-        try {
-            const snapshot = store.getConfigSnapshot(id);
-            // 2026.10.21.2：老配置（未用新卡片保存过）按旧版小号设置迁移后显示，保存时写入 priorityConfigured=true
-            const { migratedFromAlt, ...data } = resolveEffectiveHireConfig(
-                snapshot && snapshot.fnosMilkTeaAutoHire, normalizeFnosAltAccount(snapshot && snapshot.fnosAltAccount));
-            res.json({
-                ok: true,
-                data,
-                migratedFromAlt,
-                options: { durations: MILK_TEA_DURATION_OPTIONS, talents: MILK_TEA_TALENT_OPTIONS, works: MILK_TEA_WORK_OPTIONS },
-            });
-        } catch (e: any) {
-            handleApiError(res, e);
-        }
-    });
-
-    app.post('/api/fnos/milk-tea-auto-hire', async (req: Request, res: Response) => {
-        const id = getAccId(ctx, req);
-        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
-        try {
-            const body = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body : {};
-            // [fnos-fork] 2026-10-27 多个优先雇佣人：请求里没带 priorityFriends / priorityGid 时沿用当前生效的列表
-            // （含老配置按旧版小号迁移出的大号），其他字段仍按请求保存
-            const snapshot = store.getConfigSnapshot(id);
-            const current = resolveEffectiveHireConfig(
-                snapshot && snapshot.fnosMilkTeaAutoHire, normalizeFnosAltAccount(snapshot && snapshot.fnosAltAccount));
-            const next = {
-                ...normalizeFnosMilkTeaAutoHire(body, { ...DEFAULT_FNOS_MILK_TEA_AUTO_HIRE, priorityFriends: current.priorityFriends }),
-                priorityConfigured: true,
-            };
-            const data = await ctx.provider.saveSettings(id, { fnosMilkTeaAutoHire: next });
-            sendSaveResult(res, data, d => normalizeFnosMilkTeaAutoHire(d.fnosMilkTeaAutoHire));
-        } catch (e: any) {
-            handleApiError(res, e);
-        }
-    });
-
-    app.get('/api/fnos/milk-tea-daily', (req: Request, res: Response) => {
-        const id = getAccId(ctx, req);
-        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
-        try {
-            const snapshot = store.getConfigSnapshot(id);
-            res.json({ ok: true, data: normalizeFnosMilkTeaDaily(snapshot && snapshot.fnosMilkTeaDaily) });
-        } catch (e: any) {
-            handleApiError(res, e);
-        }
-    });
-
-    app.post('/api/fnos/milk-tea-daily', async (req: Request, res: Response) => {
-        const id = getAccId(ctx, req);
-        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
-        try {
-            const next = normalizeFnosMilkTeaDaily(req.body || {}, DEFAULT_FNOS_MILK_TEA_DAILY);
-            const data = await ctx.provider.saveSettings(id, { fnosMilkTeaDaily: next });
-            sendSaveResult(res, data, d => normalizeFnosMilkTeaDaily(d.fnosMilkTeaDaily));
-        } catch (e: any) {
-            handleApiError(res, e);
-        }
-    });
-
-    // [fnos-fork] 2026-10-28 奶茶自动制作 / 领工资、图鉴奖励领取 / 自动完成图鉴：同一套读写
+    // [fnos-fork] 2026-10-28 图鉴奖励领取 / 自动完成图鉴（奶茶 fork 接口已于 2026-11-15 下架）
     const simpleRoutes: Array<[string, string, (input: any, fallback?: any) => any]> = [
-        ['/api/fnos/milk-tea-extra', 'fnosMilkTeaExtra', normalizeFnosMilkTeaExtra],
         ['/api/fnos/illustrated-auto', 'fnosIllustratedAuto', normalizeFnosIllustratedAuto],
     ];
     for (const [route, key, normalize] of simpleRoutes) {

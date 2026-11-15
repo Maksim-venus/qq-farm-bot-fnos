@@ -13,7 +13,7 @@ import FnosSortableList from '@/components/fnos/FnosSortableList.vue'
 import PageTabs from '@/components/PageTabs.vue'
 import AutomationSettingsForm from '@/components/settings/AutomationSettingsForm.vue'
 import BagSeedPriorityItem from '@/components/settings/BagSeedPriorityItem.vue'
-import FnosForkSettings from '@/components/settings/FnosForkSettings.vue' // [fnos-fork] 大号/小号、奶茶自动雇佣
+import FnosForkSettings from '@/components/settings/FnosForkSettings.vue' // [fnos-fork] 大小号协作、活动设置（占位）
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
@@ -21,6 +21,7 @@ import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
+import { fnosNormalizeIllustratedAuto } from '@/utils/fnos-illustrated-auto' // [fnos-fork] 图鉴（自动控制）
 import { fnosMoveIndex } from '@/utils/fnos-sort-order' // [fnos-fork]
 
 const fertilizerLandTypeOptions = [
@@ -915,6 +916,7 @@ const localAutomationSettings = ref({
   autoAcceptHarvestStealEnabled: true,
   autoAcceptHarvestStealHarvest: 8,
   autoAcceptHarvestStealSteal: 1,
+  fnosIllustratedAuto: fnosNormalizeIllustratedAuto(null), // [fnos-fork] 图鉴（2026-11-15 起在自动控制里）
 })
 
 const fertilizerOptions = [
@@ -1015,6 +1017,7 @@ function syncLocalAutomationSettings() {
     localAutomationSettings.value.autoAcceptHarvestStealEnabled = settings.value.autoAcceptHarvestStealEnabled ?? true
     localAutomationSettings.value.autoAcceptHarvestStealHarvest = settings.value.autoAcceptHarvestStealHarvest ?? 8
     localAutomationSettings.value.autoAcceptHarvestStealSteal = settings.value.autoAcceptHarvestStealSteal ?? 1
+    localAutomationSettings.value.fnosIllustratedAuto = fnosNormalizeIllustratedAuto(settings.value.fnosIllustratedAuto) // [fnos-fork]
   }
 }
 
@@ -1935,7 +1938,7 @@ async function handleResetSystemConfig() {
           :account-id="currentAccountId"
           :account-name="currentAccountName"
         />
-        <!-- [fnos-fork] 活动设置（奶茶自动雇佣与工作事项、奶茶收益领取与种子兑换） -->
+        <!-- [fnos-fork] 活动设置（2026-11-15 奶茶 fork 功能下架后只显示「当前没有进行中的活动」占位） -->
         <FnosForkSettings
           v-else-if="activeTab === 'fnos-alt'"
           section="activity"

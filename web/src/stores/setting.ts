@@ -75,6 +75,13 @@ function lockLightUi(ui: UIConfig | undefined | null): UIConfig {
   return { ...(ui || {}), theme: 'light' }
 }
 
+// [fnos-fork] 图鉴自动设置（与 utils/fnos-illustrated-auto.ts 相同；此处内联，store 不多依赖其他模块）
+export interface FnosIllustratedAuto { autoClaimRewards: boolean, autoComplete: boolean }
+function fnosNormalizeIllustratedAuto(input: any): FnosIllustratedAuto {
+  const src = input && typeof input === 'object' ? input : {}
+  return { autoClaimRewards: src.autoClaimRewards !== undefined ? !!src.autoClaimRewards : false, autoComplete: src.autoComplete !== undefined ? !!src.autoComplete : false }
+}
+
 export interface SettingsState {
   plantingStrategy: string
   preferredSeedId: number
@@ -101,6 +108,8 @@ export interface SettingsState {
   autoAcceptHarvestStealEnabled: boolean
   autoAcceptHarvestStealHarvest: number
   autoAcceptHarvestStealSteal: number
+  /** [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴（2026-11-15 起在「自动控制」里随设置一起保存） */
+  fnosIllustratedAuto: FnosIllustratedAuto
 }
 
 type SaveableSettingsKey
@@ -127,6 +136,7 @@ type SaveableSettingsKey
     | 'autoAcceptHarvestStealEnabled'
     | 'autoAcceptHarvestStealHarvest'
     | 'autoAcceptHarvestStealSteal'
+    | 'fnosIllustratedAuto' // [fnos-fork]
 
 export type SettingsSavePayload = Partial<Pick<SettingsState, SaveableSettingsKey>>
 
@@ -154,6 +164,7 @@ const SAVEABLE_SETTINGS_KEYS: SaveableSettingsKey[] = [
   'autoAcceptHarvestStealEnabled',
   'autoAcceptHarvestStealHarvest',
   'autoAcceptHarvestStealSteal',
+  'fnosIllustratedAuto', // [fnos-fork]
 ]
 
 function createDefaultSettings(): SettingsState {
@@ -192,6 +203,7 @@ function createDefaultSettings(): SettingsState {
     autoAcceptHarvestStealEnabled: true,
     autoAcceptHarvestStealHarvest: 8,
     autoAcceptHarvestStealSteal: 1,
+    fnosIllustratedAuto: fnosNormalizeIllustratedAuto(null), // [fnos-fork]
   }
 }
 
@@ -253,6 +265,7 @@ export const useSettingStore = defineStore('setting', () => {
       autoAcceptHarvestStealEnabled: data.autoAcceptHarvestStealEnabled ?? defaults.autoAcceptHarvestStealEnabled,
       autoAcceptHarvestStealHarvest: data.autoAcceptHarvestStealHarvest ?? defaults.autoAcceptHarvestStealHarvest,
       autoAcceptHarvestStealSteal: data.autoAcceptHarvestStealSteal ?? defaults.autoAcceptHarvestStealSteal,
+      fnosIllustratedAuto: fnosNormalizeIllustratedAuto(data.fnosIllustratedAuto), // [fnos-fork]
     }
   }
 

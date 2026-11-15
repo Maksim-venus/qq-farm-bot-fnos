@@ -423,12 +423,7 @@ async function runStartupSequence(canContinue: () => boolean = () => loginReady)
         startUnifiedScheduler();
         startDailyRoutineTimer(false);
         startMysteryShopTimer();
-        // [fnos-fork] 奶茶活动自动雇佣（未开启时每轮直接返回，不发请求）
-        require('../services/fnos-milk-tea-auto-hire').startFnosMilkTeaAutoHire(workerScheduler, runExclusiveAutomationTask);
-        // [fnos-fork] 奶茶收益每小时自动领取 / 森野黄金芽种子每日兑换（都未开启时每轮直接返回，不发请求）
-        require('../services/fnos-milk-tea-daily').startFnosMilkTeaDaily(workerScheduler, runExclusiveAutomationTask);
-        // [fnos-fork] 奶茶自动制作 / 自动领工资；图鉴奖励自动领取 / 自动完成图鉴（都未开启时每轮直接返回，不发请求）
-        require('../services/fnos-milk-tea-extra').startFnosMilkTeaExtra(workerScheduler, runExclusiveAutomationTask);
+        // [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴（都未开启时每轮直接返回，不发请求）
         require('../services/fnos-illustrated-auto').startFnosIllustratedAuto(workerScheduler, runExclusiveAutomationTask);
         // [fnos-fork] 偷收比：忽略高比例申请、来偷菜 Bark、自动删除、在线期间偷菜删除（开关都关时不发请求）
         require('../services/friend/fnos-steal-ratio').startFnosStealRatio(workerScheduler, runExclusiveAutomationTask);
@@ -490,7 +485,7 @@ function applyRuntimeConfig(snapshot: any, syncNow: boolean = false): number {
     const appliedSnapshot = applyConfigSnapshot(snapshot || {}, { persist: false, accountId });
     configureEmailClaim({ hour: appliedSnapshot.emailClaimHour, accountId });
     if (rev > appliedConfigRevision) appliedConfigRevision = rev;
-    // [fnos-fork] 大号/小号、奶茶自动雇佣：设置有变化时在日志里打印当前状态
+    // [fnos-fork] 大号/小号、图鉴、偷收比：设置有变化时在日志里打印当前状态
     try { require('../services/fnos-fork-config').onWorkerConfigApplied(); } catch { /* ignore */ }
 
     // 优先使用本次下发的间隔，避免 worker 内部 store 漂移导致回退默认值

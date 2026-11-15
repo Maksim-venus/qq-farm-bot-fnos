@@ -21,6 +21,7 @@ export type AutomationSettingsFormModel = Pick<
   | 'autoAcceptHarvestStealHarvest'
   | 'autoAcceptHarvestStealSteal'
 > & { emailClaimHour: number | string }
+& Partial<Pick<SettingsState, 'fnosIllustratedAuto'>> // [fnos-fork] 图鉴
 
 defineProps<{
   saving: boolean
@@ -327,6 +328,35 @@ const settings = defineModel<AutomationSettingsFormModel>({ required: true })
           </div>
           <p v-else class="mt-3 text-xs text-gray-500 dark:text-gray-400">
             到货提醒可单独开启；购买提醒需先打开自动购买。
+          </p>
+        </section>
+
+        <!-- [fnos-fork] 图鉴（2026-10-28 加入，2026-11-15 从「活动设置」移到这里，随「保存自动控制」一起保存） -->
+        <section v-if="settings.fnosIllustratedAuto" class="farm-card rounded-2xl p-4" data-testid="fnos-illustrated-auto">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-400">
+              <span class="i-carbon-notebook text-xl" />
+            </div>
+            <div>
+              <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                图鉴
+              </h4>
+              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                账号运行时约每 10 分钟检查一次作物图鉴和变异图鉴，保存后约 12 秒先执行一次
+              </p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosIllustratedAuto.autoClaimRewards" class="automation-setting-item" label="图鉴奖励自动领取" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosIllustratedAuto.autoComplete" class="automation-setting-item" label="自动完成图鉴" />
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-amber-700 leading-relaxed dark:text-amber-300">
+            ⚠️ 自动完成图鉴会花金币：找出作物图鉴里未收藏、背包里没有种子、地里也没种着的作物，从种子商店买 1 个种子（只买已解锁、等级够、不需要解锁卡、未售罄且金币够的），每次检查最多买 1 个、同时最多 2 个待种；下次自动播种时先把它种下（优先播种），种下或收藏后恢复原来的播种顺序。需要打开上面的「自动种植收获」。结果在日志「图鉴」里查看。
           </p>
         </section>
       </div>

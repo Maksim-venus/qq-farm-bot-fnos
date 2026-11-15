@@ -28,7 +28,7 @@ function harness() {
     mock('utils/network', { sendMsgAsync: async (_service, method, body) => {
         if (method === 'GetGroup') {
             if (failRefresh && writes) throw new Error('offline');
-            return { body: encode(types.MilkTeaGetGroupReply, { group: { head: { activity_id: '2026110100' }, children: [milk, { head: { activity_id: '2026110102' }, shop: { goods: [goods] } }, { head: { activity_id: '2026110103' }, growth_fund: fund }] } }) };
+            return { body: encode(types.MilkTeaGetGroupReply, { group: { head: { activity_id: '2026110100' }, children: [milk, { head: { activity_id: '2026110102', begin_time: 1792029600, end_time: 1795449599 }, shop: { goods: [goods] } }, { head: { activity_id: '2026110103' }, growth_fund: fund }] } }) };
         }
         const req = types.MilkTeaOperateRequest.toObject(types.MilkTeaOperateRequest.decode(body), { longs: String });
         const cmd = Number(req.operate_type);
@@ -88,7 +88,8 @@ test('shop retains finite limits and enforces level, price and settlement condit
     await assert.rejects(h.service.operateMilkTeaActivity('exchange', { goodsId: 301, count: 1, expectedCosts: h.goods.cost }), /条件/);
     h.goods.cond_hints = [];
     await assert.rejects(h.service.operateMilkTeaActivity('exchange', { goodsId: 301, count: 1, expectedCosts: [{ id: 1001, count: 1 }] }), /费用已变化/);
-    // [fnos-fork] 上游 946fe02 起结算期允许兑换，原「结算期拒绝兑换种子」断言已不适用
+    // [fnos-fork] 上游 946fe02 起结算期允许兑换，原「结算期拒绝兑换」断言与新行为矛盾已删除；
+    // 夹具里兑换商店补上自身时间窗（上游代码按兑换商店时间窗判断，上游测试夹具缺这两个字段）
     assert.equal(h.calls.length, 0);
 });
 test('fund unlock is serialized and claims require paid unlock without duplicate charges', async () => {
