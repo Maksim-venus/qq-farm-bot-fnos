@@ -117,8 +117,10 @@ function normalizeGoods(entry: any) {
 // Settlement stops employment; the workshop and exchange shop remain open
 // until their respective activity windows end.
 function actionPhaseError(action: string, state: any, now = getServerTimeSec()): string | null {
-    const start = action === 'exchange' ? state.exchangeStartTime : state.startTime;
-    const end = action === 'exchange' ? state.exchangeEndTime : state.endTime;
+    // [fnos-fork] 兑换商店未返回自身时间窗时回退到奶茶活动时间窗
+    const useExchange = action === 'exchange' && toNum(state.exchangeEndTime) > 0;
+    const start = useExchange ? state.exchangeStartTime : state.startTime;
+    const end = useExchange ? state.exchangeEndTime : state.endTime;
     if (!(now >= start && now < end)) return '活动尚未开放或已经结束';
     if (action !== 'create' && !toNum(state.summary.shop_open_at)) return '请先开业';
     if (state.settleStartTime > 0 && now >= state.settleStartTime && operatingOnlyActions.has(action)) return '结算期不可进行此操作';

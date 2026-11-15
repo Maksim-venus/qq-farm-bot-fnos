@@ -88,8 +88,7 @@ test('shop retains finite limits and enforces level, price and settlement condit
     await assert.rejects(h.service.operateMilkTeaActivity('exchange', { goodsId: 301, count: 1, expectedCosts: h.goods.cost }), /条件/);
     h.goods.cond_hints = [];
     await assert.rejects(h.service.operateMilkTeaActivity('exchange', { goodsId: 301, count: 1, expectedCosts: [{ id: 1001, count: 1 }] }), /费用已变化/);
-    h.setTime(1794672000);
-    await assert.rejects(h.service.operateMilkTeaActivity('exchange', { goodsId: 301, count: 1, expectedCosts: h.goods.cost }), /条件/);
+    // [fnos-fork] 上游 946fe02 起结算期允许兑换，原「结算期拒绝兑换种子」断言已不适用
     assert.equal(h.calls.length, 0);
 });
 test('fund unlock is serialized and claims require paid unlock without duplicate charges', async () => {
