@@ -101,6 +101,7 @@ const modules = [
 const events = [
   { label: '所有事件', value: '' },
   { label: '农场巡查', value: 'farm_cycle' },
+  { label: '农牧轮次', value: 'fnos轮次切换,fnos轮次插队' }, // [fnos-fork] 2026-11-17 农场、牧场轮流
   { label: '收获作物', value: 'harvest_crop' },
   { label: '清理枯株', value: 'remove_plant' },
   { label: '种植种子', value: 'plant_seed' },
