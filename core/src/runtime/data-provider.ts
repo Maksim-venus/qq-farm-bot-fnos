@@ -336,6 +336,7 @@ function createDataProvider(options: DataProviderOptions) {
                 'fnosAltAccount', // [fnos-fork] 大号/小号
                 'fnosIllustratedAuto', // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
                 'fnosStealRatio', // [fnos-fork] 偷收比
+                'fnosQuietPriority', // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
             ]) {
                 copyIfPresent(key);
             }

@@ -373,6 +373,9 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
             log: (msg: string) => log('小号', msg, { module: 'friend', event: '大小号协作' }),
         });
 
+        // [fnos-fork] 空闲时只保留心跳：记下本轮要访问几位好友（0 = 好友这边空闲）
+        try { require('../fnos-quiet-priority').recordFriendRound(plan.visits.length); } catch { /* ignore */ }
+
         const totalActions: any = { steal: 0, farming: 0, putBug: 0, putWeed: 0 };
 
         if (plan.skippedExpLimit > 0) {
@@ -401,6 +404,9 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
         let attemptedStealVisit = false;
 
         for (const target of plan.visits) {
+            if (!canContinue()) return false;
+            // [fnos-fork] 自己收菜优先：自家作物正在成熟时，访问下一位好友前先等自家收完（最多 30 秒）
+            await require('../fnos-quiet-priority').waitForOwnHarvestBeforeFriendVisit(canContinue);
             if (!canContinue()) return false;
             if (getFriendBlacklist(accountId).includes(target.gid)) continue;
             if (attemptedStealVisit && target.wantSteal && isAutomationOn('friend_steal')) {

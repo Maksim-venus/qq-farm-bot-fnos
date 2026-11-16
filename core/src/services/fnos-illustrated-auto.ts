@@ -387,7 +387,7 @@ let lastTickErrorLogAt = 0;
 function startFnosIllustratedAuto(scheduler: any, runExclusive: (name: string, fn: () => Promise<any>) => Promise<any>): void {
     for (const k of Object.keys(lastLog)) delete lastLog[k];
     pendingCache = null;
-    const tick = () => runExclusive('fnos_illustrated_auto', () => runIllustratedAutoTick()).catch((e: any) => {
+    const tick = () => (require('./fnos-quiet-priority').isFnosIdleActive() ? Promise.resolve(null) /* 空闲时只保留心跳：本次跳过 */ : runExclusive('fnos_illustrated_auto', () => runIllustratedAutoTick())).catch((e: any) => {
         if (Date.now() - lastTickErrorLogAt > 30 * 60 * 1000) {
             lastTickErrorLogAt = Date.now();
             try { require('../utils/utils').logWarn('图鉴', `图鉴自动检查出错：${e && e.message ? e.message : e}`, { module: 'farm', event: '图鉴自动', result: 'error' }); } catch { /* ignore */ }

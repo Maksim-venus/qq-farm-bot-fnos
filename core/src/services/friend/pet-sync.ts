@@ -231,6 +231,8 @@ async function runFriendPetSyncRound(): Promise<FriendPetSyncResult> {
     if (isFullSyncDoneToday()) return { outcome: 'fresh', reason: 'done_today' };
     // 安静时段不进好友农场，与 checkFriends 保持一致；窗口结束后下一次定时检查会接上
     if (visitStrategyRef().inFriendQuietHours()) return { outcome: 'skipped', reason: 'quiet_hours' };
+    // [fnos-fork] 空闲时只保留心跳 / 自己收菜优先：静默中或自家作物正在成熟时跳过本轮
+    if (require('../fnos-quiet-priority').shouldPauseBackgroundSync()) return { outcome: 'skipped', reason: 'quiet_hours' };
 
     const state: any = getUserState();
     const myGid: number = toNum(state && state.gid);

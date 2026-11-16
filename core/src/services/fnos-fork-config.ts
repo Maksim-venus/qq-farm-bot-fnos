@@ -1,6 +1,6 @@
 export {};
 /**
- * [fnos-fork] 本 fork 独有设置（大号/小号、图鉴、偷收比）在 worker 内的统一读取与状态日志。
+ * [fnos-fork] 本 fork 独有设置（大号/小号、图鉴、偷收比、自己收菜优先 / 空闲时只保留心跳）在 worker 内的统一读取与状态日志。
  * 大号/小号在「设置 → 大小号协作」栏目，图鉴在「设置 → 自动控制」。奶茶 fork 功能已于 2026-11-15 按用户要求下架。
  *
  * 2026.10.20.3 修复：之前两个功能都调用了 store 并不导出的 getAccountConfigSnapshot()，
@@ -23,6 +23,8 @@ export interface FnosForkConfigs {
         autoDelete: boolean;
         autoDeleteOnlineStealer: boolean;
     };
+    /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（见 services/fnos-quiet-priority.ts） */
+    quiet: { ownHarvestFirst: boolean; mergeWindowSec: number; idleKeepaliveOnly: boolean; idleMinMinutes: number; idleMaxMinutes: number };
     error: string;
 }
 
@@ -32,6 +34,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
     const { normalizeFnosAltAccount } = require('./farm/fnos-alt-account');
     const { normalizeFnosIllustratedAuto } = require('./fnos-illustrated-auto');
     const { normalizeFnosStealRatio } = require('./friend/fnos-steal-ratio');
+    const { normalizeFnosQuietPriority } = require('./fnos-quiet-priority');
     try {
         const store = require('../models/store');
         const snapshot = store.getConfigSnapshot(accountId) || {};
@@ -39,6 +42,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             alt: normalizeFnosAltAccount(snapshot.fnosAltAccount),
             illustrated: normalizeFnosIllustratedAuto(snapshot.fnosIllustratedAuto),
             stealRatio: normalizeFnosStealRatio(snapshot.fnosStealRatio),
+            quiet: normalizeFnosQuietPriority(snapshot.fnosQuietPriority),
             error: '',
         };
     } catch (e: any) {
@@ -47,7 +51,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             lastReadErrorLogAt = Date.now();
             try { require('../utils/utils').logWarn('系统', `读取 fork 设置（大号/小号、图鉴、偷收比）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
         }
-        return { alt: normalizeFnosAltAccount(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), stealRatio: normalizeFnosStealRatio(undefined), error: message };
+        return { alt: normalizeFnosAltAccount(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), stealRatio: normalizeFnosStealRatio(undefined), quiet: normalizeFnosQuietPriority(undefined), error: message };
     }
 }
 
@@ -77,7 +81,7 @@ let lastStatusKey = '';
 function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const cfg = readFnosForkConfigs();
     if (cfg.error) return false;
-    const key = JSON.stringify([cfg.alt, cfg.illustrated, cfg.stealRatio]);
+    const key = JSON.stringify([cfg.alt, cfg.illustrated, cfg.stealRatio, cfg.quiet]);
     if (!force && key === lastStatusKey) return false;
     const first = lastStatusKey === '';
     lastStatusKey = key;
@@ -91,12 +95,16 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const { describeFnosStealRatio } = require('./friend/fnos-steal-ratio');
     const stealOn = cfg.stealRatio.ignoreApplications || cfg.stealRatio.listFilter || cfg.stealRatio.barkOnSteal || cfg.stealRatio.autoDelete || cfg.stealRatio.autoDeleteOnlineStealer;
     if (force ? stealOn : true) log('偷收比', `${prefix}${describeFnosStealRatio(cfg.stealRatio)}`, { module: 'friend', event: '偷收比设置', result: stealOn ? 'enabled' : 'disabled', thresholdPercent: cfg.stealRatio.thresholdPercent });
+    // [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳：登录时只在开启时打印，设置变化时总是打印
+    const { describeFnosQuietPriority } = require('./fnos-quiet-priority');
+    if (force ? (cfg.quiet.ownHarvestFirst || cfg.quiet.idleKeepaliveOnly) : true) log('系统', `${prefix}${describeFnosQuietPriority(cfg.quiet)}`, { module: 'system', event: '收菜优先与空闲设置', ownHarvestFirst: cfg.quiet.ownHarvestFirst, idleKeepaliveOnly: cfg.quiet.idleKeepaliveOnly });
     return true;
 }
 
 /** worker 每次应用下发的配置后调用（worker.ts applyRuntimeConfig 中的 [fnos-fork] 挂钩）。 */
 function onWorkerConfigApplied(): void {
     logFnosForkStatus('设置已更新');
+    try { require('./fnos-quiet-priority').onFnosQuietConfigApplied(); } catch { /* ignore */ }
 }
 
 function resetFnosForkStatusLog(): void {

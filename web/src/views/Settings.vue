@@ -22,6 +22,7 @@ import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/ac
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { fnosNormalizeIllustratedAuto } from '@/utils/fnos-illustrated-auto' // [fnos-fork] 图鉴（自动控制）
+import { fnosNormalizeQuietPriority } from '@/utils/fnos-quiet-priority' // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳（自动控制）
 import { fnosMoveIndex } from '@/utils/fnos-sort-order' // [fnos-fork]
 
 const fertilizerLandTypeOptions = [
@@ -917,6 +918,7 @@ const localAutomationSettings = ref({
   autoAcceptHarvestStealHarvest: 8,
   autoAcceptHarvestStealSteal: 1,
   fnosIllustratedAuto: fnosNormalizeIllustratedAuto(null), // [fnos-fork] 图鉴（2026-11-15 起在自动控制里）
+  fnosQuietPriority: fnosNormalizeQuietPriority(null), // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
 })
 
 const fertilizerOptions = [
@@ -1018,6 +1020,7 @@ function syncLocalAutomationSettings() {
     localAutomationSettings.value.autoAcceptHarvestStealHarvest = settings.value.autoAcceptHarvestStealHarvest ?? 8
     localAutomationSettings.value.autoAcceptHarvestStealSteal = settings.value.autoAcceptHarvestStealSteal ?? 1
     localAutomationSettings.value.fnosIllustratedAuto = fnosNormalizeIllustratedAuto(settings.value.fnosIllustratedAuto) // [fnos-fork]
+    localAutomationSettings.value.fnosQuietPriority = fnosNormalizeQuietPriority(settings.value.fnosQuietPriority) // [fnos-fork]
   }
 }
 
@@ -1029,6 +1032,8 @@ async function saveAutomationSettings() {
   try {
     const payload = JSON.parse(JSON.stringify(localAutomationSettings.value))
     payload.automation.fertilizer_land_types = normalizeFertilizerLandTypes(payload.automation.fertilizer_land_types)
+    if (payload.fnosQuietPriority)
+      payload.fnosQuietPriority = fnosNormalizeQuietPriority(payload.fnosQuietPriority) // [fnos-fork] 收拢分钟/秒数范围
     const res = await settingStore.saveSettings(accountId, payload)
     if (accountId !== currentAccountId.value)
       return

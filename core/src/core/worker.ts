@@ -126,6 +126,19 @@ let shutdownStarted: boolean = false;
 let runtimeGeneration: number = 0;
 let lastDailyRunDate: string = '';
 const workerScheduler = createScheduler('worker');
+// [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（延迟加载，见 services/fnos-quiet-priority.ts）
+const FNOS_QUIET_NOOP = {
+    isFnosIdleActive: () => false, getFnosIdleUntil: () => 0, shouldYieldToOwnHarvest: () => false, ownYieldResumeAt: () => 0,
+    ownPriorityMatureAt: () => 0, resetFnosQuietRuntime: () => {}, setIdleInterruptedListener: () => {},
+    adjustUnifiedSchedule: (x: any) => ({ nextFarmRunAt: x.nextFarmRunAt, nextFriendRunAt: x.nextFriendRunAt }),
+};
+function fnosQuietPriority(): any {
+    try {
+        const m = require('../services/fnos-quiet-priority');
+        if (m && typeof m.isFnosIdleActive === 'function') return m;
+    } catch { /* ignore */ }
+    return FNOS_QUIET_NOOP; // 上游测试用替身 require 加载 worker 时没有这个模块
+}
 
 async function runDailyRoutines(force: boolean = false): Promise<void> {
     if (!loginReady) return;
@@ -152,6 +165,7 @@ function startDailyRoutineTimer(runImmediately: boolean = true): void {
     if (runImmediately) runExclusiveAutomationTask('daily_routines', () => runDailyRoutines(true)).catch(() => null);
     workerScheduler.setIntervalTask('daily_routine_interval', 30 * 1000, () => {
         if (!loginReady) return;
+        if (fnosQuietPriority().isFnosIdleActive()) return; // [fnos-fork] 空闲时只保留心跳：静默结束后的下一次检查再补做
         const today = getSystemDateKey();
         if (today === lastDailyRunDate) {
             const email = getEmailDailyState();
@@ -333,10 +347,17 @@ async function runFriendTick(auto: any): Promise<void> {
 
 async function runUnifiedTick(): Promise<void> {
     if (!unifiedSchedulerRunning || !loginReady) return;
+    // [fnos-fork] 空闲时只保留心跳：静默期间巡田、好友巡查都不跑（心跳在 network 里独立维持）
+    if (fnosQuietPriority().isFnosIdleActive()) return;
     const generation = runtimeGeneration;
     const now = Date.now();
     const dueFarm = now >= nextFarmRunAt;
-    const dueFriend = now >= nextFriendRunAt;
+    let dueFriend = now >= nextFriendRunAt;
+    // [fnos-fork] 自己收菜优先：自家作物正在成熟时，好友巡查推到收完之后
+    if (dueFriend && !friendTaskRunning && fnosQuietPriority().shouldYieldToOwnHarvest(now)) {
+        nextFriendRunAt = Math.max(nextFriendRunAt, fnosQuietPriority().ownYieldResumeAt(now));
+        dueFriend = now >= nextFriendRunAt;
+    }
     if (!dueFarm && !dueFriend) return;
 
     const auto = getAutomation();
@@ -352,12 +373,18 @@ function scheduleUnifiedNextTick(): void {
     if (!loginReady) return;
 
     const now = Date.now();
+    // [fnos-fork] 自己收菜优先（成熟时精确巡田、好友让路）/ 空闲时只保留心跳（静默到点再巡）
+    try {
+        const adjusted = fnosQuietPriority().adjustUnifiedSchedule({ nowMs: now, nextFarmRunAt, nextFriendRunAt, farmBusy: farmTaskRunning, friendBusy: friendTaskRunning, auto: getAutomation() });
+        nextFarmRunAt = adjusted.nextFarmRunAt;
+        nextFriendRunAt = adjusted.nextFriendRunAt;
+    } catch { /* ignore */ }
     const nextAt = Math.min(
         farmTaskRunning ? Number.POSITIVE_INFINITY : (Number(nextFarmRunAt) || (now + 1000)),
         friendTaskRunning ? Number.POSITIVE_INFINITY : (Number(nextFriendRunAt) || (now + 1000))
     );
     if (!Number.isFinite(nextAt)) return;
-    const delayMs = Math.max(1000, nextAt - now); // 最低 1 秒
+    const delayMs = Math.max(fnosQuietPriority().ownPriorityMatureAt(now) > 0 ? 200 : 1000, nextAt - now); // 最低 1 秒（[fnos-fork] 等自家作物成熟时 0.2 秒）
 
     workerScheduler.setTimeoutTask('unified_next_tick', delayMs, async () => {
         try {
@@ -370,12 +397,24 @@ function scheduleUnifiedNextTick(): void {
 
 function startUnifiedScheduler(): void {
     if (unifiedSchedulerRunning) return;
+    try {
+        // [fnos-fork] 登录/重连后从头判断空闲；推送巡田有动作提前结束静默时立刻恢复巡田和好友巡查
+        fnosQuietPriority().resetFnosQuietRuntime();
+        fnosQuietPriority().setIdleInterruptedListener(() => {
+            if (!unifiedSchedulerRunning || !loginReady) return;
+            const t = Date.now();
+            if (!farmTaskRunning) nextFarmRunAt = Math.min(nextFarmRunAt, t + 1000);
+            if (!friendTaskRunning) nextFriendRunAt = Math.min(nextFriendRunAt, t + 1000);
+            scheduleUnifiedNextTick();
+        });
+    } catch { /* ignore */ }
     unifiedSchedulerRunning = true;
     resetUnifiedSchedule();
     scheduleUnifiedNextTick();
 }
 
 function stopUnifiedScheduler(): void {
+    try { fnosQuietPriority().resetFnosQuietRuntime(); } catch { /* [fnos-fork] 掉线/停止时结束空闲静默 */ }
     unifiedSchedulerRunning = false;
     farmTaskRunning = false;
     friendTaskRunning = false;
@@ -386,6 +425,7 @@ function stopMysteryShopTimer(): void {
     workerScheduler.clear('mystery_shop_initial');
     workerScheduler.clear('mystery_shop_interval');
     workerScheduler.clear('mystery_shop_after_save');
+    workerScheduler.clear('mystery_shop_after_idle'); // [fnos-fork]
 }
 
 
@@ -434,6 +474,14 @@ async function runStartupSequence(canContinue: () => boolean = () => loginReady)
 
 function runMysteryShopTick(): Promise<void> {
     if (!loginReady) return Promise.resolve();
+    // [fnos-fork] 空闲时只保留心跳：静默中不查神秘商店，静默结束后补查一次
+    const fnosIdleUntil = fnosQuietPriority().getFnosIdleUntil();
+    if (fnosIdleUntil > Date.now()) {
+        workerScheduler.setTimeoutTask('mystery_shop_after_idle', fnosIdleUntil - Date.now() + 5000, () => {
+            runExclusiveAutomationTask('mystery_shop', runMysteryShopTick).catch(() => null);
+        });
+        return Promise.resolve();
+    }
     const {
         isMysteryShopWatchEnabled,
         checkMysteryShopTick,
