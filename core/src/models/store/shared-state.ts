@@ -12,6 +12,7 @@ const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrate
 // [fnos-fork] 偷收比：忽略高偷收比申请、好友页筛选、Bark、自动删除
 const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
 const { parseHourOfDay } = require('../../utils/hour-of-day');
+const { RANCH_AUTOMATION_DEFAULTS, normalizeRanchSetting } = require('../../config/ranch-automation');
 
 const STORE_FILE: string = getDataFile('store.json');
 const ACCOUNTS_FILE: string = getDataFile('accounts.json');
@@ -56,6 +57,7 @@ const DEFAULT_LOGIN_SETTINGS: LoginSettings = {
 
 const DEFAULT_ACCOUNT_CONFIG: AccountConfig = {
     automation: {
+        ...RANCH_AUTOMATION_DEFAULTS,
         farm: true,
         farm_harvest_tiangong: true,
         farm_push: true,
@@ -365,6 +367,8 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
                 (cfg.automation as any)[k] = allowed.includes(v as string) ? v : cfg.automation[k as keyof AutomationConfig];
             } else if (k === 'fertilizer_land_types') {
                 cfg.automation.fertilizer_land_types = normalizeFertilizerLandTypes(v, cfg.automation.fertilizer_land_types);
+            } else if (k.startsWith('ranch_')) {
+                (cfg.automation as any)[k] = normalizeRanchSetting(k, v);
             } else if (k === 'fertilizer_smart_seconds') {
                 cfg.automation.fertilizer_smart_seconds = Math.max(30, Math.min(3600, Number(v) || 300));
             } else {
