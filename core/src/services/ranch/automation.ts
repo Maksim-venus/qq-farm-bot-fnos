@@ -168,7 +168,7 @@ async function run(): Promise<void> {
             if (enabled('ranch_share') && due(daily.getShareRoutineState())) await daily.claimShare();
             // [fnos-fork] 牧场图鉴自动领取/读取缺失产物；好友牧场巡查（自己的菜快熟时跳过，先回农场）
             if (await fnosRanch.runBook()) changed = true;
-            if (!fnosRanch.shouldYieldToFarm()) await fnosRanch.runFriendPatrol(Date.now(), { ownGrass: Math.max(0, Number(available(7001))) });
+            if (!fnosRanch.shouldYieldToFarm()) await fnosRanch.runFriendPatrol(Date.now(), { gold: Math.max(0, Number(available(1007))) });
             // 成长、生产和建筑完成时间可提前唤醒；仍由现有 30 秒例程统一调度。
             const state = snapshot(raw);
             const upcoming = state.facilities.flatMap((f: any) => [

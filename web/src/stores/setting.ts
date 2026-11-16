@@ -107,7 +107,7 @@ export interface FnosRanch {
   friendMosquito: boolean
   friendFeed: boolean
   friendFeedPerTime: number
-  friendFeedKeep: number
+  friendFeedGoldKeep: number
   friendHelpProduce: boolean
   friendPutMosquito: boolean
   friendPutPerFriend: number
@@ -129,7 +129,7 @@ const FNOS_RANCH_DEFAULT: FnosRanch = {
   friendMosquito: false,
   friendFeed: false,
   friendFeedPerTime: 10,
-  friendFeedKeep: 200,
+  friendFeedGoldKeep: 10000,
   friendHelpProduce: false,
   friendPutMosquito: false,
   friendPutPerFriend: 3,
@@ -146,7 +146,7 @@ const RANGES: Partial<Record<keyof FnosRanch, [number, number]>> = {
   friendMaxPerPatrol: [1, 20],
   friendDailyVisitLimit: [10, 500],
   friendFeedPerTime: [1, 500],
-  friendFeedKeep: [0, 99999],
+  friendFeedGoldKeep: [0, 999999999],
   friendPutPerFriend: [1, 9],
 }
 

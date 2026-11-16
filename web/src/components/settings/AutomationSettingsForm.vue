@@ -151,13 +151,13 @@ const ranchStrategies = [
               <BaseInput v-model.number="settings.fnosRanch.friendPutPerFriend" class="w-full" label="每个好友每次最多放蚊子（只）" type="number" min="1" max="9" step="1" :disabled="!settings.fnosRanch.friendPutMosquito" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草（花自己的牧草）" />
+              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草（花金币，约 60 金币/份）" />
             </div>
             <div class="automation-setting-item">
               <BaseInput v-model.number="settings.fnosRanch.friendFeedPerTime" class="w-full" label="每个好友每次最多加（份）" type="number" min="1" max="500" step="1" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
             <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendFeedKeep" class="w-full" label="自己至少保留牧草（份）" type="number" min="0" max="99999" step="10" :disabled="!settings.fnosRanch.friendFeed" />
+              <BaseInput v-model.number="settings.fnosRanch.friendFeedGoldKeep" class="w-full" label="自己金币低于此值不加" type="number" min="0" max="999999999" step="1000" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
             <div class="automation-setting-item">
               <BaseInput v-model.number="settings.fnosRanch.friendIntervalMinutes" class="w-full" label="好友牧场巡查间隔（分钟）" type="number" min="5" max="180" step="1" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed && !settings.fnosRanch.friendHelpProduce && !settings.fnosRanch.friendPutMosquito" />
@@ -172,7 +172,7 @@ const ranchStrategies = [
           <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
             轮换值守：农场这一轮有收/种/务农或好友巡查有访问，就去牧场逛一圈；农场没事时按上面的分钟数去一次；自己的菜 1 分钟内要熟时先不去。
             小号等大号沿用「大小号协作」的大号和超时设置；有货架在等时只收成熟动物，不收货架。
-            好友牧场跳过黑名单、静默时段；小号开了「不偷大号的菜」时不偷大号、开了「只给大号放捣乱」时不帮大号清害；大号优先巡查自己的小号。每个好友按 偷 → 帮忙生产（开了偷会等产物上架再偷）→ 清理 → 放蚊子 → 加牧草 的顺序。清理一次会清掉该好友牧场全部蚊子和便便（游戏接口不分种类），有开启种类的害才清。放蚊子不给自己的大号、小号放，每个窝棚最多 3 只，每天共 100 次（游戏额度），本次清过害的好友不放。加牧草只在自己牧草多于保留下限时加，且不超过好友牧草机剩余容量。自己牧场的打蚊子、清便便用上面「日常牧场」的「清理」开关。日志标签「牧场」。
+            好友牧场跳过黑名单、静默时段；小号开了「不偷大号的菜」时不偷大号、开了「只给大号放捣乱」时不帮大号清害；大号优先巡查自己的小号。每个好友按 偷 → 帮忙生产（开了偷会等产物上架再偷）→ 清理 → 放蚊子 → 加牧草 的顺序。清理一次会清掉该好友牧场全部蚊子和便便（游戏接口不分种类），有开启种类的害才清。放蚊子不给自己的大号、小号放（小号开了「只给大号放捣乱」时与农场一样只给大号放，即使放蚊子开关关着），每个窝棚最多 3 只，每天共 100 次（游戏额度），本次清过害的好友不放。给好友加牧草扣金币（约 60 金币/份），自己金币低于保留值就不加，且不超过好友牧草机剩余容量。自己牧场的打蚊子、清便便用上面「日常牧场」的「清理」开关。日志标签「牧场」。
           </p>
         </section>
       </div>

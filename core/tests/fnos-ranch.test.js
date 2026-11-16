@@ -146,7 +146,7 @@ test('pickFriendTargets：黑名单、小号不偷大号/不帮大号清、大�
     assert.deepEqual(r.targets.map(t => t.gid), [1, 3, 4, 5]);
     assert.ok(r.targets.every(t => t.clean && !t.steal && !t.feed));
     r = ranch.pickFriendTargets({ ...base, cfg: cleanCfg, alt: { enabled: true, masterGid: 3, badOnlyMaster: true }, limit: 5 });
-    assert.deepEqual(r.targets.map(t => t.gid), [1, 4, 5]);
+    assert.deepEqual(r.targets.map(t => [t.gid, t.clean, t.put]), [[3, false, true], [1, true, false], [4, true, false], [5, true, false]]);
     // 清理次数用完 → 没有目标
     r = ranch.pickFriendTargets({ ...base, cfg: cleanCfg, cleanAllowed: false, limit: 5 });
     assert.equal(r.targets.length, 0);
@@ -163,6 +163,13 @@ test('pickFriendTargets：黑名单、小号不偷大号/不帮大号清、大�
     // 帮忙生产 + 放蚊子：大小号只帮不放
     r = ranch.pickFriendTargets({ ...base, cfg: ranch.normalizeFnosRanch({ friendSteal: false, friendPutMosquito: true, friendHelpProduce: true }), alt: { enabled: true, masterGid: 3 }, limit: 5 });
     assert.deepEqual(r.targets.map(t => [t.gid, t.help, t.put]), [[1, true, true], [3, true, false], [4, true, true], [5, true, true]]);
+    // 与农场一致：小号开了「只给大号放捣乱」→ 只给大号 3 放（即使放蚊子开关关着），大号排最前；其他好友不放
+    r = ranch.pickFriendTargets({ ...base, cfg: ranch.normalizeFnosRanch({ friendSteal: true }), alt: { enabled: true, masterGid: 3, badOnlyMaster: true }, limit: 5 });
+    assert.deepEqual(r.targets.map(t => [t.gid, t.put]), [[3, true], [1, false], [4, false], [5, false]]);
+    r = ranch.pickFriendTargets({ ...base, cfg: putCfg, alt: { enabled: true, masterGid: 3, badOnlyMaster: true }, limit: 5 });
+    assert.deepEqual(r.targets.map(t => t.gid), [3]);
+    r = ranch.pickFriendTargets({ ...base, cfg: putCfg, alt: { enabled: true, masterGid: 3, badOnlyMaster: true }, putAllowed: false, limit: 5 });
+    assert.equal(r.targets.length, 0);
 });
 
 test('pickAnimalForBook：开启且有缺失产物时优先选缺的（最便宜）；否则交还上游', () => {
@@ -232,12 +239,14 @@ test('好友牧场照顾纯函数：害的种类（1 蚊子 / 2 便便）、可�
     assert.deepEqual(ranch.planPutMosquito([{ ranch_inst_id: '10001', animal_count: 3, hazards: [{ hazard_type: 1 }, { hazard_type: 1 }, { hazard_type: 1 }] }], 3), []);
     assert.deepEqual(ranch.planPutMosquito([{ ranch_inst_id: '10001', animal_count: 3 }, { ranch_inst_id: '10003', animal_count: 2 }], 4), [{ ranchId: '10001', count: 3 }, { ranchId: '10003', count: 1 }]);
     assert.deepEqual(ranch.planPutMosquito([{ ranch_inst_id: '10001', animal_count: 0 }], 3), []);
-    const cfg = { friendFeedPerTime: 10, friendFeedKeep: 200 };
-    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 97 }, 1000, cfg), 3); // 1116-7 #172：97/100 → 加 3
-    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 1000, cfg), 10);
-    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 205, cfg), 5);
-    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 150, cfg), 0);
-    assert.equal(ranch.planFriendFeed(null, 1000, cfg), 0);
+    const cfg = { friendFeedPerTime: 10, friendFeedGoldKeep: 10000 };
+    assert.equal(ranch.FEED_GOLD_PER_UNIT, 60);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 97 }, 48929, cfg), 3); // 1116-7 #172：97/100 → 加 3
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 48929, cfg), 10);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 10300, cfg), 5); // (10300-10000)/60 = 5
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 10059, cfg), 0);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 5000, cfg), 0);
+    assert.equal(ranch.planFriendFeed(null, 48929, cfg), 0);
     const entry = { homestead_cells: { facilities: [{ instance_id: '10001', state: 1, ranch: {} }, { instance_id: '10002', state: 1, capacity: 100, feed_machine: { feed_count: 97 } }] } };
     assert.deepEqual(ranch.friendFeedMachine(entry), { id: '10002', capacity: 100, feedCount: 97 });
     assert.equal(ranch.OP_PUT_HAZARD, 11003);
@@ -274,20 +283,20 @@ test('好友牧场照顾：按 1116-6/1116-7 的请求写法，帮生产后再�
         visit: async (gid, run) => run(entry, ranchesForVisit, String(gid)),
     });
     mock('services/ranch/model', { sumItems: list => list.map(i => ({ ...i, name: `#${i.id}` })), quantity: v => String(v) });
-    const cfg = ranch.normalizeFnosRanch({ friendSteal: true, friendHelpProduce: true, friendMosquito: true, friendPutMosquito: true, friendFeed: true, friendFeedKeep: 100 });
+    const cfg = ranch.normalizeFnosRanch({ friendSteal: true, friendHelpProduce: true, friendMosquito: true, friendPutMosquito: true, friendFeed: true, friendFeedGoldKeep: 10000 });
     ranch._rt.dayKey = 'd1';
-    const grass = { left: 500 };
+    const grass = { gold: 48929 };
     // 1）帮生产 → 重新查详情 → 偷；有蚊子 → 清理；清过就不放；加牧草 3
     let r = await ranch._visitFriend({ gid: 1288605885, name: 'a', steal: true, clean: true, feed: true, help: true, put: true }, cfg, grass);
     assert.deepEqual([r.helped, r.stolen, r.cleaned, r.put, r.fed], [1, 1, 1, 0, 3]);
     assert.equal(detailCalls, 1);
-    assert.equal(grass.left, 497);
+    assert.equal(grass.gold, 48929 - 180);
     assert.deepEqual(sent, [
         ['produce', { host_gid: '1288605885' }],
         ['animals', { host_gid: '1288605885' }],
         ['steal', { host_gid: '1288605885', targets: [] }],
         ['clean', { host_gid: '1288605885' }],
-        ['addGrass', { instance_id: '10002', add_count: 3, use_gold: false, host_gid: '1288605885' }],
+        ['addGrass', { instance_id: '10002', add_count: 3, use_gold: true, host_gid: '1288605885' }],
     ]);
     // 2）只放蚊子：额度只剩 2 → 放 2 只后当天停止
     sent.length = 0;

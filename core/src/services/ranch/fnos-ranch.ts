@@ -26,9 +26,10 @@ export {};
  *      有已开启种类的害才清；小号开了「只给大号放捣乱」时不帮大号清。自己牧场的打蚊子 / 清便便用上游「清理」（automation.ranch_clean）。
  *    - 帮忙生产 friendHelpProduce：好友动物 can_deliver 时 TriggerProduce {host_gid}。
  *    - 放蚊子 friendPutMosquito（捣乱）：PutHazard {ranch_inst_id, host_gid, op_id:11003, count:1}，每窝棚最多 3 只；
- *      不给自己的大号 / 小号 / 同大号的其它小号放；受 GetRanchOpTimes 11003（100/日）限制。本次清过害的好友不放。
- *    - 加牧草 friendFeed：AddFeed {instance_id, add_count, use_gold:false, host_gid}，消耗自己的牧草 7001；
- *      每次最多 friendFeedPerTime、自己保留 friendFeedKeep，且不超过好友牧草机剩余容量。
+ *      与农场同一规则：小号开了「只给大号放捣乱」→ 只给大号放（即使本开关关着）；否则不给自己的大号 / 小号 / 同大号的其它小号放；
+ *      受 GetRanchOpTimes 11003（100/日）限制。本次清过害的好友不放。
+ *    - 加牧草 friendFeed：AddFeed {instance_id, add_count, use_gold:true, host_gid}（与 1116-7 #172 一致），扣金币约 60/份；
+ *      每次最多 friendFeedPerTime，自己金币低于 friendFeedGoldKeep 不加，且不超过好友牧草机剩余容量。
  *    - 清理 / 帮忙生产 / 偷 / 加牧草在 GetRanchOpTimes 里没有对应次数（抓包前后不变），请求报次数类错误或无效果时当天停止。
  */
 
@@ -61,8 +62,8 @@ export interface FnosRanchConfig {
     friendPutPerFriend: number;
     /** 每次给一个好友最多加多少牧草 */
     friendFeedPerTime: number;
-    /** 自己至少保留多少牧草，低于此不给好友加 */
-    friendFeedKeep: number;
+    /** 自己金币低于此值不给好友加牧草（给好友加牧草扣金币，约 60 金币/份） */
+    friendFeedGoldKeep: number;
     friendIntervalMinutes: number;
     friendMaxPerPatrol: number;
     friendDailyVisitLimit: number;
@@ -81,7 +82,7 @@ const DEFAULT_FNOS_RANCH: FnosRanchConfig = {
     friendMosquito: false,
     friendFeed: false,
     friendFeedPerTime: 10,
-    friendFeedKeep: 200,
+    friendFeedGoldKeep: 10000,
     friendHelpProduce: false,
     friendPutMosquito: false,
     friendPutPerFriend: 3,
@@ -114,7 +115,7 @@ function normalizeFnosRanch(input: unknown, fallback: FnosRanchConfig = DEFAULT_
         friendMosquito: bool('friendMosquito'),
         friendFeed: bool('friendFeed'),
         friendFeedPerTime: int('friendFeedPerTime', 1, 500),
-        friendFeedKeep: int('friendFeedKeep', 0, 99999),
+        friendFeedGoldKeep: int('friendFeedGoldKeep', 0, 999999999),
         friendHelpProduce: bool('friendHelpProduce'),
         friendPutMosquito: bool('friendPutMosquito'),
         friendPutPerFriend: int('friendPutPerFriend', 1, 9),
@@ -383,8 +384,8 @@ function markRanchVisited(nowMs: number = Date.now()): void {
 function hasForkWork(): boolean {
     try {
         const { ranch, alt } = readConfigs();
-        void alt;
-        return ranch.friendSteal || ranch.friendClean || ranch.friendMosquito || ranch.friendFeed || ranch.friendHelpProduce || ranch.friendPutMosquito || ranch.illustratedAutoClaim || ranch.illustratedAutoComplete;
+        const badOnlyMaster = !!(alt && alt.enabled && alt.badOnlyMaster && num(alt.masterGid) > 0);
+        return badOnlyMaster || ranch.friendSteal || ranch.friendClean || ranch.friendMosquito || ranch.friendFeed || ranch.friendHelpProduce || ranch.friendPutMosquito || ranch.illustratedAutoClaim || ranch.illustratedAutoComplete;
     } catch { return false; }
 }
 
@@ -435,6 +436,9 @@ function pickFriendTargets(input: {
     const feedOn = cfg.friendFeed && input.feedAllowed !== false;
     const helpOn = cfg.friendHelpProduce && input.helpAllowed !== false;
     const putOn = cfg.friendPutMosquito && input.putAllowed !== false;
+    // 与农场「只给大号放捣乱」（fnos-alt-coop badOnlyMaster）一致：小号开了它 → 只给大号放（即使「放蚊子」开关关着），其他好友一律不放
+    const badOnlyMaster = !!(alt && alt.enabled && alt.badOnlyMaster && masterGid > 0);
+    const putMasterOn = badOnlyMaster && input.putAllowed !== false;
     const pool = input.friends
         .map(f => ({ gid: num(f.gid), name: String(f.name || '') }))
         .filter(f => f.gid > 0 && f.gid !== input.myGid && !black.has(f.gid));
@@ -445,18 +449,20 @@ function pickFriendTargets(input: {
         const clean = cleanOn && !(skipCleanMaster && isMaster);
         const feed = feedOn;
         const help = helpOn;
-        // 放蚊子属捣乱：不给自己的大号 / 小号 / 同大号的其它小号放
-        const put = putOn && !related.has(f.gid);
+        // 放蚊子属捣乱：小号 badOnlyMaster 时只给大号放；否则不给自己的大号 / 小号 / 同大号的其它小号放
+        const put = badOnlyMaster ? (isMaster && putMasterOn) : (putOn && !related.has(f.gid));
         if (!steal && !clean && !feed && !help && !put) return null;
-        return { gid: f.gid, name: f.name, steal, clean, feed, help, put, priority: altSet.has(f.gid) };
+        return { gid: f.gid, name: f.name, steal, clean, feed, help, put, priority: altSet.has(f.gid) || (put && isMaster) };
     };
     const targets: FriendTarget[] = [];
-    for (const f of pool.filter(p => altSet.has(p.gid))) {
+    // 优先：大号的自己的小号；小号 badOnlyMaster 时的大号（与农场一样把大号加入本轮访问）
+    const first = (gid: number) => altSet.has(gid) || (putMasterOn && gid === masterGid);
+    for (const f of pool.filter(p => first(p.gid))) {
         if (targets.length >= input.limit) break;
         const t = build(f);
         if (t) targets.push(t);
     }
-    const rest = pool.filter(p => !altSet.has(p.gid));
+    const rest = pool.filter(p => !first(p.gid));
     let cursor = rest.length ? input.cursor % rest.length : 0;
     for (let i = 0; i < rest.length && targets.length < input.limit; i++) {
         const idx = (cursor + i) % rest.length;
@@ -540,12 +546,15 @@ function planPutMosquito(ranches: any[], perFriend: number): Array<{ ranchId: st
     return out;
 }
 
-/** 纯函数：给好友加多少牧草。 */
-function planFriendFeed(machine: { capacity: number; feedCount: number } | null, ownGrass: number, cfg: Pick<FnosRanchConfig, 'friendFeedPerTime' | 'friendFeedKeep'>): number {
+/** 给好友加牧草每份扣的金币（1116-7：加 2 份 −120、加 3 份 −180） */
+const FEED_GOLD_PER_UNIT = 60;
+
+/** 纯函数：给好友加多少牧草（金币扣到 friendFeedGoldKeep 为止）。 */
+function planFriendFeed(machine: { capacity: number; feedCount: number } | null, gold: number, cfg: Pick<FnosRanchConfig, 'friendFeedPerTime' | 'friendFeedGoldKeep'>): number {
     if (!machine) return 0;
     const room = Math.max(0, num(machine.capacity) - num(machine.feedCount));
-    const spare = Math.max(0, num(ownGrass) - cfg.friendFeedKeep);
-    return Math.max(0, Math.min(room, spare, cfg.friendFeedPerTime));
+    const affordable = Math.max(0, Math.floor((num(gold) - cfg.friendFeedGoldKeep) / FEED_GOLD_PER_UNIT));
+    return Math.max(0, Math.min(room, affordable, cfg.friendFeedPerTime));
 }
 
 function friendFeedMachine(entry: any): { id: string; capacity: number; feedCount: number } | null {
@@ -682,24 +691,20 @@ async function putFriendMosquito(host: string, ranches: any[], cfg: FnosRanchCon
 }
 
 /**
- * 给好友加牧草：homesteadpb.FeedMachineService.AddFeed {instance_id, add_count, use_gold, host_gid}。
- * 1116-7 #172 客户端给好友加：{instance_id:10002, add_count:3, use_gold:true, host_gid}，扣金币 1007 ×180（60/份）；
- * 给自己加 #147 同样 use_gold:true（2 份扣 120 金币）。use_gold:false 按上游自己加牧草的写法消耗牧草 7001，
- * 本功能要「花自己的牧草」所以固定 use_gold:false（这条带 host_gid 的组合抓包里没出现过，首次运行请看日志核对）。
+ * 给好友加牧草：homesteadpb.FeedMachineService.AddFeed {instance_id, add_count, use_gold:true, host_gid}。
+ * 与 1116-7 #172 真实客户端完全一致（加 3 份，ItemNotify 金币 1007 −180）。
  */
-async function feedFriend(host: string, entry: any, cfg: FnosRanchConfig, ownGrass: { left: number }): Promise<number> {
+async function feedFriend(host: string, entry: any, cfg: FnosRanchConfig, wallet: { gold: number }): Promise<number> {
     if (actionExhausted('feed')) return 0;
     const machine = friendFeedMachine(entry);
-    const count = planFriendFeed(machine, ownGrass.left, cfg);
+    const count = planFriendFeed(machine, wallet.gold, cfg);
     if (!machine || count <= 0) return 0;
     const { rpc } = require('./transport');
     try {
-        const reply: any = await rpc('addGrass', { instance_id: machine.id, add_count: count, use_gold: false, host_gid: host }, true);
+        const reply: any = await rpc('addGrass', { instance_id: machine.id, add_count: count, use_gold: true, host_gid: host }, true);
         const after = num(reply?.detail?.feed_count);
         const added = after > machine.feedCount ? after - machine.feedCount : count;
-        const consumed = (reply?.consumed || []).map((it: any) => `${num(it.id)}×${num(it.count)}`).join('、');
-        if (consumed && !consumed.startsWith('7001×')) logOnce('feed-consumed', `好友牧场：给好友加牧草实际消耗 ${consumed}（预期牧草 7001）`, { event: 'fnos好友牧场' });
-        ownGrass.left = Math.max(0, ownGrass.left - added);
+        wallet.gold = Math.max(0, wallet.gold - added * FEED_GOLD_PER_UNIT);
         return added;
     } catch (e: any) {
         markExhaustedIfLimit('feed', e);
@@ -711,7 +716,7 @@ function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function visitFriend(target: FriendTarget, cfg: FnosRanchConfig = readConfigs().ranch, ownGrass: { left: number } = { left: 0 }): Promise<{ stolen: number; rewards: any[]; empty: boolean; cleaned: number; fed: number; helped: number; put: number }> {
+async function visitFriend(target: FriendTarget, cfg: FnosRanchConfig = readConfigs().ranch, wallet: { gold: number } = { gold: 0 }): Promise<{ stolen: number; rewards: any[]; empty: boolean; cleaned: number; fed: number; helped: number; put: number }> {
     const friends = require('./friends');
     const { rpc } = require('./transport');
     const { sumItems } = require('./model');
@@ -756,14 +761,15 @@ async function visitFriend(target: FriendTarget, cfg: FnosRanchConfig = readConf
             put = p.put;
             if (p.rewards.length) rewards = sumItems([...rewards, ...p.rewards]);
         }
-        if (target.feed) fed = await feedFriend(host, entry, cfg, ownGrass);
+        if (target.feed) fed = await feedFriend(host, entry, cfg, wallet);
         return { stolen, rewards, empty: !stolen && !cleaned && !fed && !helped && !put, cleaned, fed, helped, put };
     });
 }
 
-async function runFriendPatrol(nowMs: number = Date.now(), options: { ownGrass?: number } = {}): Promise<number> {
+async function runFriendPatrol(nowMs: number = Date.now(), options: { gold?: number } = {}): Promise<number> {
     const { ranch, alt } = readConfigs();
-    if (!ranch.friendSteal && !ranch.friendClean && !ranch.friendMosquito && !ranch.friendFeed && !ranch.friendHelpProduce && !ranch.friendPutMosquito) return 0;
+    const badOnlyMaster = !!(alt && alt.enabled && alt.badOnlyMaster && num(alt.masterGid) > 0);
+    if (!ranch.friendSteal && !ranch.friendClean && !ranch.friendMosquito && !ranch.friendFeed && !ranch.friendHelpProduce && !ranch.friendPutMosquito && !badOnlyMaster) return 0;
     if (nowMs < rt.nextFriendPatrolAt) return 0;
     rt.nextFriendPatrolAt = nowMs + ranch.friendIntervalMinutes * 60_000;
     try {
@@ -777,15 +783,15 @@ async function runFriendPatrol(nowMs: number = Date.now(), options: { ownGrass?:
     if (left <= 0) { logOnce('friend-limit', `好友牧场巡查：今日已访问 ${rt.dayVisits} 次，达到上限 ${ranch.friendDailyVisitLimit}，明天继续`); return 0; }
     const myGid = selfGid();
     if (!myGid) return 0;
-    if (ranch.friendPutMosquito && rt.exhausted.put !== rt.dayKey) await readOpTimes();
-    const ownGrass = { left: Math.max(0, num(options.ownGrass)) };
+    if ((ranch.friendPutMosquito || badOnlyMaster) && rt.exhausted.put !== rt.dayKey) await readOpTimes();
+    const wallet = { gold: Math.max(0, num(options.gold !== undefined ? options.gold : require('../../utils/network').getUserState().gold)) };
     const cleanAllowed = !actionExhausted('clean');
-    const feedAllowed = !actionExhausted('feed') && ownGrass.left > ranch.friendFeedKeep;
+    const feedAllowed = !actionExhausted('feed') && wallet.gold - ranch.friendFeedGoldKeep >= FEED_GOLD_PER_UNIT;
     const helpAllowed = !actionExhausted('help');
     const putAllowed = !actionExhausted('put');
     if (!ranch.friendSteal && !(cleanAllowed && (ranch.friendClean || ranch.friendMosquito)) && !(feedAllowed && ranch.friendFeed)
-        && !(helpAllowed && ranch.friendHelpProduce) && !(putAllowed && ranch.friendPutMosquito)) {
-        logOnce('friend-nothing', '好友牧场巡查：清理/帮忙生产/放蚊子/加牧草今日已停或牧草不够保留下限，偷取未开，本轮不访问');
+        && !(helpAllowed && ranch.friendHelpProduce) && !(putAllowed && (ranch.friendPutMosquito || badOnlyMaster))) {
+        logOnce('friend-nothing', '好友牧场巡查：清理/帮忙生产/放蚊子/加牧草今日已停或金币低于保留值，偷取未开，本轮不访问');
         return 0;
     }
     let friends: any[] = [];
@@ -811,9 +817,9 @@ async function runFriendPatrol(nowMs: number = Date.now(), options: { ownGrass?:
     for (const target of picked.targets) {
         if (shouldYieldToFarm()) { log('好友牧场巡查：自己农场作物马上成熟，先回农场'); break; }
         rt.dayVisits++;
-        const t = { ...target, clean: target.clean && !actionExhausted('clean'), feed: target.feed && !actionExhausted('feed') && ownGrass.left > ranch.friendFeedKeep, help: target.help && !actionExhausted('help'), put: target.put && !actionExhausted('put') };
+        const t = { ...target, clean: target.clean && !actionExhausted('clean'), feed: target.feed && !actionExhausted('feed') && wallet.gold - ranch.friendFeedGoldKeep >= FEED_GOLD_PER_UNIT, help: target.help && !actionExhausted('help'), put: target.put && !actionExhausted('put') };
         try {
-            const r = await visitFriend(t, ranch, ownGrass);
+            const r = await visitFriend(t, ranch, wallet);
             totalStolen += r.stolen;
             const parts: string[] = [];
             if (r.rewards.length) parts.push(r.rewards.map((it: any) => `${it.name} ×${it.count}`).join('、'));
@@ -861,6 +867,7 @@ module.exports = {
     planPutMosquito,
     readRelatedGids,
     OP_PUT_HAZARD,
+    FEED_GOLD_PER_UNIT,
     runFriendPatrol,
     _visitFriend: visitFriend,
     _rt: rt,
