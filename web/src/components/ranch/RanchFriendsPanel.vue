@@ -24,7 +24,9 @@ onBeforeUnmount(() => alive = false)
 
 const visible = computed(() => {
   const keyword = query.value.trim()
-  return keyword ? friends.value.filter(f => String(f.name || '').includes(keyword) || String(f.gid).includes(keyword)) : friends.value
+  const list = keyword ? friends.value.filter(f => String(f.name || '').includes(keyword) || String(f.gid).includes(keyword)) : friends.value
+  // [fnos-fork] 与农场好友一致：按等级从高到低排序，同级保持原顺序（Array.prototype.sort 稳定）
+  return [...list].sort((a, b) => (Number(b?.level) || 0) - (Number(a?.level) || 0))
 })
 const detail = computed(() => selected.value && state.value?.friendRanch?.gid === selected.value ? state.value.friendRanch : null)
 const detailShelves = computed(() => (detail.value?.ranches || []).flatMap((r: any) => r.shelves.map((s: any) => ({ ...s, key: `${r.id}:${s.slot}` }))))

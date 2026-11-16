@@ -80,3 +80,8 @@ test('fnos-ranch-visitors：筛选、徽标、时间格式；牧场好友分区�
   const ranchView = readFileSync(new URL('../src/views/Ranch.vue', import.meta.url), 'utf8')
   assert.match(ranchView, /key: 'visitors', label: '最近访客'/)
 })
+
+test('牧场好友列表按等级从高到低排序（与农场一致）', () => {
+  const panel = readFileSync(new URL('../src/components/ranch/RanchFriendsPanel.vue', import.meta.url), 'utf8')
+  assert.match(panel, /\[\.\.\.list\]\.sort\(\(a, b\) => \(Number\(b\?\.level\) \|\| 0\) - \(Number\(a\?\.level\) \|\| 0\)\)/)
+})
