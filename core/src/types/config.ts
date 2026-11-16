@@ -131,6 +131,14 @@ export interface AccountConfig {
     /** [fnos-fork] 在线期间来偷菜的自动删除，缺省 false */
     autoDeleteOnlineStealer?: boolean;
   };
+  /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（见 services/fnos-quiet-priority.ts） */
+  fnosQuietPriority?: {
+    ownHarvestFirst: boolean;
+    mergeWindowSec: number;
+    idleKeepaliveOnly: boolean;
+    idleMinMinutes: number;
+    idleMaxMinutes: number;
+  };
 }
 
 export interface OfflineReminder {

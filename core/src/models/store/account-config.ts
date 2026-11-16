@@ -128,6 +128,7 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         fnosAltAccount: { ...cfg.fnosAltAccount },
         fnosIllustratedAuto: { ...cfg.fnosIllustratedAuto }, // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
         fnosStealRatio: { ...cfg.fnosStealRatio }, // [fnos-fork] 偷收比
+        fnosQuietPriority: { ...cfg.fnosQuietPriority }, // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
         ui: { ...globalConfig.ui },
     } as any;
 }
@@ -316,6 +317,11 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
         if (JSON.stringify(next.fnosStealRatio) !== beforeSteal) {
             try { require('../../services/friend/fnos-steal-ratio').onFnosStealRatioConfigChanged(); } catch { /* ignore */ }
         }
+    }
+
+    // [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳
+    if (cfg.fnosQuietPriority !== undefined && cfg.fnosQuietPriority !== null) {
+        next.fnosQuietPriority = require('../../services/fnos-quiet-priority').normalizeFnosQuietPriority(cfg.fnosQuietPriority, next.fnosQuietPriority);
     }
 
     setAccountConfigSnapshot(accountId, next, persist);

@@ -104,6 +104,27 @@ function fnosNormalizeIllustratedAuto(input: any): FnosIllustratedAuto {
   return { autoClaimRewards: src.autoClaimRewards !== undefined ? !!src.autoClaimRewards : false, autoComplete: src.autoComplete !== undefined ? !!src.autoComplete : false }
 }
 
+// [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（与 utils/fnos-quiet-priority.ts 相同；此处内联，store 不多依赖其他模块）
+export interface FnosQuietPriority { ownHarvestFirst: boolean, mergeWindowSec: number, idleKeepaliveOnly: boolean, idleMinMinutes: number, idleMaxMinutes: number }
+function fnosQuietInt(src: any, key: string, min: number, max: number, fallback: number): number {
+  const n = Number.parseInt(String(src?.[key] ?? ''), 10)
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback
+}
+function fnosNormalizeQuietPriority(input: any): FnosQuietPriority {
+  const src = input && typeof input === 'object' ? input : {}
+  let idleMinMinutes = fnosQuietInt(src, 'idleMinMinutes', 1, 180, 1)
+  let idleMaxMinutes = fnosQuietInt(src, 'idleMaxMinutes', 1, 180, 10)
+  if (idleMinMinutes > idleMaxMinutes)
+    [idleMinMinutes, idleMaxMinutes] = [idleMaxMinutes, idleMinMinutes]
+  return {
+    ownHarvestFirst: src.ownHarvestFirst !== undefined ? !!src.ownHarvestFirst : true,
+    mergeWindowSec: fnosQuietInt(src, 'mergeWindowSec', 0, 30, 10),
+    idleKeepaliveOnly: src.idleKeepaliveOnly !== undefined ? !!src.idleKeepaliveOnly : false,
+    idleMinMinutes,
+    idleMaxMinutes,
+  }
+}
+
 export interface SettingsState {
   plantingStrategy: string
   preferredSeedId: number
@@ -132,6 +153,8 @@ export interface SettingsState {
   autoAcceptHarvestStealSteal: number
   /** [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴（2026-11-15 起在「自动控制」里随设置一起保存） */
   fnosIllustratedAuto: FnosIllustratedAuto
+  /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（「自动控制」里随设置一起保存） */
+  fnosQuietPriority: FnosQuietPriority
 }
 
 type SaveableSettingsKey
@@ -159,6 +182,7 @@ type SaveableSettingsKey
     | 'autoAcceptHarvestStealHarvest'
     | 'autoAcceptHarvestStealSteal'
     | 'fnosIllustratedAuto' // [fnos-fork]
+    | 'fnosQuietPriority' // [fnos-fork]
 
 export type SettingsSavePayload = Partial<Pick<SettingsState, SaveableSettingsKey>>
 
@@ -187,6 +211,7 @@ const SAVEABLE_SETTINGS_KEYS: SaveableSettingsKey[] = [
   'autoAcceptHarvestStealHarvest',
   'autoAcceptHarvestStealSteal',
   'fnosIllustratedAuto', // [fnos-fork]
+  'fnosQuietPriority', // [fnos-fork]
 ]
 
 function createDefaultSettings(): SettingsState {
@@ -226,6 +251,7 @@ function createDefaultSettings(): SettingsState {
     autoAcceptHarvestStealHarvest: 8,
     autoAcceptHarvestStealSteal: 1,
     fnosIllustratedAuto: fnosNormalizeIllustratedAuto(null), // [fnos-fork]
+    fnosQuietPriority: fnosNormalizeQuietPriority(null), // [fnos-fork]
   }
 }
 
@@ -288,6 +314,7 @@ export const useSettingStore = defineStore('setting', () => {
       autoAcceptHarvestStealHarvest: data.autoAcceptHarvestStealHarvest ?? defaults.autoAcceptHarvestStealHarvest,
       autoAcceptHarvestStealSteal: data.autoAcceptHarvestStealSteal ?? defaults.autoAcceptHarvestStealSteal,
       fnosIllustratedAuto: fnosNormalizeIllustratedAuto(data.fnosIllustratedAuto), // [fnos-fork]
+      fnosQuietPriority: fnosNormalizeQuietPriority(data.fnosQuietPriority), // [fnos-fork]
     }
   }
 

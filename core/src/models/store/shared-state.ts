@@ -11,6 +11,7 @@ const { normalizeFnosAltAccount } = require('../../services/farm/fnos-alt-accoun
 const { normalizeFnosIllustratedAuto } = require('../../services/fnos-illustrated-auto');
 // [fnos-fork] 偷收比：忽略高偷收比申请、好友页筛选、Bark、自动删除
 const { normalizeFnosStealRatio } = require('../../services/friend/fnos-steal-ratio');
+const { normalizeFnosQuietPriority } = require('../../services/fnos-quiet-priority'); // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
 const { parseHourOfDay } = require('../../utils/hour-of-day');
 const { RANCH_AUTOMATION_DEFAULTS, normalizeRanchSetting } = require('../../config/ranch-automation');
 
@@ -352,6 +353,8 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         fnosIllustratedAuto: normalizeFnosIllustratedAuto(base.fnosIllustratedAuto),
         // [fnos-fork] 偷收比
         fnosStealRatio: normalizeFnosStealRatio(base.fnosStealRatio),
+        // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
+        fnosQuietPriority: normalizeFnosQuietPriority(base.fnosQuietPriority),
     };
 }
 
@@ -517,6 +520,10 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
     if (src.fnosStealRatio !== undefined && src.fnosStealRatio !== null) {
         cfg.fnosStealRatio = normalizeFnosStealRatio(src.fnosStealRatio, cfg.fnosStealRatio);
     }
+    // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
+    if (src.fnosQuietPriority !== undefined && src.fnosQuietPriority !== null) {
+        cfg.fnosQuietPriority = normalizeFnosQuietPriority(src.fnosQuietPriority, cfg.fnosQuietPriority);
+    }
 
     return cfg;
 }
@@ -535,6 +542,7 @@ accountFallbackConfig = {
     fnosAltAccount: normalizeFnosAltAccount(undefined),
     fnosIllustratedAuto: normalizeFnosIllustratedAuto(undefined),
     fnosStealRatio: normalizeFnosStealRatio(undefined),
+    fnosQuietPriority: normalizeFnosQuietPriority(undefined),
 };
 
 const globalConfig: GlobalConfig = {

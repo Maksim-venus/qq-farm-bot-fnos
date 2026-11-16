@@ -27,6 +27,11 @@ const { checkAndBuyFertilizerBoth } = require('../mall');
 // [fnos-fork] 大号/小号：自动巡田时小号只收大号已偷过的地
 const { filterHarvestForAltAccount, harvestSelectedLands } = require('./fnos-alt-account');
 
+// [fnos-fork] 自己收菜优先 / 空闲时只保留心跳（延迟加载）
+function fnosQuietPriority(): any {
+    return require('../fnos-quiet-priority');
+}
+
 // 延迟加载以打破循环依赖: visit-strategy → farm/index → scheduler → visit-strategy
 function inFarmQuietHours() {
     return require('../friend/visit-strategy').inFarmQuietHours();
@@ -283,6 +288,7 @@ async function runFarmOperation(
     }
 
     // 执行收获
+    let fnosAltHeld = 0; // [fnos-fork]
     let harvestedLandIds: number[] = [];
     let harvestReply: any = null;
     let postHarvest: any = null;
@@ -296,6 +302,7 @@ async function runFarmOperation(
             const alt = await filterHarvestForAltAccount(lands, harvestTargets, { source: 'farm_check' });
             harvestTargets = alt.landIds;
             altFiltered = alt.filtered;
+            fnosAltHeld = alt.held.length; // [fnos-fork] 空闲静默：小号有留菜时缩短静默
         }
         if (harvestTargets.length > 0) {
             try {
@@ -329,6 +336,20 @@ async function runFarmOperation(
                 });
                 if (propagateErrors) throw e;
             }
+        }
+    }
+
+    // [fnos-fork] 自己收菜优先：下一块自家作物几秒内就成熟时，本轮收完先不铲地/补种/读地施肥，
+    // 等那块成熟时一轮收完再一起种（开启「先留给大号偷」的小号不合并，见 services/fnos-quiet-priority.ts）
+    if (automatic && opType === 'all' && harvestedLandIds.length > 0) {
+        const fnosMerge = fnosQuietPriority().shouldMergeReplantAfterHarvest(lands, harvestedLandIds);
+        if (fnosMerge.merge) {
+            actions.push('补种并入下一轮');
+            log('农场', `[${statusParts.join(' ')}] → ${actions.join('/')}（下一块自家作物 ${fnosMerge.matureInSec} 秒后成熟，届时一起收获补种）`, {
+                module: 'farm', event: '农场循环', opType, actions, fnosMergeReplant: true,
+            });
+            fnosQuietPriority().recordFarmRound({ lands, hadWork: true, altHeld: fnosAltHeld, excludeLandIds: harvestedLandIds });
+            return { hadWork: true, actions };
         }
     }
 
@@ -483,6 +504,10 @@ async function runFarmOperation(
              module: 'farm', event: '农场循环', opType, actions
          });
     }
+    // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳：记下本轮是否有动作、下一块作物何时成熟
+    if (automatic && opType === 'all') {
+        try { fnosQuietPriority().recordFarmRound({ lands, hadWork: actions.length > 0, altHeld: fnosAltHeld, excludeLandIds: harvestedLandIds }); } catch { /* ignore */ }
+    }
     return { hadWork: actions.length > 0, actions };
 }
 
@@ -601,6 +626,7 @@ async function checkFertilizerBuyOnce(): Promise<void> {
     if (!isAutomationOn('fertilizer_buy_organic') && !isAutomationOn('fertilizer_buy_normal')) {
         return;
     }
+    if (fnosQuietPriority().isFnosIdleActive()) return; // [fnos-fork] 空闲时只保留心跳：本次跳过，下个检测间隔再查
 
     try {
         const options = {

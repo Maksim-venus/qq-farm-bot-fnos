@@ -21,7 +21,7 @@ export type AutomationSettingsFormModel = Pick<
   | 'autoAcceptHarvestStealHarvest'
   | 'autoAcceptHarvestStealSteal'
 > & { emailClaimHour: number | string }
-& Partial<Pick<SettingsState, 'fnosIllustratedAuto'>> // [fnos-fork] 图鉴
+& Partial<Pick<SettingsState, 'fnosIllustratedAuto' | 'fnosQuietPriority'>> // [fnos-fork] 图鉴、自己收菜优先 / 空闲时只保留心跳
 
 withDefaults(defineProps<{
   inRanch?: boolean
@@ -401,6 +401,47 @@ const ranchStrategies = [
           </div>
           <p v-else class="mt-3 text-xs text-gray-500 dark:text-gray-400">
             到货提醒可单独开启；购买提醒需先打开自动购买。
+          </p>
+        </section>
+
+        <!-- [fnos-fork] 自己收菜优先 / 空闲时只保留心跳（2026-11-16 加入，随「保存自动控制」一起保存） -->
+        <section v-if="settings.fnosQuietPriority" class="farm-card rounded-2xl p-4" data-testid="fnos-quiet-priority">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-900/25 dark:text-emerald-400">
+              <span class="i-carbon-flash text-xl" />
+            </div>
+            <div>
+              <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                收菜优先与空闲
+              </h4>
+              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                自己的菜先收；没事做时只保留心跳
+              </p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosQuietPriority.ownHarvestFirst" class="automation-setting-item" label="自己收菜优先" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosQuietPriority.idleKeepaliveOnly" class="automation-setting-item" label="空闲时只保留心跳" />
+            </div>
+          </div>
+          <div v-if="settings.fnosQuietPriority.ownHarvestFirst" class="grid grid-cols-1 mt-3 gap-3 sm:grid-cols-2">
+            <BaseInput v-model.number="settings.fnosQuietPriority.mergeWindowSec" label="连续成熟合并 (秒，0=不合并)" type="number" min="0" max="30" />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+            自己收菜优先：按自家作物的成熟时间准点巡田；成熟前后十几秒内好友巡查先暂停让路；收完后下一块几秒内（上面的秒数）也要成熟时，先不补种，等那块成熟一起收、一起种（最多连续合并 3 次）。
+            大小号协作里开启「成熟作物先留给大号偷」的小号不受影响：仍然等大号偷过（或超时）才收，不抢点、不合并。
+          </p>
+          <div v-if="settings.fnosQuietPriority.idleKeepaliveOnly" class="grid grid-cols-2 mt-3 gap-3">
+            <BaseInput v-model.number="settings.fnosQuietPriority.idleMinMinutes" label="每次静默最短 (分钟)" type="number" min="1" max="180" />
+            <BaseInput v-model.number="settings.fnosQuietPriority.idleMaxMinutes" label="每次静默最长 (分钟)" type="number" min="1" max="180" />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+            空闲时只保留心跳：上一轮巡田没有任何动作、好友巡查也没有要去的好友时，在上面的分钟数之间随机静默，期间暂停巡田、好友巡查、出售、领任务、每日任务、神秘商店、图鉴、偷收比、化肥购买检测；心跳照常、不掉线，面板手动操作不受影响。
+            自家作物成熟前 10 秒一定恢复；小号有留给大号的地时最多静默 1 分钟就复查。静默到点、土地推送发现有事要做、修改本设置或掉线重连都会结束静默。
           </p>
         </section>
 
