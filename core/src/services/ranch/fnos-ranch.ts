@@ -20,14 +20,22 @@ export {};
  *    - 放蚊子：小号开了「只给大号放捣乱」→ 只给大号放；其余情况不给自己的大号 / 小号 / 同一大号下的其它小号放。
  * 4. 上游好友牧场自动化里的额外动作（上游没有）：
  *    - 帮好友生产 friendHelpProduce：好友动物 can_deliver 时 AnimalService.TriggerProduce {host_gid}（1116-6 #161）；
- *    - 给好友加牧草 friendFeed：FeedMachineService.AddFeed {instance_id, add_count, use_gold:true, host_gid}（1116-7 #172），
- *      扣金币约 60/份；每次最多 friendFeedPerTime，自己金币低于 friendFeedGoldKeep 不加，不超过好友牧草机剩余容量。
+ *    - 给好友加牧草 friendFeed：FeedMachineService.AddFeed {instance_id, add_count, use_gold, host_gid}；每次最多 friendFeedPerTime，不超过好友牧草机剩余容量。
+ *      2026-11-17 起「加草来源」friendFeedSource：
+ *        warehouse（默认）= 用农场仓库的牧草（物品 7001），use_gold 不带（=false），每份扣 1 个 7001（1117-grass #70/#104：
+ *          {1: 10002, 2: 1, 4: host_gid}，ItemNotify 7001 −1，回包 detail.feed_count）；仓库不够时只加够库存的份数，停下写日志，不改用金币；
+ *        gold = 原来的 use_gold:true，扣金币约 60/份（1116-7 #172），自己金币低于 friendFeedGoldKeep 不加。
+ *      好友牧草机 instance_id 从好友牧场 facilities 里取（feed_machine 那一格），不写死。
  *    这两项不占 GetRanchOpTimes 次数（抓包前后不变），请求报次数类错误或无效果时当天停止。
  */
 
 const BOOK_INTERVAL_MS = 30 * 60 * 1000;
 /** 给好友加牧草每份扣的金币（1116-7：加 2 份 −120、加 3 份 −180） */
 const FEED_GOLD_PER_UNIT = 60;
+/** 牧草（农场仓库物品 id） */
+const GRASS_ITEM_ID = 7001;
+export type FnosFriendFeedSource = 'warehouse' | 'gold';
+const FRIEND_FEED_SOURCES: FnosFriendFeedSource[] = ['warehouse', 'gold'];
 
 export interface FnosRanchConfig {
     altHold: boolean;
@@ -36,8 +44,10 @@ export interface FnosRanchConfig {
     illustratedAutoComplete: boolean;
     /** 帮好友生产（TriggerProduce，好友动物 can_deliver 时） */
     friendHelpProduce: boolean;
-    /** 给好友加牧草（AddFeed use_gold:true，扣金币约 60/份） */
+    /** 给好友加牧草（AddFeed） */
     friendFeed: boolean;
+    /** [fnos-fork] 2026-11-17 加草来源：warehouse = 农场仓库牧草 7001（默认，use_gold:false）；gold = 金币（约 60/份） */
+    friendFeedSource: FnosFriendFeedSource;
     /** 每次给一个好友最多加多少牧草 */
     friendFeedPerTime: number;
     /** 自己金币低于此值不给好友加牧草 */
@@ -58,6 +68,7 @@ const DEFAULT_FNOS_RANCH: FnosRanchConfig = {
     illustratedAutoComplete: false,
     friendHelpProduce: false,
     friendFeed: false,
+    friendFeedSource: 'warehouse',
     friendFeedPerTime: 10,
     friendFeedGoldKeep: 10000,
 };
@@ -81,6 +92,8 @@ function normalizeFnosRanch(input: unknown, fallback: FnosRanchConfig = DEFAULT_
         illustratedAutoComplete: bool('illustratedAutoComplete'),
         friendHelpProduce: bool('friendHelpProduce'),
         friendFeed: bool('friendFeed'),
+        // [fnos-fork] 2026-11-17 旧配置没有此字段 → 默认仓库牧草
+        friendFeedSource: FRIEND_FEED_SOURCES.includes(src.friendFeedSource) ? src.friendFeedSource : (FRIEND_FEED_SOURCES.includes(base.friendFeedSource) ? base.friendFeedSource : 'warehouse'),
         friendFeedPerTime: int('friendFeedPerTime', 1, 500),
         friendFeedGoldKeep: int('friendFeedGoldKeep', 0, 999999999),
     };
@@ -96,7 +109,7 @@ const rt = {
     dayKey: '',
     lastLog: {} as Record<string, string>,
     exhausted: {} as { feed?: string; help?: string },
-    wallet: { gold: 0 },
+    wallet: { gold: 0, grass: 0 },
     relatedCache: { at: 0, gids: [] as number[] },
 };
 
@@ -109,7 +122,7 @@ function resetFnosRanchRuntime(): void {
     rt.dayKey = '';
     rt.lastLog = {};
     rt.exhausted = {};
-    rt.wallet = { gold: 0 };
+    rt.wallet = { gold: 0, grass: 0 };
     rt.relatedCache = { at: 0, gids: [] };
 }
 
@@ -414,11 +427,12 @@ function friendExtrasEnabled(): boolean {
     try { const { ranch } = readConfigs(); return ranch.friendHelpProduce || ranch.friendFeed; } catch { return false; }
 }
 
-/** 上游 friends 阶段开始时调用：记下可用金币（含预留扣减）。 */
-function beginFriendPhase(input: { gold: number }): void {
+/** 上游 friends 阶段开始时调用：记下可用金币、仓库牧草（含预留扣减）。 */
+function beginFriendPhase(input: { gold: number; grass?: number }): void {
     const today = (() => { try { return require('../../utils/utils').getSystemDateKey(); } catch { return ''; } })();
     if (rt.dayKey !== today) { rt.dayKey = today; rt.exhausted = {}; }
-    rt.wallet = { gold: Math.max(0, num(input.gold)) };
+    rt.wallet = { gold: Math.max(0, num(input.gold)), grass: Math.max(0, num(input.grass)) };
+    if (rt.wallet.grass > 0) rt.lastLog['feed-grass-out'] = ''; // [fnos-fork] 仓库又有牧草了，下次用完再提示
 }
 
 /** 纯函数：好友牧场里可以「帮忙生产」的动物数（can_deliver，与上游自己牧场「触发生产」同一字段）。 */
@@ -426,11 +440,20 @@ function helpableAnimals(ranches: any[]): number {
     return (ranches || []).reduce((sum: number, r: any) => sum + (r?.animals || []).filter((a: any) => a && a.can_deliver).length, 0);
 }
 
-/** 纯函数：给好友加多少牧草（金币扣到 friendFeedGoldKeep 为止）。 */
-function planFriendFeed(machine: { capacity: number; feedCount: number } | null, gold: number, cfg: Pick<FnosRanchConfig, 'friendFeedPerTime' | 'friendFeedGoldKeep'>): number {
+/**
+ * 纯函数：给好友加多少牧草。
+ * - 金币：扣到 friendFeedGoldKeep 为止（约 60 金币/份）；
+ * - 仓库牧草（[fnos-fork] 2026-11-17 默认）：最多用到仓库 7001 的库存，不看金币。
+ * wallet 传数字时按金币（兼容旧调用）。
+ */
+function planFriendFeed(machine: { capacity: number; feedCount: number } | null, wallet: number | { gold?: number; grass?: number },
+    cfg: Pick<FnosRanchConfig, 'friendFeedPerTime' | 'friendFeedGoldKeep'> & { friendFeedSource?: FnosFriendFeedSource }): number {
     if (!machine) return 0;
     const room = Math.max(0, num(machine.capacity) - num(machine.feedCount));
-    const affordable = Math.max(0, Math.floor((num(gold) - cfg.friendFeedGoldKeep) / FEED_GOLD_PER_UNIT));
+    const w = typeof wallet === 'object' && wallet ? wallet : { gold: wallet as number, grass: 0 };
+    const affordable = (cfg.friendFeedSource || 'gold') === 'warehouse'
+        ? Math.max(0, Math.floor(num(w.grass)))
+        : Math.max(0, Math.floor((num(w.gold) - cfg.friendFeedGoldKeep) / FEED_GOLD_PER_UNIT));
     return Math.max(0, Math.min(room, affordable, cfg.friendFeedPerTime));
 }
 
@@ -480,16 +503,28 @@ async function feedFriend(host: string, entry: any): Promise<any | null> {
     const { ranch } = readConfigs();
     if (!ranch.friendFeed || rt.exhausted.feed === rt.dayKey) return null;
     const machine = friendFeedMachine(entry);
-    const count = planFriendFeed(machine, rt.wallet.gold, ranch);
-    if (!machine || count <= 0) return null;
+    if (!machine) return null;
+    const useWarehouse = ranch.friendFeedSource !== 'gold'; // [fnos-fork] 2026-11-17 默认用仓库牧草
+    const room = Math.max(0, machine.capacity - machine.feedCount);
+    const wanted = Math.min(room, ranch.friendFeedPerTime);
+    const count = planFriendFeed(machine, rt.wallet, ranch);
+    if (useWarehouse && wanted > 0 && count < wanted) {
+        // 仓库牧草不够：只加够库存的份数，然后停下写日志，不改用金币
+        logOnce('feed-grass-out', `给好友加牧草：农场仓库牧草（${GRASS_ITEM_ID}）不够（剩 ${rt.wallet.grass} 份），${count > 0 ? `只加 ${count} 份，` : ''}之后暂停给好友加牧草，不会改用金币；仓库有牧草后继续`, { event: 'fnos好友牧场', result: 'grass_short' });
+    }
+    if (count <= 0) return null;
     const { rpc } = require('./transport');
     try {
-        const reply: any = await rpc('addGrass', { instance_id: machine.id, add_count: count, use_gold: true, host_gid: host }, true);
+        // 仓库牧草：不带 use_gold（与官方客户端 1117-grass 一致）；金币：use_gold:true（1116-7）
+        const payload: any = { instance_id: machine.id, add_count: count, host_gid: host };
+        if (!useWarehouse) payload.use_gold = true;
+        const reply: any = await rpc('addGrass', payload, true);
         const after = num(reply?.detail?.feed_count);
         const added = after > machine.feedCount ? after - machine.feedCount : count;
-        rt.wallet.gold = Math.max(0, rt.wallet.gold - added * FEED_GOLD_PER_UNIT);
+        if (useWarehouse) rt.wallet.grass = Math.max(0, rt.wallet.grass - added);
+        else rt.wallet.gold = Math.max(0, rt.wallet.gold - added * FEED_GOLD_PER_UNIT);
         return { action: 'fnosFeedFriend', status: 'confirmed', completed: 1, rewards: [],
-            notice: `给好友牧草机加牧草 ${added} 份（约 ${added * FEED_GOLD_PER_UNIT} 金币）` };
+            notice: useWarehouse ? `给好友牧草机加牧草 ${added} 份（用农场仓库牧草，剩 ${rt.wallet.grass} 份）` : `给好友牧草机加牧草 ${added} 份（约 ${added * FEED_GOLD_PER_UNIT} 金币）` };
     } catch (e: any) {
         markExhaustedIfLimit('feed', e);
         throw e;
@@ -500,6 +535,7 @@ module.exports = {
     DEFAULT_FNOS_RANCH,
     REMOVED_FNOS_RANCH_KEYS,
     FEED_GOLD_PER_UNIT,
+    GRASS_ITEM_ID,
     normalizeFnosRanch,
     resetFnosRanchRuntime,
     decideShelfHold,

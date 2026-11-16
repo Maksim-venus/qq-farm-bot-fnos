@@ -28,7 +28,7 @@ test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 test('normalize：默认值与范围夹取、旧字段（被上游取代）丢弃；真实 store 默认带 fnosRanch', () => {
     const d = ranch.normalizeFnosRanch(undefined);
     assert.deepEqual(d, { altHold: true, altHoldFallbackMinutes: 60, illustratedAutoClaim: true, illustratedAutoComplete: false,
-        friendHelpProduce: false, friendFeed: false, friendFeedPerTime: 10, friendFeedGoldKeep: 10000 });
+        friendHelpProduce: false, friendFeed: false, friendFeedSource: 'warehouse', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 });
     const c = ranch.normalizeFnosRanch({ altHoldFallbackMinutes: 1, friendFeedPerTime: 0, friendFeedGoldKeep: -5, friendHelpProduce: 1,
         rotation: false, friendSteal: true, friendPutMosquito: true, friendFeedKeep: 200 });
     assert.equal(c.altHoldFallbackMinutes, 5);
@@ -178,7 +178,7 @@ test('好友额外动作纯函数：可帮生产、加牧草按金币保留值�
 test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清只放蚊子；其他好友偷+清不放；帮生产在偷之前、加牧草扣金币', async () => {
     ranch.resetFnosRanchRuntime();
     apply({ fnosAltAccount: { enabled: true, masterGid: 3, masterName: '大号', holdForMaster: false, skipStealMaster: true, badOnlyMaster: true },
-        fnosRanch: { friendHelpProduce: true, friendFeed: true, friendFeedPerTime: 10, friendFeedGoldKeep: 10000 } });
+        fnosRanch: { friendHelpProduce: true, friendFeed: true, friendFeedSource: 'gold', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 } });
     const sent = [];
     let world;
     const fresh = () => ({
@@ -264,4 +264,61 @@ test('badPlan：放满各栏舍蚊子，受每日剩余次数限制', () => {
     assert.equal(full.count, full.pens.reduce((sum, p) => sum + p.room, 0));
     assert.equal(friends.badPlan(ranches, '2002', { putMosquito: 1 }).count, 1);
     assert.equal(friends.badPlan(ranches, '2002', { putMosquito: 0 }).count, 0);
+});
+
+test('[fnos-fork] 2026-11-17 给好友加牧草来源：默认仓库牧草 7001（不带 use_gold），不够只加够库存后暂停并记日志，不改用金币；instance_id 取自好友 facilities', async () => {
+    // normalize：旧配置缺字段 → warehouse；无效值 → 沿用已存值
+    assert.equal(ranch.normalizeFnosRanch({ friendFeed: true }).friendFeedSource, 'warehouse');
+    assert.equal(ranch.normalizeFnosRanch({ friendFeedSource: 'gold' }).friendFeedSource, 'gold');
+    assert.equal(ranch.normalizeFnosRanch({ friendFeedSource: 'x' }, { ...ranch.DEFAULT_FNOS_RANCH, friendFeedSource: 'gold' }).friendFeedSource, 'gold');
+    // 纯函数：仓库来源只看牧草库存，不看金币
+    const cfg = { friendFeedPerTime: 10, friendFeedGoldKeep: 10000, friendFeedSource: 'warehouse' };
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 97 }, { gold: 0, grass: 3236 }, cfg), 3);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, { gold: 999999, grass: 4 }, cfg), 4);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, { gold: 999999, grass: 0 }, cfg), 0);
+    assert.equal(ranch.GRASS_ITEM_ID, 7001);
+
+    apply({ fnosAltAccount: { enabled: false }, fnosRanch: { friendHelpProduce: false, friendFeed: true, friendFeedSource: 'warehouse', friendFeedPerTime: 3 } });
+    const sent = [];
+    let feedCount = 0;
+    mock('services/ranch/operation-state', { forCurrentAccount: () => ({ spend: (_p, fn) => fn(), reserved: () => 0 }) });
+    mock('services/ranch/transport', {
+        inScene: fn => fn(null),
+        rpc: async (route, input) => {
+            sent.push([route, JSON.parse(JSON.stringify(input))]);
+            switch (route) {
+                case 'enterFriend': return { basic: { gid: input.host_gid, name: 'f' }, homestead_cells: { facilities: [{ instance_id: '20007', state: 1, capacity: 600, feed_machine: { feed_count: feedCount } }] } };
+                case 'leaveFriend': return {};
+                case 'animals': return { ranches: [] };
+                case 'opTimes': return { ops: [] };
+                case 'addGrass': return { detail: { feed_count: feedCount + input.add_count } };
+                default: throw new Error(`unexpected ${route}`);
+            }
+        },
+    });
+    for (const k of ['services/ranch/friends', 'services/ranch/fnos-ranch']) delete require.cache[dist(k)];
+    const fr = require('../dist/services/ranch/fnos-ranch');
+    const friends = require('../dist/services/ranch/friends');
+    fr.beginFriendPhase({ gold: 0, grass: 5 });
+    logs.length = 0;
+    const feeds = () => sent.filter(([x]) => x === 'addGrass').map(([, input]) => input);
+    // 好友 1：要 3 份，仓库 5 → 加 3，不带 use_gold，instance_id 来自好友 facilities
+    feedCount = 554;
+    const r = await friends.automateFriend(1269220833, fr.wrapFriendWanted(1269220833, () => false));
+    assert.deepEqual(feeds(), [{ instance_id: '20007', add_count: 3, host_gid: '1269220833' }]);
+    assert.ok(r.results.some(o => o.action === 'fnosFeedFriend' && /用农场仓库牧草，剩 2 份/.test(o.notice)));
+    // 好友 2：要 3 份，仓库剩 2 → 只加 2，记日志
+    sent.length = 0; feedCount = 477;
+    await friends.automateFriend(1171432325, fr.wrapFriendWanted(1171432325, () => false));
+    assert.deepEqual(feeds(), [{ instance_id: '20007', add_count: 2, host_gid: '1171432325' }]);
+    assert.equal(logs.filter(l => /仓库牧草（7001）不够/.test(l)).length, 1);
+    // 好友 3：仓库没了 → 不加、不用金币；日志不重复
+    sent.length = 0;
+    await friends.automateFriend(5, fr.wrapFriendWanted(5, () => false));
+    assert.deepEqual(feeds(), []);
+    assert.equal(logs.filter(l => /剩 0 份/.test(l)).length, 1);
+    await friends.automateFriend(6, fr.wrapFriendWanted(6, () => false));
+    assert.equal(logs.filter(l => /剩 0 份/.test(l)).length, 1, '同样的提示只记一次');
+    assert.ok(!sent.some(([x, input]) => x === 'addGrass' && input.use_gold));
+    apply({ fnosRanch: { friendFeed: false } });
 });

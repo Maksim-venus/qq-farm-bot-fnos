@@ -48,7 +48,7 @@ test('设置页：牧场空间自动控制有「飞牛增强」卡片；农场�
     assert.doesNotMatch(form, new RegExp(`settings\\.fnosRanch\\.${k}"`))
   assert.match(form, /settings\.fnosRanch\.friendFeedPerTime/)
   assert.match(form, /settings\.fnosRanch\.friendFeedGoldKeep/)
-  assert.match(form, /花金币，约 60 金币\/份/)
+  assert.match(form, /金币（约 60\/份）/) // [fnos-fork] 2026-11-17 加草来源可选金币
   assert.doesNotMatch(form, /friendFeedKeep/)
   assert.match(form, /settings\.fnosRanch\.friendHelpProduce" label="好友牧场：帮忙生产" \/>/)
   assert.doesNotMatch(form, /待抓包/)
@@ -93,4 +93,13 @@ test('[fnos-fork] 2026-11-17 农牧轮流：农场日志可筛「农牧轮次」
   const read = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
   assert.match(read('views/Dashboard.vue'), /value: 'fnos轮次切换,fnos轮次插队'/)
   assert.match(read('utils/fnos-log-space.ts'), /ranch_automation,ranch_scene_restore,fnos牧场轮次'/)
+})
+
+test('[fnos-fork] 2026-11-17 给好友加牧草来源：默认仓库牧草，旧配置缺字段迁移到默认，设置页可选', () => {
+  assert.equal(m.fnosNormalizeRanch({}).friendFeedSource, 'warehouse')
+  assert.equal(m.fnosNormalizeRanch({ friendFeedSource: 'gold' }).friendFeedSource, 'gold')
+  assert.equal(m.fnosNormalizeRanch({ friendFeedSource: 'xx' }).friendFeedSource, 'warehouse')
+  const form = readFileSync(new URL('../src/components/settings/AutomationSettingsForm.vue', import.meta.url), 'utf8')
+  assert.match(form, /settings\.fnosRanch\.friendFeedSource/)
+  assert.match(form, /仓库牧草（默认）/)
 })
