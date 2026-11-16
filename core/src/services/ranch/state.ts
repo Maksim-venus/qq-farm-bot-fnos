@@ -213,7 +213,13 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
         }
         if (view === 'friends') {
             if (hostGid !== undefined) state.friendRanch = await require('./friends').getFriend(hostGid);
-            else state.friends = (await require('../friend').getFriendsList()).map((friend: any) => ({ gid: String(friend.gid), name: friend.name, avatarUrl: friend.avatarUrl }));
+            else {
+                // [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有）、大小号置灰原因与今日剩余次数
+                const fnosRanch = require('./fnos-ranch');
+                state.friends = (await require('../friend').getFriendsList()).map((friend: any) => ({ gid: String(friend.gid), name: friend.name, avatarUrl: friend.avatarUrl,
+                    level: Number(friend.level) || 0, fnosRules: fnosRanch.manualFriendRules(friend.gid) }));
+                try { state.friendTimes = await require('./friends').getInteractionTimes(); } catch { state.friendTimes = null; }
+            }
         }
         return state;
     });

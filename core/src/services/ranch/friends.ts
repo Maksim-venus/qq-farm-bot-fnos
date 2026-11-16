@@ -55,6 +55,9 @@ async function getFriend(hostGid: unknown): Promise<any> {
             canSteal: eligible.length > 0, stealableShelves: eligible.length,
             cleanableHazards: ranches.reduce((sum, ranch) => sum + cleanableHazards(ranch).length, 0),
             strokeRemaining: times.stroke, mosquitoRemaining: times.putMosquito,
+            // [fnos-fork] 大小号规则置灰原因（空串=允许）与「捣乱」可放蚊子数
+            fnosRules: require('./fnos-ranch').manualFriendRules(host),
+            fnosBadCount: badPlan(ranches, host, times).count,
             ranches: ranches.map(ranch => ({ id: quantity(ranch.ranch_inst_id),
                 name: ranch.husbandry_type === 1 ? '窝' : '棚',
                 ...mosquitoState(ranch),
@@ -134,6 +137,7 @@ function interactionPlan(action: string, input: any, ranches: any[], host: strin
 }
 
 async function prepareInteraction(action: string, input: any): Promise<any> {
+    if (action !== 'stroke') require('./fnos-ranch').assertManualFriendAction(input.hostGid, action); // [fnos-fork]
     return visit(input.hostGid, async (_entry, ranches, host) => {
         const plan = interactionPlan(action, input, ranches, host, action === 'cleanFriend' ? null : await getInteractionTimes());
         return { action, label: plan.label, costs: [], costItems: [], rewards: [], count: plan.count,
@@ -186,6 +190,7 @@ async function commitInteraction(plan: any): Promise<any> {
 }
 
 async function interact(action: string, input: any): Promise<any> {
+    if (action !== 'stroke') require('./fnos-ranch').assertManualFriendAction(input.hostGid, action); // [fnos-fork]
     return visit(input.hostGid, async (_entry, ranches, host) => {
         const plan = interactionPlan(action, input, ranches, host, action === 'cleanFriend' ? null : await getInteractionTimes());
         if (!plan.count) return commitInteraction(plan);
@@ -201,10 +206,12 @@ function quote(host: string, ranches: any[]): any {
 }
 
 async function prepareSteal(input: any): Promise<any> {
+    require('./fnos-ranch').assertManualFriendAction(input.hostGid, 'steal'); // [fnos-fork]
     return visit(input.hostGid, async (_entry, ranches, host) => quote(host, ranches));
 }
 
 async function steal(input: any): Promise<any> {
+    require('./fnos-ranch').assertManualFriendAction(input.hostGid, 'steal'); // [fnos-fork]
     return visit(input.hostGid, async (_entry, ranches, host) => {
         const plan = quote(host, ranches);
         if (plan.skipped) return { status: 'skipped', snapshot: null, costs: [], rewards: [], completed: 0, refreshRequired: true };
@@ -234,6 +241,65 @@ async function commitSteal(host: string, ranches: any[], plan: any): Promise<any
         return { action: 'steal', status: completed ? 'confirmed' : 'skipped', snapshot: null, costs: [],
             rewards, completed, refreshRequired: true,
             notice: completed < plan.count ? `${notice}；已完成 ${completed} / ${plan.count} 个货架，请刷新核对` : notice };
+    });
+}
+
+// ============ [fnos-fork] 好友列表「捣乱」：把各栏舍放满蚊子（受每日放蚊子次数与栏舍蚊子上限限制） ============
+function badPlan(ranches: any[], host: string, times: any): any {
+    const pens = ranches.map(ranch => ({ id: quantity(ranch.ranch_inst_id), room: mosquitoState(ranch).mosquitoRoom })).filter(pen => pen.room > 0);
+    const room = pens.reduce((sum, pen) => sum + pen.room, 0);
+    const count = Math.max(0, Math.min(Number(times?.putMosquito) || 0, room));
+    return { count, pens, remaining: Number(times?.putMosquito) || 0,
+        signature: JSON.stringify({ action: 'fnosBad', host, pens, remaining: Number(times?.putMosquito) || 0 }) };
+}
+
+async function prepareBad(input: any): Promise<any> {
+    require('./fnos-ranch').assertManualFriendAction(input.hostGid, 'putMosquito');
+    return visit(input.hostGid, async (_entry, ranches, host) => {
+        const times = await getInteractionTimes();
+        if (times.putMosquito <= 0) throw error('RANCH_INTERACTION_LIMIT', '今日放蚊子次数已用完');
+        const plan = badPlan(ranches, host, times);
+        return { action: 'fnosBad', label: `向好友牧场放蚊子 ${plan.count} 只（今日剩余 ${times.putMosquito} 次）`, costs: [], costItems: [], rewards: [],
+            count: plan.count, expected: { signature: plan.signature }, skipped: plan.count === 0,
+            message: plan.count === 0 ? '好友各栏舍蚊子已满' : '' };
+    });
+}
+
+async function bad(input: any): Promise<any> {
+    require('./fnos-ranch').assertManualFriendAction(input.hostGid, 'putMosquito');
+    return visit(input.hostGid, async (_entry, ranches, host) => {
+        let times = await getInteractionTimes();
+        if (times.putMosquito <= 0) throw error('RANCH_INTERACTION_LIMIT', '今日放蚊子次数已用完');
+        const plan = badPlan(ranches, host, times);
+        if (!plan.count) return { action: 'fnosBad', status: 'skipped', snapshot: null, costs: [], rewards: [], completed: 0, refreshRequired: true, notice: '好友各栏舍蚊子已满' };
+        if (input.expected?.signature !== plan.signature) throw error('RANCH_OFFER_CHANGED', '好友牧场状态已变化，请重新确认');
+        let placed = 0;
+        const rewards: any[] = [];
+        let stopped = '';
+        for (const pen of plan.pens) {
+            while (placed < plan.count && times.putMosquito > 0) {
+                const ranch = ranches.find(row => quantity(row.ranch_inst_id) === pen.id);
+                if (!ranch || mosquitoState(ranch).mosquitoRoom <= 0) break;
+                try {
+                    const outcome = await commitInteraction(interactionPlan('putMosquito', { ranchId: pen.id }, ranches, host, times));
+                    placed += 1;
+                    times = { ...times, putMosquito: outcome.remainingTimes };
+                    rewards.push(...(outcome.rewards || []));
+                } catch (e: any) {
+                    stopped = e.message;
+                    break;
+                }
+                const latest = (await rpc('animals', { host_gid: host })).ranches.find((row: any) => quantity(row.ranch_inst_id) === pen.id);
+                if (!latest) break;
+                ranch.hazards = latest.hazards;
+            }
+            if (stopped) break;
+        }
+        if (!placed && stopped) throw error('RANCH_RESULT_UNKNOWN', stopped);
+        const items = sumItems(rewards);
+        const tail = times.putMosquito <= 0 ? '；今日放蚊子次数已用完' : `；今日还可放 ${times.putMosquito} 次`;
+        return { action: 'fnosBad', status: placed ? 'confirmed' : 'skipped', snapshot: null, costs: [], rewards: items, completed: placed, refreshRequired: true,
+            notice: `放蚊子 ${placed} 只${items.length ? `，获得 ${items.map((item: any) => `${item.name} ×${item.count}`).join('、')}` : ''}${stopped ? `；中途停止：${stopped}` : tail}` };
     });
 }
 
@@ -301,4 +367,4 @@ async function automateFriend(hostGid: unknown, enabled: (action: string) => boo
     });
 }
 
-module.exports = { getFriend, prepareSteal, steal, getInteractionTimes, prepareInteraction, interact, automateFriend };
+module.exports = { getFriend, prepareSteal, steal, getInteractionTimes, prepareInteraction, interact, automateFriend, prepareBad, bad, badPlan };

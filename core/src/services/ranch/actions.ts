@@ -228,6 +228,7 @@ async function planAction(action: string, input: any, raw: any): Promise<any> {
 
 async function prepareAction(action: string, input: any = {}): Promise<any> {
     if (action === 'steal') return require('./friends').prepareSteal(input);
+    if (action === 'fnosBad') return require('./friends').prepareBad(input); // [fnos-fork] 好友列表「捣乱」
     if (['stroke', 'putMosquito', 'cleanFriend'].includes(action)) return require('./friends').prepareInteraction(action, input);
     return inScene(async (cells: any) => {
         const plan = await planAction(action, input, await loadRaw(cells));
@@ -242,6 +243,7 @@ function unknown(action: string, reason: string): never {
 
 async function operate(action: string, input: any = {}): Promise<any> {
     if (['stroke', 'putMosquito', 'cleanFriend'].includes(action)) return require('./friends').interact(action, input);
+    if (action === 'fnosBad') return require('./friends').bad(input); // [fnos-fork] 好友列表「捣乱」
     if (action === 'acknowledge') return inScene(async () => {
         reservations.forCurrentAccount().acknowledge(String(input.id));
         require('./automation').resetSchedule();
