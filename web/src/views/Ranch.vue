@@ -21,6 +21,7 @@ const RanchTaskPanel = defineAsyncComponent(() => import('@/components/ranch/Ran
 const RanchBookPanel = defineAsyncComponent(() => import('@/components/ranch/RanchBookPanel.vue'))
 const RanchMallPanel = defineAsyncComponent(() => import('@/components/ranch/RanchMallPanel.vue'))
 const RanchFriendsPanel = defineAsyncComponent(() => import('@/components/ranch/RanchFriendsPanel.vue'))
+const RanchVisitorsPanel = defineAsyncComponent(() => import('@/components/ranch/RanchVisitorsPanel.vue')) // [fnos-fork] 牧场最近访客
 const RanchActivityPanel = defineAsyncComponent(() => import('@/components/ranch/RanchActivityPanel.vue'))
 
 // 与农场对应页面使用同样的分区：个人（牧场/设施/背包/任务）、图鉴、商城等。
@@ -40,7 +41,10 @@ const SECTIONS: Record<Section, Tab[]> = {
     { key: 'market', label: '仓鼠集市', icon: 'i-carbon-store', panel: RanchMallPanel, props: { tab: 'market' } },
     { key: 'cans', label: '罐头商城', icon: 'i-carbon-shopping-cart', panel: RanchMallPanel, props: { tab: 'cans' } },
   ],
-  friends: [{ key: 'friends', label: '好友', icon: 'i-carbon-user-multiple', panel: RanchFriendsPanel }],
+  friends: [
+    { key: 'friends', label: '好友', icon: 'i-carbon-user-multiple', panel: RanchFriendsPanel },
+    { key: 'visitors', label: '最近访客', icon: 'i-carbon-recently-viewed', panel: RanchVisitorsPanel }, // [fnos-fork]
+  ],
   activity: [{ key: 'activity', label: '活动', icon: 'i-carbon-gift', panel: RanchActivityPanel }],
 }
 

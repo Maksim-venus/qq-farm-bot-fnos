@@ -189,7 +189,7 @@ async function canCatalog(raw: any, slotType = 6): Promise<any> {
 }
 
 async function getState(view = 'animals', shopId?: number, hostGid?: string): Promise<any> {
-    if (!['animals', 'facilities', 'bag', 'shop', 'market', 'tasks', 'friends', 'illustrated', 'activities', 'cans'].includes(view)) throw error('INVALID_ARGUMENT', '未知牧场页面');
+    if (!['animals', 'facilities', 'bag', 'shop', 'market', 'tasks', 'friends', 'illustrated', 'activities', 'cans', 'visitors'].includes(view)) // [fnos-fork] visitors throw error('INVALID_ARGUMENT', '未知牧场页面');
     if (!isUnlocked()) return { unlocked: false, sceneId: 2, reason: '牧场尚未解锁，请先在游戏中完成开启条件' };
     return inScene(async (cells: any) => {
         const raw = await loadRaw(cells);
@@ -211,6 +211,7 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
             state.activities = reply.activities.map((group: any) => ({ id: quantity(group.activity.activity_id), name: group.activity.name,
                 startTime: Number(group.activity.begin_time) * 1000, endTime: Number(group.activity.end_time) * 1000 }));
         }
+        if (view === 'visitors') state.visitors = await require('./fnos-visitors').fetchRanchVisitors(); // [fnos-fork] 牧场最近访客
         if (view === 'friends') {
             if (hostGid !== undefined) state.friendRanch = await require('./friends').getFriend(hostGid);
             else {

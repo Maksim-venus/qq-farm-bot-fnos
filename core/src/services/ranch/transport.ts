@@ -49,6 +49,8 @@ const ROUTES: Record<string, [string, string, string, string?]> = {
     activities: ['activitypb.ActivityService', 'List', 'ActivityList'],
     canShop: ['mallpb.MallService', 'GetMallListBySlotType', 'GetMallListBySlotType', 'GetMallListBySlotTypeResponse'],
     buyCan: ['mallpb.MallService', 'Purchase', 'Purchase', 'PurchaseResponse'],
+    // [fnos-fork] 牧场访客记录：InteractRecords { scene_id: 2 }
+    interactRecords: ['interactpb.InteractService', 'InteractRecords', 'InteractRecords'],
 };
 
 async function rpc(route: string, input: any = {}, writing = false): Promise<any> {
