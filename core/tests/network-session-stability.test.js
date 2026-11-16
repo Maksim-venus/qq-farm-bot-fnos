@@ -34,7 +34,7 @@ function harness() {
         '../services/ace': { startAceRuntime() {}, stopAceRuntime() {}, getAceDiagnostics: () => ({}) },
         '../services/status': { updateStatusFromLogin() {} },
         './crypto-wasm': { bindUser() {}, getEncryptedInitInfo: () => '', getDiagnostics: () => ({}) },
-        './utils': { toLong: Number, toNum: Number, log() {}, logWarn() {}, syncServerTime() {} },
+        './utils': { toLong: Number, toNum: Number, log() {}, logWarn() {}, syncServerTime() {}, getServerTimeSec: () => 1794800000, formatDateKeyInTimeZone: () => '2026-11-16' },
     };
     const sandbox = {
         require: name => overrides[name] || realRequire(name), module: { exports: {} }, exports: {},
