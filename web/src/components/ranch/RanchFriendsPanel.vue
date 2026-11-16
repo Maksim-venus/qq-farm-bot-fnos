@@ -22,11 +22,19 @@ const failedAvatars = ref<Record<string, boolean>>({})
 let alive = true
 onBeforeUnmount(() => alive = false)
 
+// [fnos-fork] 牧场等级：列表字段 / 缓存，未读取的按 Lv1
+function fnosRanchLevelOf(friend: any) {
+  return Number(friend?.ranchLevel) > 0 ? Number(friend.ranchLevel) : 1
+}
+function fnosRanchLevelTitle(friend: any) {
+  return friend?.ranchLevelKnown === false ? '牧场等级尚未读取，暂按 Lv1（后台会慢慢补读）' : '牧场等级'
+}
+
 const visible = computed(() => {
   const keyword = query.value.trim()
   const list = keyword ? friends.value.filter(f => String(f.name || '').includes(keyword) || String(f.gid).includes(keyword)) : friends.value
-  // [fnos-fork] 与农场好友一致：按等级从高到低排序，同级保持原顺序（Array.prototype.sort 稳定）
-  return [...list].sort((a, b) => (Number(b?.level) || 0) - (Number(a?.level) || 0))
+  // [fnos-fork] 按牧场等级从高到低排序，同级保持原顺序（Array.prototype.sort 稳定）；后端已排好，这里对搜索结果再排一次
+  return [...list].sort((a, b) => fnosRanchLevelOf(b) - fnosRanchLevelOf(a))
 })
 const detail = computed(() => selected.value && state.value?.friendRanch?.gid === selected.value ? state.value.friendRanch : null)
 const detailShelves = computed(() => (detail.value?.ranches || []).flatMap((r: any) => r.shelves.map((s: any) => ({ ...s, key: `${r.id}:${s.slot}` }))))
@@ -167,8 +175,8 @@ async function reloadList() {
                   </span>
                 </template>
                 <span v-else class="f-tag">点击查看牧场</span>
-                <!-- [fnos-fork] 好友列表协议只有农场等级；牧场等级展开后显示 -->
-                <span v-if="Number(friend.level) > 0" class="f-tag f-tag--level" title="农场等级（好友列表只带农场等级，展开后另显示牧场等级）">{{ selected === friend.gid && detail ? '农场 ' : '' }}Lv.{{ friend.level }}</span>
+                <!-- [fnos-fork] 牧场等级（好友列表字段 25 / 本账号缓存；未读取的按 Lv1）；展开后已有「牧场 Lv」时不重复显示 -->
+                <span v-if="!(selected === friend.gid && detail)" class="f-tag f-tag--level" :class="{ 'f-tag--level-guess': friend.ranchLevelKnown === false }" :title="fnosRanchLevelTitle(friend)">Lv.{{ fnosRanchLevelOf(friend) }}</span>
               </div>
             </div>
             <!-- [fnos-fork] 与农场好友一致的行内操作：偷取 / 捣乱（放蚊子），不符合大小号规则或次数用完时置灰 -->
@@ -464,6 +472,10 @@ async function reloadList() {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.f-tag--level-guess {
+  opacity: 0.6;
 }
 
 .friend-interactions__warn {

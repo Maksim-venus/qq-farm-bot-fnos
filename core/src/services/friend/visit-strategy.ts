@@ -422,6 +422,7 @@ export function cacheFriendsListFromReply(reply: any): any[] {
             name: f.remark || f.name || `GID:${toNum(f.gid)}`,
             avatarUrl: String(f.avatar_url || '').trim(),
             level: toNum(f.level),
+            ranchLevel: toNum(f.fnos_ranch_level), // [fnos-fork] 好友牧场等级（GameFriend 字段 25）
             gold: toNum(f.gold),
             plant: f.plant ? {
                 stealNum: toNum(f.plant.steal_plant_num),
@@ -450,6 +451,7 @@ export function cacheFriendsListFromReply(reply: any): any[] {
 
     friendsListCache = result;
     friendsListCacheTime = Date.now();
+    try { require('../ranch/fnos-friend-levels').recordFromFriendList(result); } catch { /* [fnos-fork] 牧场等级缓存 */ }
     return result;
 }
 
