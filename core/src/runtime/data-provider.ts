@@ -85,14 +85,14 @@ function createDataProvider(options: DataProviderOptions) {
             if (fnosCategory) {
                 if (rawRef && rawRef !== 'all' && !accountId) return [];
                 const scoped = fnosLogs.getFnosCategoryLogs(fnosCategory, (!rawRef || rawRef === 'all') ? '' : String(accountId), fnosLogs.normalizeFnosErrorLevel(opts.fnosLevel));
-                return filterLogs(scoped, opts).slice(-max);
+                return filterLogs(fnosLogs.filterFnosLogSpace(scoped, opts.fnosSpace), opts).slice(-max);
             }
             if (!rawRef || rawRef === 'all') {
-                return filterLogs(globalLogs, opts).slice(-max);
+                return filterLogs(fnosLogs.filterFnosLogSpace(globalLogs, opts.fnosSpace), opts).slice(-max); // [fnos-fork] space=farm|ranch
             }
             if (!accountId) return [];
             const accId = String(accountId || '');
-            return filterLogs(globalLogs.filter(l => String(l.accountId || '') === accId), opts).slice(-max);
+            return filterLogs(fnosLogs.filterFnosLogSpace(globalLogs.filter(l => String(l.accountId || '') === accId), opts.fnosSpace), opts).slice(-max); // [fnos-fork] space
         },
 
         getAccountLogs: (limit: number) => accountLogs.slice(-limit).reverse(),

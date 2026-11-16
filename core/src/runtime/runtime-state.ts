@@ -195,7 +195,8 @@ function createRuntimeState(options: RuntimeStateOptions) {
                     return false;
                 }
             }
-            if (eventName && String((l.meta || {}).event || '') !== eventName) return false;
+            // [fnos-fork] event 支持逗号分隔多个（牧场日志筛选把同一类的多个事件合成一项）
+            if (eventName && !eventName.split(',').map(e => e.trim()).filter(Boolean).includes(String((l.meta || {}).event || ''))) return false;
             if (isWarn !== undefined && isWarn !== null && String(isWarn) !== '') {
                 const expected = String(isWarn) === '1' || String(isWarn).toLowerCase() === 'true';
                 if (!!l.isWarn !== expected) return false;

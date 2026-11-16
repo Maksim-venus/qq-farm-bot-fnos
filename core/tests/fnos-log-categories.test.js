@@ -53,10 +53,10 @@ test('环形缓冲各自 1000 条上限，不被普通日志挤掉；清空按�
 });
 
 test('查询参数规范化', () => {
-    assert.deepEqual(cats.fnosLogQueryOptions({ category: 'STEAL', level: 'x' }), { fnosCategory: 'steal', fnosLevel: '' });
-    assert.deepEqual(cats.fnosLogQueryOptions({ category: 'error', level: 'warn' }), { fnosCategory: 'error', fnosLevel: 'warn' });
-    assert.deepEqual(cats.fnosLogQueryOptions({ category: 'other' }), { fnosCategory: '', fnosLevel: '' });
-    assert.deepEqual(cats.fnosLogQueryOptions(null), { fnosCategory: '', fnosLevel: '' });
+    assert.deepEqual(cats.fnosLogQueryOptions({ category: 'STEAL', level: 'x' }), { fnosCategory: 'steal', fnosLevel: '', fnosSpace: '' });
+    assert.deepEqual(cats.fnosLogQueryOptions({ category: 'error', level: 'warn' }), { fnosCategory: 'error', fnosLevel: 'warn', fnosSpace: '' });
+    assert.deepEqual(cats.fnosLogQueryOptions({ category: 'other' }), { fnosCategory: '', fnosLevel: '', fnosSpace: '' });
+    assert.deepEqual(cats.fnosLogQueryOptions(null), { fnosCategory: '', fnosLevel: '', fnosSpace: '' });
 });
 
 test('provider.getLogs 支持 fnosCategory / fnosLevel，clearLogs 同步清分类缓冲', () => {
@@ -101,4 +101,22 @@ test('provider.getLogs 支持 fnosCategory / fnosLevel，clearLogs 同步清分�
     provider.clearLogs('1');
     assert.equal(provider.getLogs('1', { limit: 100, fnosCategory: 'error' }).length, 0);
     assert.equal(provider.getLogs('1', { limit: 100, fnosCategory: 'steal' }).length, 0);
+});
+
+// [fnos-fork] 2026-11-17 农场 / 牧场日志分开
+test('isFnosRanchLog / filterFnosLogSpace：按 module/event/tag 区分农场与牧场日志', () => {
+    const e = (tag, meta) => ({ accountId: '1', tag, msg: 'x', meta });
+    const rows = [
+        e('系统', { module: 'ranch', event: 'ranch_putMosquito' }),
+        e('任务', { module: 'task', event: 'ranch_task_claim' }),
+        e('牧场', { module: 'ranch', event: 'fnos好友牧场' }),
+        e('农场', { module: 'farm', event: '农场循环' }),
+        e('好友', { module: 'friend', event: '照顾好友' }),
+        e('任务', { module: 'task', event: 'task_claim' }),
+    ];
+    assert.deepEqual(rows.map(cats.isFnosRanchLog), [true, true, true, false, false, false]);
+    assert.equal(cats.filterFnosLogSpace(rows, 'ranch').length, 3);
+    assert.equal(cats.filterFnosLogSpace(rows, 'farm').length, 3);
+    assert.equal(cats.filterFnosLogSpace(rows, '').length, 6);
+    assert.deepEqual(cats.fnosLogQueryOptions({ space: 'RANCH' }), { fnosCategory: '', fnosLevel: '', fnosSpace: 'ranch' });
 });

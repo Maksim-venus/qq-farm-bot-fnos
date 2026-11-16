@@ -44,3 +44,24 @@ test('空列表文案', () => {
   assert.equal(m.fnosEmptyLogText('error'), '暂无报错日志')
   assert.equal(m.fnosEmptyLogText('all'), '暂无日志')
 })
+
+// [fnos-fork] 2026-11-17 农场 / 牧场日志分开
+test('fnos-log-space：区分农场与牧场日志、牧场筛选项', () => {
+  const s = loadModule('fnos-log-space')
+  const rows = [
+    { tag: '系统', meta: { module: 'ranch', event: 'ranch_steal' } },
+    { tag: '任务', meta: { module: 'task', event: 'ranch_daily_share' } },
+    { tag: '农场', meta: { module: 'farm', event: '农场循环' } },
+    { tag: '好友', meta: { module: 'friend', event: '照顾好友' } },
+  ]
+  assert.deepEqual(rows.map(s.fnosIsRanchLog), [true, true, false, false])
+  assert.equal(s.fnosFilterLogSpace(rows, 'ranch').length, 2)
+  assert.equal(s.fnosFilterLogSpace(rows, 'farm').length, 2)
+  assert.equal(s.fnosRanchEventLabel('ranch_fnosBad'), '放蚊子')
+  assert.equal(s.fnosRanchEventLabel('unknown_x'), 'unknown_x')
+  assert.equal(s.fnosRanchEventParam('ranch_steal,ranch_stroke', ''), 'ranch_steal,ranch_stroke')
+  assert.equal(s.fnosRanchEventParam('a', 'b'), 'b')
+  assert.equal(s.fnosRanchEventParam('', ''), undefined)
+  for (const option of [...s.FNOS_RANCH_EVENT_OPTIONS, ...s.FNOS_RANCH_SCOPE_OPTIONS].filter(o => o.value))
+    assert.ok(option.value.split(',').every(e => /^(?:ranch_|fnos牧场|fnos好友牧场)/.test(e)), option.label)
+})
