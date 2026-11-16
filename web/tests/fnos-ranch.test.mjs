@@ -28,6 +28,10 @@ test('fnosRanch：缺字段补默认、数值夹取', () => {
   assert.equal(r.friendDailyVisitLimit, 500)
   assert.equal(r.friendSteal, true)
   assert.equal(r.rotation, false)
+  assert.equal(m.FNOS_RANCH_DEFAULT.friendHelpProduce, false)
+  assert.equal(m.FNOS_RANCH_DEFAULT.friendPutMosquito, false)
+  assert.equal(m.fnosNormalizeRanch({ friendPutPerFriend: 99 }).friendPutPerFriend, 9)
+  assert.equal(m.fnosNormalizeRanch({}).friendPutPerFriend, 3)
 })
 
 test('fnosGrassLands：默认关闭、自动补买默认开、X 夹取 0..24', () => {
@@ -45,6 +49,9 @@ test('设置页：牧场空间自动控制有「飞牛增强」卡片；农场�
   assert.match(form, /settings\.fnosRanch\.friendMosquito" label="好友牧场：打蚊子" \/>/)
   assert.match(form, /settings\.fnosRanch\.friendFeedPerTime/)
   assert.match(form, /settings\.fnosRanch\.friendFeedKeep/)
+  assert.match(form, /settings\.fnosRanch\.friendHelpProduce" label="好友牧场：帮忙生产" \/>/)
+  assert.match(form, /settings\.fnosRanch\.friendPutMosquito" label="好友牧场：放蚊子（捣乱）" \/>/)
+  assert.match(form, /settings\.fnosRanch\.friendPutPerFriend/)
   assert.doesNotMatch(form, /待抓包/)
   assert.match(form, /data-testid="fnos-grass-lands"/)
   assert.match(form, /settings\.fnosGrassLands\.count/)
