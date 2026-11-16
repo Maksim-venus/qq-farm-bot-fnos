@@ -11,6 +11,8 @@ export {};
  */
 
 const GRASS_SEED_ID = 20040;
+const GRASS_PLANT_ID = 1020040;
+const GRASS_FRUIT_ID = 7001; // [fnos-fork] 2026-11-16 牧草收获物：不自动出售（留给牧场）
 const GRASS_SHOP_ID = 4;
 const GRASS_GOODS_ID = 2129;
 const MAX_COUNT = 24;
@@ -129,4 +131,15 @@ async function plantFnosGrassLands(landIds: number[], options: { lands?: any[]; 
     return out;
 }
 
-module.exports = { GRASS_SEED_ID, GRASS_GOODS_ID, DEFAULT_FNOS_GRASS_LANDS, normalizeFnosGrassLands, pickGrassLandIds, plantFnosGrassLands };
+/** [fnos-fork] 2026-11-16 所有正在长牧草的地（无论是否自动种的）都不自动施肥：从目标里剔除。 */
+function isGrassLand(land: any): boolean {
+    const plant = land && land.plant;
+    if (!plant) return false;
+    return num(plant.id) === GRASS_PLANT_ID || num(plant.seed_id ?? plant.seedId) === GRASS_SEED_ID;
+}
+function excludeGrassLandIds(landIds: number[], lands: any[]): number[] {
+    const grass = new Set((Array.isArray(lands) ? lands : []).filter(isGrassLand).map(l => num(l.id)));
+    return (Array.isArray(landIds) ? landIds : []).filter(id => !grass.has(num(id)));
+}
+
+module.exports = { GRASS_SEED_ID, GRASS_PLANT_ID, GRASS_FRUIT_ID, isGrassLand, excludeGrassLandIds, GRASS_GOODS_ID, DEFAULT_FNOS_GRASS_LANDS, normalizeFnosGrassLands, pickGrassLandIds, plantFnosGrassLands };

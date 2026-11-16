@@ -93,3 +93,17 @@ test('播种挂钩：planting.ts 在图鉴优先播种之前调用牧草地', ()
     const i = src.indexOf("require('../fnos-illustrated-auto').plantFnosIllustratedSeeds");
     assert.ok(g > 0 && i > g);
 });
+
+test('[2026-11-16] 牧草地不施肥：剔除正在长牧草的地；牧草收获物 7001 标记不出售', () => {
+    const lands = [
+        { id: 1, unlocked: true, plant: { id: 1020040 } },
+        { id: 2, unlocked: true, plant: { id: 1020001 } },
+        { id: 3, unlocked: true },
+        { id: 4, unlocked: true, plant: { id: 0, seed_id: 20040 } },
+    ];
+    assert.equal(grass.isGrassLand(lands[0]), true);
+    assert.equal(grass.isGrassLand(lands[2]), false);
+    assert.deepEqual(grass.excludeGrassLandIds([1, 2, 3, 4], lands), [2, 3]);
+    assert.deepEqual(grass.excludeGrassLandIds([1, 2], []), [1, 2]);
+    assert.equal(grass.GRASS_FRUIT_ID, gameConfig.getPlantBySeedId(grass.GRASS_SEED_ID).fruit.id);
+});

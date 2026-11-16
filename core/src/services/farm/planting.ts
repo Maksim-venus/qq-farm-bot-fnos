@@ -798,7 +798,7 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
         fnosGrassPlanted.push(...grass.plantedLandIds);
         landsToPlant = grass.remainingLandIds;
         if (grass.uncertain || landsToPlant.length === 0) {
-            if (fnosGrassPlanted.length > 0) await runFertilizerByConfig(fnosGrassPlanted, options);
+            // [fnos-fork] 2026-11-16 牧草地不施肥
             return { plantedLands: [...new Set(fnosGrassPlanted)] };
         }
     } catch (e: any) {
@@ -819,7 +819,7 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
         fnosIllustratedPlanted.push(...fnosResult.plantedLandIds);
         landsToPlant = fnosResult.remainingLandIds;
         if (fnosResult.uncertain || landsToPlant.length === 0) {
-            if (fnosIllustratedPlanted.length > 0) await runFertilizerByConfig(fnosIllustratedPlanted, options);
+            { const fert = fnosIllustratedPlanted.filter(id => !fnosGrassPlanted.includes(id)); if (fert.length > 0) await runFertilizerByConfig(fert, options); } // [fnos-fork] 2026-11-16 牧草地不施肥
             return { plantedLands: [...new Set(fnosIllustratedPlanted)] };
         }
     } catch (e: any) {
@@ -1112,6 +1112,12 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
         if (options.propagateErrors) throw e;
     }
 
+    // [fnos-fork] 2026-11-16 所有牧草地都不自动施肥（无论是否自动种的）
+    const fnosNoGrass = (ids: number[]): number[] => latestLands.length > 0 ? require('./fnos-grass-lands').excludeGrassLandIds(ids, latestLands) : ids;
+    const fnosPlantedBefore = planted.length;
+    planted.splice(0, planted.length, ...fnosNoGrass(planted));
+    if (fnosPlantedBefore > 0 && planted.length === 0 && fertilizerConfig !== 'organic' && fertilizerConfig !== 'both' && fertilizerConfig !== 'smart') return { normal: 0, organic: 0 };
+
     const isAllLandTypesSelected: boolean = selectedLandTypes.length === ALL_FERTILIZER_LAND_TYPES.length;
     if (landTypeById.size === 0 && !isAllLandTypesSelected) {
         logWarn('施肥', `${reasonLabel}：无法确认土地类型，已跳过本轮施肥`, {
@@ -1199,6 +1205,7 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
             organicTargets = filterLandIdsByTypes(organicTargets, landTypeById, selectedLandTypes);
             }
 
+        organicTargets = fnosNoGrass(organicTargets); // [fnos-fork] 2026-11-16 牧草地不施肥
         fertilizedOrganic = await fertilizeOrganicLoop(organicTargets, options.propagateErrors);
         if (fertilizedOrganic > 0) {
             log('施肥', `${reasonLabel}：有机化肥循环施肥完成，共施 ${fertilizedOrganic} 次（范围: ${selectedLandTypeNames.join('、')}）`, {
@@ -1219,6 +1226,7 @@ async function runFertilizerByConfig(plantedLands: any[] = [], options: { skipNo
         try {
             const latest = await getAllLands();
             organicTargets = getFastMatureLands(latest && latest.lands, smartSeconds);
+            organicTargets = require('./fnos-grass-lands').excludeGrassLandIds(organicTargets, latest && latest.lands); // [fnos-fork] 2026-11-16 牧草地不施肥
         } catch (e: any) {
             logWarn('施肥', `获取全农场地块失败 ${e.message}`);
             if (options.propagateErrors) throw e;
