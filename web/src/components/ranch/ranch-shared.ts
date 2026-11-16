@@ -6,8 +6,10 @@ import { computed, inject, onBeforeUnmount, provide, ref, watch } from 'vue'
 import { useAccountStore } from '@/stores/account'
 import { useRanchStore } from '@/stores/ranch'
 import { useToastStore } from '@/stores/toast'
+import { gatewayPath } from '@/utils/gateway'
 
-export const RANCH_IMAGE = (id: number | string) => `/game-config/seed_images_named/seed_images/${id}.png`
+// [fnos-fork] 走飞牛网关前缀（/app/qq-farm-bot/game-config/...）；缺图由全局 <img> 占位图兜底。
+export const RANCH_IMAGE = (id: number | string) => gatewayPath(`/game-config/seed_images_named/seed_images/${id}.png`)
 /** 罐头桶在背包里按秒计量，展示时用对应罐头的图标。 */
 export const BUCKETS = [
   { id: 7003, name: '普通罐头', image: RANCH_IMAGE(80021) },
