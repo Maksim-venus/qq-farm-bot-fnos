@@ -51,7 +51,7 @@ export function provideRanchActions(): RanchActions {
     if (!quote || accountId !== String(currentAccountId.value || ''))
       return
     if (quote.skipped) {
-      toast.info('当前没有可操作项目')
+      toast.info((quote as any).message || '当前没有可操作项目') // [fnos-fork] 优先显示后端说明
       return
     }
     pending.value = { accountId, action, input, quote }

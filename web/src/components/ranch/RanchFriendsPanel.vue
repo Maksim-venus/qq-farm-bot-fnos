@@ -75,6 +75,34 @@ async function toggle(friend: any) {
   selected.value = friend.gid
   await ranch.load(id, 'friends', undefined, friend.gid)
 }
+// [fnos-fork] 好友列表行内「偷取 / 捣乱」：大小号规则置灰原因来自后端 fnosRules（空串=允许），放蚊子次数用完也置灰。
+const friendTimes = ref<{ putMosquito?: number, stroke?: number } | null>(null)
+watch(state, (value) => {
+  if (value?.friendTimes)
+    friendTimes.value = value.friendTimes
+  if (value?.friendRanch && typeof value.friendRanch.mosquitoRemaining === 'number')
+    friendTimes.value = { ...(friendTimes.value || {}), putMosquito: value.friendRanch.mosquitoRemaining }
+  if (value?.friends && listLoaded.value)
+    friends.value = value.friends
+})
+const mosquitoExhausted = computed(() => friendTimes.value?.putMosquito === 0)
+function ruleOf(friend: any, action: 'steal' | 'putMosquito' | 'cleanFriend') {
+  const fromDetail = detail.value?.gid === friend.gid ? detail.value?.fnosRules?.[action] : undefined
+  return String(fromDetail ?? friend.fnosRules?.[action] ?? '')
+}
+function stealBlock(friend: any) {
+  return ruleOf(friend, 'steal')
+}
+function badBlock(friend: any) {
+  return ruleOf(friend, 'putMosquito') || (mosquitoExhausted.value ? '今日放蚊子次数已用完' : '')
+}
+function rowAction(friend: any, action: 'steal' | 'fnosBad') {
+  const reason = action === 'steal' ? stealBlock(friend) : badBlock(friend)
+  if (reason || disabled.value)
+    return
+  void request(action, { hostGid: friend.gid })
+}
+
 async function reloadList() {
   const id = String(currentAccountId.value || '')
   if (id && !disabled.value) {
@@ -137,7 +165,28 @@ async function reloadList() {
                   </span>
                 </template>
                 <span v-else class="f-tag">点击查看牧场</span>
+                <!-- [fnos-fork] 好友列表协议只有农场等级；牧场等级展开后显示 -->
+                <span v-if="Number(friend.level) > 0" class="f-tag f-tag--level" title="农场等级（好友列表只带农场等级，展开后另显示牧场等级）">{{ selected === friend.gid && detail ? '农场 ' : '' }}Lv.{{ friend.level }}</span>
               </div>
+            </div>
+            <!-- [fnos-fork] 与农场好友一致的行内操作：偷取 / 捣乱（放蚊子），不符合大小号规则或次数用完时置灰 -->
+            <div class="friend-actions" @click.stop @keydown.stop>
+              <span :title="stealBlock(friend) || '偷取好友牧场货架产物'">
+                <NButton size="small" secondary :type="selected === friend.gid && detail?.canSteal ? 'primary' : 'default'" :disabled="disabled || !!stealBlock(friend)" :aria-label="`偷取${friend.name}的牧场`" @click="rowAction(friend, 'steal')">
+                  <template #icon>
+                    <span class="i-carbon-shopping-bag" />
+                  </template>
+                  偷取
+                </NButton>
+              </span>
+              <span :title="badBlock(friend) || '给好友各栏舍放蚊子（放满或次数用完为止）'">
+                <NButton size="small" secondary :disabled="disabled || !!badBlock(friend)" :aria-label="`向${friend.name}的牧场捣乱`" @click="rowAction(friend, 'fnosBad')">
+                  <template #icon>
+                    <span class="i-carbon-debug" />
+                  </template>
+                  捣乱
+                </NButton>
+              </span>
             </div>
             <span class="friend-chevron i-carbon-chevron-down" aria-hidden="true" />
           </div>
@@ -153,14 +202,16 @@ async function reloadList() {
               <div class="friend-interactions">
                 <span>今日可抚摸 <b>{{ detail.strokeRemaining }}</b> 次</span>
                 <span>今日可放蚊子 <b>{{ detail.mosquitoRemaining }}</b> 次</span>
-                <NButton size="small" secondary :disabled="disabled || !detail.cleanableHazards" @click="request('cleanFriend', { hostGid: friend.gid })">
+                <span v-if="!detail.mosquitoRemaining" class="friend-interactions__warn">今日放蚊子次数已用完</span>
+                <span v-if="detail.fnosRules?.putMosquito" class="friend-interactions__warn">{{ detail.fnosRules.putMosquito }}</span>
+                <NButton size="small" secondary :title="detail.fnosRules?.cleanFriend || ''" :disabled="disabled || !detail.cleanableHazards || !!detail.fnosRules?.cleanFriend" @click="request('cleanFriend', { hostGid: friend.gid })">
                   一键清理
                 </NButton>
               </div>
               <section v-for="pen in detail.ranches" :key="pen.id" class="friend-pen">
                 <div class="friend-shelves__head">
                   <h4>{{ pen.name }} <small>蚊子 {{ pen.mosquitoes }} / {{ pen.mosquitoLimit }}</small></h4>
-                  <NButton size="small" secondary :disabled="disabled || !pen.mosquitoRoom || !detail.mosquitoRemaining" :aria-label="`向好友${pen.name}放蚊子`" @click="request('putMosquito', { hostGid: friend.gid, ranchId: pen.id })">
+                  <NButton size="small" secondary :disabled="disabled || !pen.mosquitoRoom || !detail.mosquitoRemaining || !!detail.fnosRules?.putMosquito" :title="detail.fnosRules?.putMosquito || ''" :aria-label="`向好友${pen.name}放蚊子`" @click="request('putMosquito', { hostGid: friend.gid, ranchId: pen.id })">
                     放蚊子
                   </NButton>
                 </div>
@@ -174,7 +225,7 @@ async function reloadList() {
               </section>
               <div class="friend-shelves__head">
                 <span><span class="i-carbon-box" aria-hidden="true" />货架产物</span>
-                <NButton size="small" type="primary" :disabled="disabled || !detail.canSteal" @click="request('steal', { hostGid: friend.gid })">
+                <NButton size="small" type="primary" :title="detail.fnosRules?.steal || ''" :disabled="disabled || !detail.canSteal || !!detail.fnosRules?.steal" @click="request('steal', { hostGid: friend.gid })">
                   <template #icon>
                     <span class="i-carbon-shopping-bag" />
                   </template>
@@ -311,7 +362,7 @@ async function reloadList() {
 
 .friend-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 20px;
+  grid-template-columns: 44px minmax(0, 1fr) auto 20px;
   align-items: center;
   gap: 14px;
   padding: 14px 16px;
@@ -405,6 +456,16 @@ async function reloadList() {
   color: var(--ui-primary);
   background: var(--ui-primary-soft);
   font-weight: var(--fw-600);
+}
+
+.friend-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.friend-interactions__warn {
+  color: var(--ui-danger, #d03050);
 }
 
 .friend-chevron {
@@ -528,6 +589,19 @@ async function reloadList() {
     grid-template-columns: 40px minmax(0, 1fr) 20px;
     gap: 12px;
     padding: 12px;
+  }
+
+  .friend-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .friend-actions > span {
+    flex: 1 1 0;
+  }
+
+  .friend-actions .n-button {
+    width: 100%;
   }
 
   .friend-avatar {

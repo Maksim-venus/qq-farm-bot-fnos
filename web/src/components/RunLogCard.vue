@@ -9,6 +9,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
+import { FNOS_RANCH_EVENT_OPTIONS, FNOS_RANCH_SCOPE_OPTIONS, fnosFilterLogSpace, fnosRanchEventLabel, fnosRanchEventParam } from '@/utils/fnos-log-space'
 
 const statusStore = useStatusStore()
 const toastStore = useToastStore()
@@ -19,8 +20,9 @@ const autoScroll = ref(true)
 const clearingLogs = ref(false)
 const filter = reactive({ module: '', event: '', keyword: '', isWarn: '' })
 
+// [fnos-fork] 此卡片只在牧场概览使用：只显示牧场日志，用牧场自己的筛选（范围 / 事件），与农场概览的筛选互不影响
 const allLogs = computed(() => {
-  return [...(statusLogs.value || [])]
+  return fnosFilterLogSpace([...(statusLogs.value || [])], 'ranch')
     .slice(-200)
     .sort((a: any, b: any) => a.ts - b.ts)
 })
@@ -61,51 +63,12 @@ const hasActiveLogFilter = computed(() =>
   !!(filter.module || filter.event || filter.keyword || filter.isWarn),
 )
 
-const modules = [
-  { label: '所有模块', value: '' },
-  { label: '农场', value: 'farm' },
-  { label: '牧场', value: 'ranch' },
-  { label: '好友', value: 'friend' },
-  { label: '仓库', value: 'warehouse' },
-  { label: '任务', value: 'task' },
-  { label: '系统', value: 'system' },
-]
-
-const events = [
-  { label: '所有事件', value: '' },
-  { label: '农场巡查', value: 'farm_cycle' },
-  { label: '收获作物', value: 'harvest_crop' },
-  { label: '清理枯株', value: 'remove_plant' },
-  { label: '种植种子', value: 'plant_seed' },
-  { label: '施加化肥', value: 'fertilize' },
-  { label: '土地推送', value: 'lands_notify' },
-  { label: '选择种子', value: 'seed_pick' },
-  { label: '购买种子', value: 'seed_buy' },
-  { label: '购买化肥', value: 'fertilizer_buy' },
-  { label: '开启礼包', value: 'fertilizer_gift_open' },
-  { label: '获取任务', value: 'task_scan' },
-  { label: '完成任务', value: 'task_claim' },
-  { label: '免费礼包', value: 'mall_free_gifts' },
-  { label: '分享奖励', value: 'daily_share' },
-  { label: '会员礼包', value: 'vip_daily_gift' },
-  { label: '月卡礼包', value: 'month_card_gift' },
-  { label: '图鉴奖励', value: 'illustrated_rewards' },
-  { label: '邮箱领取', value: 'email_rewards' },
-  { label: '出售成功', value: 'sell_success' },
-  { label: '土地升级', value: 'upgrade_land' },
-  { label: '土地解锁', value: 'unlock_land' },
-  { label: '好友巡查', value: 'friend_cycle' },
-  { label: '访问好友', value: 'visit_friend' },
-  { label: '牧场任务', value: 'ranch_task_claim' },
-  { label: '牧场分享礼包', value: 'ranch_daily_share' },
-]
-
-const eventLabelMap: Record<string, string> = Object.fromEntries(
-  events.filter(e => e.value).map(e => [e.value, e.label]),
-)
+// [fnos-fork] 牧场筛选：filter.module 存「范围」、filter.event 存「事件」（均为逗号分隔的 meta.event 列表）
+const modules = FNOS_RANCH_SCOPE_OPTIONS
+const events = FNOS_RANCH_EVENT_OPTIONS
 
 function getEventLabel(event: string) {
-  return eventLabelMap[event] || event
+  return fnosRanchEventLabel(event)
 }
 
 const logs = [
@@ -128,8 +91,8 @@ async function loadLogs(force = false) {
     return
   if (force || hasActiveLogFilter.value || !realtimeConnected.value) {
     await statusStore.fetchLogs(currentAccountId.value, {
-      module: filter.module || undefined,
-      event: filter.event || undefined,
+      space: 'ranch', // [fnos-fork]
+      event: fnosRanchEventParam(filter.module, filter.event),
       keyword: filter.keyword || undefined,
       isWarn: filter.isWarn === 'warn' ? true : filter.isWarn === 'info' ? false : undefined,
     })
@@ -230,7 +193,7 @@ useIntervalFn(loadLogs, 10000)
     <div class="dash-logs__card flex flex-1 flex-col farm-card rounded-2xl bg-white p-5 shadow-md md:overflow-hidden dark:bg-gray-800">
       <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <h3 class="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold">
-          <span class="i-carbon-document" /> <span>运行日志</span>
+          <span class="i-carbon-document" /> <span>运行日志</span><span class="text-sm text-gray-400 font-normal" title="农场日志在「农场 → 概览」，筛选各自独立">· 牧场</span>
         </h3>
 
         <div class="log-filters">
@@ -289,7 +252,7 @@ useIntervalFn(loadLogs, 10000)
 
       <div ref="logContainer" class="log-list max-h-[60vh] min-h-0 flex-1 overflow-y-auto md:max-h-none" @scroll="onLogScroll">
         <div v-if="!allLogs.length" class="py-8 text-center text-gray-400">
-          暂无日志
+          暂无牧场日志
         </div>
         <div
           v-for="group in logGroups"

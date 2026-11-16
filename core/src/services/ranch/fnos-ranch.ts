@@ -328,6 +328,46 @@ function friendActionAllowed(input: { gid: number; action: string; alt: any; rel
     return true;
 }
 
+/**
+ * [fnos-fork] 纯函数：面板手动按钮用的置灰原因（与 friendActionAllowed 同一套规则），允许时返回空串。
+ * 牧场好友列表的「偷取 / 捣乱」与详情里的「一键清理 / 放蚊子」都按这个置灰，后端手动入口也按这个拦截。
+ */
+function friendActionBlockReason(input: { gid: number; action: string; alt: any; relatedGids: number[] }): string {
+    if (friendActionAllowed(input)) return '';
+    const { alt } = input;
+    const masterGid = alt && alt.enabled ? num(alt.masterGid) : 0;
+    const isMaster = masterGid > 0 && num(input.gid) === masterGid;
+    const badOnlyMaster = !!(alt && alt.enabled && alt.badOnlyMaster && masterGid > 0);
+    if (input.action === 'steal') return '小号不偷大号（大小号协作已开「不偷大号的菜」）';
+    if (input.action === 'cleanFriend') return '已开「只给大号放捣乱」，大号牧场留给大号自己清理';
+    if (input.action === 'putMosquito') {
+        if (badOnlyMaster && !isMaster) return '已开「只给大号放捣乱」，只给大号放蚊子';
+        return '大小号关系账号之间不放蚊子';
+    }
+    return '大小号协作规则不允许';
+}
+
+/** [fnos-fork] 当前账号对某个好友的手动操作置灰原因：{ steal, putMosquito, cleanFriend }，空串表示允许。 */
+function manualFriendRules(hostGid: unknown): Record<'steal' | 'putMosquito' | 'cleanFriend', string> {
+    let alt: any = null;
+    try { alt = readConfigs().alt; } catch { alt = null; }
+    const gid = num(hostGid);
+    const relatedGids = relatedGidsCached(selfGid(), alt);
+    const reason = (action: string) => friendActionBlockReason({ gid, action, alt, relatedGids });
+    return { steal: reason('steal'), putMosquito: reason('putMosquito'), cleanFriend: reason('cleanFriend') };
+}
+
+/** [fnos-fork] 手动入口（报价与执行）按大小号规则拦截。 */
+function assertManualFriendAction(hostGid: unknown, action: string): void {
+    const rules: Record<string, string> = manualFriendRules(hostGid);
+    const reason = rules[action];
+    if (reason) {
+        const err: any = new Error(reason);
+        err.code = 'RANCH_ALT_RULE';
+        throw err;
+    }
+}
+
 function relatedGidsCached(myGid: number, alt: any, nowMs: number = Date.now()): number[] {
     if (nowMs - rt.relatedCache.at > 60_000) rt.relatedCache = { at: nowMs, gids: readRelatedGids(myGid, alt) };
     return rt.relatedCache.gids;
@@ -453,6 +493,9 @@ module.exports = {
     pickAnimalForBook,
     hasForkWork,
     friendActionAllowed,
+    friendActionBlockReason,
+    manualFriendRules,
+    assertManualFriendAction,
     readRelatedGids,
     wrapFriendWanted,
     friendExtrasEnabled,

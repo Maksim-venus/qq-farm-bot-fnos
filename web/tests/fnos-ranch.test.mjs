@@ -61,3 +61,22 @@ test('设置页：牧场空间自动控制有「飞牛增强」卡片；农场�
   assert.match(page, /fnosRanch: fnosNormalizeRanch\(source\.fnosRanch\)/)
   assert.match(page, /delete payload\.fnosRanch/)
 })
+
+// [fnos-fork] 2026-11-17 牧场最近访客
+test('fnos-ranch-visitors：筛选、徽标、时间格式；牧场好友分区含「最近访客」标签', () => {
+  const v = loadModule('fnos-ranch-visitors')
+  assert.deepEqual(v.FNOS_RANCH_VISITOR_FILTERS.map(f => f.key), ['all', 'steal', 'bad', 'help', 'stroke', 'other'])
+  assert.equal(v.fnosRanchVisitorMatches({ actionKey: 'steal' }, 'steal'), true)
+  assert.equal(v.fnosRanchVisitorMatches({ actionKey: 'bad' }, 'steal'), false)
+  assert.equal(v.fnosRanchVisitorMatches({}, 'other'), true)
+  assert.equal(v.fnosRanchVisitorMatches({ actionKey: 'bad' }, 'all'), true)
+  assert.match(v.fnosRanchVisitorBadge('bad'), /red/)
+  const now = new Date(2026, 10, 17, 12, 0, 0).getTime()
+  assert.equal(v.fnosFormatVisitorTime(0, now), '--')
+  assert.equal(v.fnosFormatVisitorTime(now - 30_000, now), '刚刚')
+  assert.equal(v.fnosFormatVisitorTime(now - 5 * 60_000, now), '5 分钟前')
+  assert.equal(v.fnosFormatVisitorTime(new Date(2026, 10, 17, 9, 5).getTime(), now), '今天 09:05')
+  assert.equal(v.fnosFormatVisitorTime(new Date(2026, 10, 16, 13, 5).getTime(), now), '11-16 13:05')
+  const ranchView = readFileSync(new URL('../src/views/Ranch.vue', import.meta.url), 'utf8')
+  assert.match(ranchView, /key: 'visitors', label: '最近访客'/)
+})

@@ -237,3 +237,31 @@ test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清
     assert.deepEqual(writes, ['steal']);
     apply({ fnosAltAccount: { enabled: false, skipStealMaster: false, badOnlyMaster: false } });
 });
+
+// [fnos-fork] 2026-11-17 牧场好友列表行内「偷取 / 捣乱」按钮：置灰原因与「捣乱」放蚊子计划
+test('friendActionBlockReason：手动按钮置灰原因与 friendActionAllowed 一致', () => {
+    const why = (gid, action, alt, relatedGids = []) => ranch.friendActionBlockReason({ gid, action, alt, relatedGids });
+    const small = { enabled: true, masterGid: 2002, skipStealMaster: true, badOnlyMaster: false };
+    assert.match(why(2002, 'steal', small), /不偷大号/);
+    assert.equal(why(3003, 'steal', small), '');
+    assert.match(why(2002, 'putMosquito', small), /之间不放蚊子/);
+    assert.match(why(4004, 'putMosquito', small, [4004]), /之间不放蚊子/);
+    assert.equal(why(3003, 'putMosquito', small), '');
+    const onlyMaster = { ...small, badOnlyMaster: true };
+    assert.equal(why(2002, 'putMosquito', onlyMaster), '');
+    assert.match(why(3003, 'putMosquito', onlyMaster), /只给大号放蚊子/);
+    assert.match(why(2002, 'cleanFriend', onlyMaster), /留给大号/);
+    assert.equal(why(2002, 'steal', null), '');
+    assert.equal(why(2002, 'putMosquito', null), '');
+});
+
+test('badPlan：放满各栏舍蚊子，受每日剩余次数限制', () => {
+    const friends = require('../dist/services/ranch/friends');
+    const pen = (id, type, mosquitoes) => ({ ranch_inst_id: id, husbandry_type: type, hazards: Array.from({ length: mosquitoes }, (_, i) => ({ hazard_type: 1, hazard_id: i + 1 })) });
+    const ranches = [pen(11, 1, 0), pen(12, 2, 0)];
+    const full = friends.badPlan(ranches, '2002', { putMosquito: 100 });
+    assert.ok(full.count > 0);
+    assert.equal(full.count, full.pens.reduce((sum, p) => sum + p.room, 0));
+    assert.equal(friends.badPlan(ranches, '2002', { putMosquito: 1 }).count, 1);
+    assert.equal(friends.badPlan(ranches, '2002', { putMosquito: 0 }).count, 0);
+});

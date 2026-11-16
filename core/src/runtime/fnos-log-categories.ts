@@ -109,11 +109,37 @@ export function clearFnosCategoryLogs(accountId = ''): void {
     }
 }
 
-/** /api/logs 的查询参数：category=steal|error，level=error|warn（仅报错分类生效）。 */
-export function fnosLogQueryOptions(query: any): { fnosCategory: FnosLogCategory | '', fnosLevel: FnosErrorLevel } {
+// ============ [fnos-fork] 2026-11-17 农场 / 牧场日志分开 ============
+export type FnosLogSpace = 'farm' | 'ranch' | '';
+
+/**
+ * 牧场日志：meta.module = ranch，或 meta.event 以 ranch_ / fnos牧场 / fnos好友牧场 开头（牧场任务、分享礼包挂在 module=task 下，
+ * 按 event 归到牧场），或 tag = 牧场。其余都算农场日志（含好友、仓库、任务、系统）。
+ */
+export function isFnosRanchLog(entry: any): boolean {
+    if (!entry || typeof entry !== 'object') return false;
+    const meta = metaOf(entry);
+    const event = String(meta.event || '');
+    return String(meta.module || '') === 'ranch' || /^(ranch_|fnos牧场|fnos好友牧场)/.test(event) || String(entry.tag || '') === '牧场';
+}
+
+export function normalizeFnosLogSpace(value: unknown): FnosLogSpace {
+    const v = String(value || '').trim().toLowerCase();
+    return v === 'farm' || v === 'ranch' ? v : '';
+}
+
+export function filterFnosLogSpace(list: any[], space: unknown): any[] {
+    const s = normalizeFnosLogSpace(space);
+    if (!s) return list;
+    return (list || []).filter(entry => isFnosRanchLog(entry) === (s === 'ranch'));
+}
+
+/** /api/logs 的查询参数：category=steal|error，level=error|warn（仅报错分类生效），space=farm|ranch。 */
+export function fnosLogQueryOptions(query: any): { fnosCategory: FnosLogCategory | '', fnosLevel: FnosErrorLevel, fnosSpace: FnosLogSpace } {
     const q = query && typeof query === 'object' ? query : {};
     return {
         fnosCategory: normalizeFnosLogCategory(q.category),
         fnosLevel: normalizeFnosErrorLevel(q.level),
+        fnosSpace: normalizeFnosLogSpace(q.space),
     };
 }

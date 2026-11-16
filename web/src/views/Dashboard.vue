@@ -15,6 +15,7 @@ import { useBagStore } from '@/stores/bag'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
 import { FNOS_ERROR_LEVEL_OPTIONS, FNOS_LOG_VIEWS, fnosBuildLogCategoryParams, fnosEmptyLogText, fnosIsCategoryLogView } from '@/utils/fnos-log-categories'
+import { fnosFilterLogSpace } from '@/utils/fnos-log-space'
 
 const statusStore = useStatusStore()
 const accountStore = useAccountStore()
@@ -34,8 +35,9 @@ const autoScroll = ref(true)
 const lastBagFetchAt = ref(0)
 const clearingLogs = ref(false)
 
+// [fnos-fork] 农场概览只显示农场日志（牧场日志在牧场概览，筛选各自独立）
 const allLogs = computed(() => {
-  return [...(statusLogs.value || [])]
+  return fnosFilterLogSpace([...(statusLogs.value || [])], 'farm')
     .slice(-200)
     .sort((a: any, b: any) => a.ts - b.ts)
 })
@@ -395,6 +397,7 @@ async function refresh(forceReloadLogs = false) {
         keyword: filter.keyword || undefined,
         isWarn: filter.isWarn === 'warn' ? true : filter.isWarn === 'info' ? false : undefined,
         ...fnosBuildLogCategoryParams(logView.value, fnosErrorLevel.value), // [fnos-fork]
+        space: 'farm', // [fnos-fork] 服务端先排除牧场日志
       })
     }
 
@@ -627,7 +630,7 @@ useIntervalFn(updateCountdowns, 1000)
         <div class="dash-log-card farm-card rounded-2xl bg-white p-5 shadow-md dark:bg-gray-800">
           <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <h3 class="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold">
-              <span class="i-carbon-document" /> <span>运行日志</span>
+              <span class="i-carbon-document" /> <span>运行日志</span><span class="text-sm text-gray-400 font-normal" title="牧场日志在「牧场 → 概览」，筛选各自独立">· 农场</span>
             </h3>
 
             <div class="log-filters">

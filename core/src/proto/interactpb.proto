@@ -21,9 +21,17 @@ message InteractRecord {
     }
 
     Extra extra = 11;
+    // [fnos-fork] 牧场访客记录（InteractRecordsRequest scene_id=2）多出的字段，按 1116-6 #302 / 1116-7 #230 回包补：
+    // 22 = 被互动的动物 id（type 11 时出现，如 60002 鸭）；19 含义未确认（9~24 的小整数，原样保留）。
+    // 牧场回包里的 11 是访客的铭牌/头像框列表（401xxx / 21xx），与农场 Extra 同号，按 Extra 解码时多余字段被忽略。
+    int32 fnos_field19 = 19;
+    int64 fnos_animal_id = 22;
 }
 
-message InteractRecordsRequest {}
+// [fnos-fork] 1 = 场景：不带（0）为农场（上游原样），2 = 牧场（抓包 1116-3 #229 / 1116-6 #301 / 1116-7 #229）
+message InteractRecordsRequest {
+    int32 scene_id = 1;
+}
 
 message InteractRecordsReply {
     repeated InteractRecord records = 1;
