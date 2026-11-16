@@ -23,6 +23,7 @@ import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { fnosNormalizeIllustratedAuto } from '@/utils/fnos-illustrated-auto' // [fnos-fork] 图鉴（自动控制）
 import { fnosNormalizeQuietPriority } from '@/utils/fnos-quiet-priority' // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳（自动控制）
+import { fnosNormalizeGrassLands, fnosNormalizeRanch } from '@/utils/fnos-ranch' // [fnos-fork] 2026-11-16 牧场增强、牧草地
 import { fnosMoveIndex } from '@/utils/fnos-sort-order' // [fnos-fork]
 
 const fertilizerLandTypeOptions = [
@@ -929,6 +930,8 @@ const localAutomationSettings = ref({
   autoAcceptHarvestStealSteal: 1,
   fnosIllustratedAuto: fnosNormalizeIllustratedAuto(null), // [fnos-fork] 图鉴（2026-11-15 起在自动控制里）
   fnosQuietPriority: fnosNormalizeQuietPriority(null), // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
+  fnosRanch: fnosNormalizeRanch(null), // [fnos-fork] 2026-11-16 牧场增强（牧场空间自动控制）
+  fnosGrassLands: fnosNormalizeGrassLands(null), // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
 })
 
 const fertilizerOptions = [
@@ -1031,6 +1034,8 @@ function syncLocalAutomationSettings() {
     localAutomationSettings.value.autoAcceptHarvestStealSteal = settings.value.autoAcceptHarvestStealSteal ?? 1
     localAutomationSettings.value.fnosIllustratedAuto = fnosNormalizeIllustratedAuto(settings.value.fnosIllustratedAuto) // [fnos-fork]
     localAutomationSettings.value.fnosQuietPriority = fnosNormalizeQuietPriority(settings.value.fnosQuietPriority) // [fnos-fork]
+    localAutomationSettings.value.fnosRanch = fnosNormalizeRanch(settings.value.fnosRanch) // [fnos-fork] 2026-11-16
+    localAutomationSettings.value.fnosGrassLands = fnosNormalizeGrassLands(settings.value.fnosGrassLands) // [fnos-fork] 2026-11-16
   }
 }
 
@@ -1042,7 +1047,10 @@ async function saveAutomationSettings() {
   try {
     const source = localAutomationSettings.value
     const automation = Object.fromEntries(Object.entries(source.automation).filter(([key]) => key.startsWith('ranch_') === inRanch.value))
-    const payload = inRanch.value ? { automation } : { ...JSON.parse(JSON.stringify(source)), automation }
+    // [fnos-fork] 2026-11-16 牧场空间只多带 fnosRanch；农场空间不带 fnosRanch（各存各的）
+    const payload = inRanch.value ? { automation, fnosRanch: fnosNormalizeRanch(source.fnosRanch) } : { ...JSON.parse(JSON.stringify(source)), automation }
+    if (!inRanch.value)
+      delete payload.fnosRanch
     if (!inRanch.value)
       payload.automation.fertilizer_land_types = normalizeFertilizerLandTypes(payload.automation.fertilizer_land_types)
     if (!inRanch.value && payload.fnosQuietPriority)

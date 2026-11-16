@@ -1077,6 +1077,7 @@ function describeFnosStealRatio(cfg: FnosStealRatioConfig): string {
 }
 
 module.exports = {
+    loadAltRelationSnapshots, // [fnos-fork] 2026-11-16 fnos-ranch 大号优先巡查自己的小号牧场
     DEFAULT_FNOS_STEAL_RATIO,
     DEFAULT_THRESHOLD_PERCENT,
     CHECK_INTERVAL_MS,

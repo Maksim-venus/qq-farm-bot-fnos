@@ -340,6 +340,8 @@ function createDataProvider(options: DataProviderOptions) {
                 'fnosIllustratedAuto', // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
                 'fnosStealRatio', // [fnos-fork] 偷收比
                 'fnosQuietPriority', // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
+                'fnosRanch', // [fnos-fork] 2026-11-16 牧场增强
+                'fnosGrassLands', // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
             ]) {
                 copyIfPresent(key);
             }

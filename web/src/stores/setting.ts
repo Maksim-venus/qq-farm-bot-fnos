@@ -97,6 +97,63 @@ function lockLightUi(ui: UIConfig | undefined | null): UIConfig {
   return { ...(ui || {}), theme: 'light' }
 }
 
+// [fnos-fork] 2026-11-16 牧场增强 / 牧草地（与 utils/fnos-ranch.ts 相同；此处内联，store 不多依赖其他模块）
+export interface FnosRanch {
+  altHold: boolean
+  altHoldFallbackMinutes: number
+  illustratedAutoClaim: boolean
+  illustratedAutoComplete: boolean
+  friendFeed: boolean
+  friendFeedPerTime: number
+  friendFeedGoldKeep: number
+  friendHelpProduce: boolean
+}
+
+const FNOS_RANCH_DEFAULT: FnosRanch = {
+  altHold: true,
+  altHoldFallbackMinutes: 60,
+  illustratedAutoClaim: false,
+  illustratedAutoComplete: false,
+  friendFeed: false,
+  friendFeedPerTime: 10,
+  friendFeedGoldKeep: 10000,
+  friendHelpProduce: false,
+}
+
+const RANGES: Partial<Record<keyof FnosRanch, [number, number]>> = {
+  altHoldFallbackMinutes: [5, 720],
+  friendFeedPerTime: [1, 500],
+  friendFeedGoldKeep: [0, 999999999],
+}
+
+function clamp(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number.parseInt(String(value), 10)
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback
+}
+
+function fnosNormalizeRanch(input: unknown): FnosRanch {
+  const src: Record<string, any> = input && typeof input === 'object' ? input as Record<string, any> : {}
+  const out: any = {}
+  for (const key of Object.keys(FNOS_RANCH_DEFAULT) as (keyof FnosRanch)[]) {
+    const d = FNOS_RANCH_DEFAULT[key]
+    const range = RANGES[key]
+    if (range)
+      out[key] = clamp(src[key] ?? d, range[0], range[1], d as number)
+    else out[key] = src[key] !== undefined ? !!src[key] : d
+  }
+  return out as FnosRanch
+}
+
+export interface FnosGrassLands { count: number, autoBuy: boolean }
+
+function fnosNormalizeGrassLands(input: unknown): FnosGrassLands {
+  const src: Record<string, any> = input && typeof input === 'object' ? input as Record<string, any> : {}
+  return {
+    count: clamp(src.count ?? 0, 0, 24, 0),
+    autoBuy: src.autoBuy !== undefined ? !!src.autoBuy : true,
+  }
+}
+
 // [fnos-fork] 图鉴自动设置（与 utils/fnos-illustrated-auto.ts 相同；此处内联，store 不多依赖其他模块）
 export interface FnosIllustratedAuto { autoClaimRewards: boolean, autoComplete: boolean }
 function fnosNormalizeIllustratedAuto(input: any): FnosIllustratedAuto {
@@ -155,6 +212,10 @@ export interface SettingsState {
   fnosIllustratedAuto: FnosIllustratedAuto
   /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（「自动控制」里随设置一起保存） */
   fnosQuietPriority: FnosQuietPriority
+  /** [fnos-fork] 2026-11-16 牧场增强（牧场空间「自动控制」） */
+  fnosRanch: FnosRanch
+  /** [fnos-fork] 2026-11-16 最后 X 块地只种牧草（农场「自动控制」） */
+  fnosGrassLands: FnosGrassLands
 }
 
 type SaveableSettingsKey
@@ -183,6 +244,8 @@ type SaveableSettingsKey
     | 'autoAcceptHarvestStealSteal'
     | 'fnosIllustratedAuto' // [fnos-fork]
     | 'fnosQuietPriority' // [fnos-fork]
+    | 'fnosRanch' // [fnos-fork]
+    | 'fnosGrassLands' // [fnos-fork]
 
 export type SettingsSavePayload = Partial<Pick<SettingsState, SaveableSettingsKey>>
 
@@ -212,6 +275,8 @@ const SAVEABLE_SETTINGS_KEYS: SaveableSettingsKey[] = [
   'autoAcceptHarvestStealSteal',
   'fnosIllustratedAuto', // [fnos-fork]
   'fnosQuietPriority', // [fnos-fork]
+  'fnosRanch', // [fnos-fork]
+  'fnosGrassLands', // [fnos-fork]
 ]
 
 function createDefaultSettings(): SettingsState {
@@ -252,6 +317,8 @@ function createDefaultSettings(): SettingsState {
     autoAcceptHarvestStealSteal: 1,
     fnosIllustratedAuto: fnosNormalizeIllustratedAuto(null), // [fnos-fork]
     fnosQuietPriority: fnosNormalizeQuietPriority(null), // [fnos-fork]
+    fnosRanch: fnosNormalizeRanch(null), // [fnos-fork]
+    fnosGrassLands: fnosNormalizeGrassLands(null), // [fnos-fork]
   }
 }
 
@@ -315,6 +382,8 @@ export const useSettingStore = defineStore('setting', () => {
       autoAcceptHarvestStealSteal: data.autoAcceptHarvestStealSteal ?? defaults.autoAcceptHarvestStealSteal,
       fnosIllustratedAuto: fnosNormalizeIllustratedAuto(data.fnosIllustratedAuto), // [fnos-fork]
       fnosQuietPriority: fnosNormalizeQuietPriority(data.fnosQuietPriority), // [fnos-fork]
+      fnosRanch: fnosNormalizeRanch(data.fnosRanch), // [fnos-fork]
+      fnosGrassLands: fnosNormalizeGrassLands(data.fnosGrassLands), // [fnos-fork]
     }
   }
 

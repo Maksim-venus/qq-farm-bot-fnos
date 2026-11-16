@@ -21,7 +21,7 @@ export type AutomationSettingsFormModel = Pick<
   | 'autoAcceptHarvestStealHarvest'
   | 'autoAcceptHarvestStealSteal'
 > & { emailClaimHour: number | string }
-& Partial<Pick<SettingsState, 'fnosIllustratedAuto' | 'fnosQuietPriority'>> // [fnos-fork] 图鉴、自己收菜优先 / 空闲时只保留心跳
+& Partial<Pick<SettingsState, 'fnosIllustratedAuto' | 'fnosQuietPriority' | 'fnosRanch' | 'fnosGrassLands'>> // [fnos-fork] 图鉴、自己收菜优先 / 空闲时只保留心跳、牧场增强、牧草地
 
 withDefaults(defineProps<{
   inRanch?: boolean
@@ -110,6 +110,54 @@ const ranchStrategies = [
             </template>
           </div>
         </section>
+
+        <!-- [fnos-fork] 2026-11-16 牧场增强：轮换值守、小号等大号、牧场图鉴、好友牧场（随「保存自动控制」保存到 fnosRanch） -->
+        <section v-if="panel === 'automation' && settings.fnosRanch" class="farm-card rounded-2xl p-4" data-testid="fnos-ranch">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-400">
+              <span class="i-carbon-repeat text-xl" />
+            </div>
+            <div>
+              <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                飞牛增强
+              </h4>
+              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                小号等大号；牧场图鉴；好友牧场帮忙生产、加牧草
+              </p>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.altHold" label="小号：货架产物先等大号偷" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.altHoldFallbackMinutes" class="w-full" label="农场超时为 0 时牧场最长等（分钟）" type="number" min="5" max="720" step="5" :disabled="!settings.fnosRanch.altHold" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.illustratedAutoClaim" label="牧场图鉴奖励自动领取" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.illustratedAutoComplete" label="自动完成牧场图鉴（买幼崽优先缺的）" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.friendHelpProduce" label="好友牧场：帮忙生产" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草（花金币，约 60 金币/份）" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendFeedPerTime" class="w-full" label="每个好友每次最多加（份）" type="number" min="1" max="500" step="1" :disabled="!settings.fnosRanch.friendFeed" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendFeedGoldKeep" class="w-full" label="自己金币低于此值不加" type="number" min="0" max="999999999" step="1000" :disabled="!settings.fnosRanch.friendFeed" />
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+            小号等大号沿用「大小号协作」的大号和超时设置，作用于上面的「自动收获」：有货架在等大号偷时只收成熟动物，不收货架。
+            帮忙生产、给好友加牧草挂在上面「好友互动」的好友巡查里（每轮最多 3 位好友，按到期时间给农场让路）；给好友加牧草扣金币（约 60 金币/份），自己金币低于保留值就不加，且不超过好友牧草机剩余容量。
+            好友互动的大小号规则与农场一致：小号开了「不偷大号的菜」时不偷大号；开了「只给大号放捣乱」时只给大号放蚊子、不帮大号清理；其余情况不给自己的大号、小号放蚊子。日志标签「牧场」。
+          </p>
+        </section>
       </div>
 
       <div v-if="!inRanch" class="automation-card-column">
@@ -144,6 +192,18 @@ const ranchStrategies = [
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.automation.land_upgrade" class="automation-setting-item" label="自动升级土地" />
             </div>
+            <!-- [fnos-fork] 2026-11-16 最后 X 块地只种牧草 -->
+            <template v-if="settings.fnosGrassLands">
+              <div class="automation-setting-item" data-testid="fnos-grass-lands">
+                <BaseInput v-model.number="settings.fnosGrassLands.count" class="w-full" label="最后 X 块地只种牧草（0=关闭）" type="number" min="0" max="24" step="1" />
+              </div>
+              <div class="automation-setting-item">
+                <BaseSwitch v-model="settings.fnosGrassLands.autoBuy" :disabled="!settings.fnosGrassLands.count" label="牧草种子不够时自动买" />
+              </div>
+              <p v-if="settings.fnosGrassLands.count > 0" class="text-xs text-gray-500 leading-relaxed sm:col-span-2 dark:text-gray-400">
+                已解锁土地按编号排序，最后 {{ settings.fnosGrassLands.count }} 块空出来时只种牧草（收牧草 ×20，10 分钟熟），其余地照原播种规则（含图鉴优先播种）。牧草种子不够时{{ settings.fnosGrassLands.autoBuy ? '从商店补买（20 金币/个）' : '这几块地先空着' }}，日志标签「牧草地」。
+              </p>
+            </template>
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.automation.task" class="automation-setting-item" label="自动做任务" />
             </div>

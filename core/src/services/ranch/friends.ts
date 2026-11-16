@@ -239,7 +239,7 @@ async function commitSteal(host: string, ranches: any[], plan: any): Promise<any
 
 // 各动作复用手动入口的检查；农场到期时，完成当前操作并离场，下次刷新后续跑。
 async function automateFriend(hostGid: unknown, enabled: (action: string) => boolean, shouldYield: () => boolean = () => false): Promise<any> {
-    return visit(hostGid, async (_entry, ranches, host) => {
+    return visit(hostGid, async (fnosEntry, ranches, host) => {
         const results: any[] = [];
         const times = enabled('stroke') || enabled('putMosquito') ? await getInteractionTimes() : {};
         const pause = () => results.length > 0 && shouldYield();
@@ -258,6 +258,15 @@ async function automateFriend(hostGid: unknown, enabled: (action: string) => boo
             const cleaned = await act('cleanFriend', () => commitInteraction(interactionPlan('cleanFriend', {}, ranches, host, null)));
             if (pause()) return { results, times, yielded: true };
             if (cleaned?.status === 'confirmed') ranches = (await rpc('animals', { host_gid: host })).ranches;
+        }
+        // [fnos-fork] 帮好友生产（上游没有；开关 fnosRanch.friendHelpProduce）
+        {
+            const helped = await require('./fnos-ranch').helpFriendProduce(host, ranches);
+            if (helped) {
+                results.push(helped);
+                if (pause()) return { results, times, yielded: true };
+                ranches = (await rpc('animals', { host_gid: host })).ranches;
+            }
         }
         const stealPlan = quote(host, ranches);
         if (!stealPlan.skipped) await act('steal', () => commitSteal(host, ranches, stealPlan));
@@ -282,6 +291,11 @@ async function automateFriend(hostGid: unknown, enabled: (action: string) => boo
                 if (!latest) break;
                 ranch.hazards = latest.hazards;
             }
+        }
+        // [fnos-fork] 给好友加牧草（扣金币，上游没有；开关 fnosRanch.friendFeed）
+        if (!pause()) {
+            const fed = await require('./fnos-ranch').feedFriend(host, fnosEntry);
+            if (fed) results.push(fed);
         }
         return { results, times };
     });

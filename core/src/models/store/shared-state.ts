@@ -355,6 +355,9 @@ function cloneAccountConfig(base: Partial<AccountConfig> = DEFAULT_ACCOUNT_CONFI
         fnosStealRatio: normalizeFnosStealRatio(base.fnosStealRatio),
         // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳
         fnosQuietPriority: normalizeFnosQuietPriority(base.fnosQuietPriority),
+        // [fnos-fork] 2026-11-16 牧场增强
+        fnosRanch: require('../../services/ranch/fnos-ranch').normalizeFnosRanch(base.fnosRanch),
+        fnosGrassLands: require('../../services/farm/fnos-grass-lands').normalizeFnosGrassLands(base.fnosGrassLands), // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
     };
 }
 
@@ -524,6 +527,14 @@ function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accoun
     if (src.fnosQuietPriority !== undefined && src.fnosQuietPriority !== null) {
         cfg.fnosQuietPriority = normalizeFnosQuietPriority(src.fnosQuietPriority, cfg.fnosQuietPriority);
     }
+    // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
+    if (src.fnosGrassLands !== undefined && src.fnosGrassLands !== null) {
+        cfg.fnosGrassLands = require('../../services/farm/fnos-grass-lands').normalizeFnosGrassLands(src.fnosGrassLands, cfg.fnosGrassLands);
+    }
+    // [fnos-fork] 2026-11-16 牧场增强
+    if (src.fnosRanch !== undefined && src.fnosRanch !== null) {
+        cfg.fnosRanch = require('../../services/ranch/fnos-ranch').normalizeFnosRanch(src.fnosRanch, cfg.fnosRanch);
+    }
 
     return cfg;
 }
@@ -543,6 +554,8 @@ accountFallbackConfig = {
     fnosIllustratedAuto: normalizeFnosIllustratedAuto(undefined),
     fnosStealRatio: normalizeFnosStealRatio(undefined),
     fnosQuietPriority: normalizeFnosQuietPriority(undefined),
+    fnosRanch: require('../../services/ranch/fnos-ranch').normalizeFnosRanch(undefined), // [fnos-fork] 2026-11-16
+    fnosGrassLands: require('../../services/farm/fnos-grass-lands').normalizeFnosGrassLands(undefined), // [fnos-fork] 2026-11-16
 };
 
 const globalConfig: GlobalConfig = {

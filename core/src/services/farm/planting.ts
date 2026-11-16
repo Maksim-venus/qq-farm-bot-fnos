@@ -791,8 +791,29 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
 
     if (landsToPlant.length === 0) return { plantedLands: [] };
 
+    // [fnos-fork] 2026-11-16 最后 X 块地只种牧草：落在牧草地里的空地只种牧草，剩余空地再走图鉴优先播种和原策略（X=0 时不发请求）
+    const fnosGrassPlanted: number[] = [];
+    try {
+        const grass = await require('./fnos-grass-lands').plantFnosGrassLands(landsToPlant, { lands: latestLands, propagateErrors: options.propagateErrors });
+        fnosGrassPlanted.push(...grass.plantedLandIds);
+        landsToPlant = grass.remainingLandIds;
+        if (grass.uncertain || landsToPlant.length === 0) {
+            if (fnosGrassPlanted.length > 0) await runFertilizerByConfig(fnosGrassPlanted, options);
+            return { plantedLands: [...new Set(fnosGrassPlanted)] };
+        }
+    } catch (e: any) {
+        logWarn('牧草地', `牧草地播种失败，牧草地本轮留空、其余照原策略: ${e.message}`, { module: 'farm', event: 'fnos牧草地', result: 'error' });
+        if (options.propagateErrors) throw e;
+        try {
+            const cfgCount = require('./fnos-grass-lands').normalizeFnosGrassLands((require('../../models/store').getConfigSnapshot() || {}).fnosGrassLands).count;
+            const reserved = new Set(require('./fnos-grass-lands').pickGrassLandIds(latestLands, cfgCount));
+            landsToPlant = landsToPlant.filter(id => !reserved.has(id));
+        } catch { /* ignore */ }
+        if (landsToPlant.length === 0) return { plantedLands: [] };
+    }
+
     // [fnos-fork] 自动完成图鉴：先把为图鉴买的待种种子各种 1 块，剩余空地再按原策略种（未开启/无待种时不发请求）
-    const fnosIllustratedPlanted: number[] = [];
+    const fnosIllustratedPlanted: number[] = [...fnosGrassPlanted];
     try {
         const fnosResult = await require('../fnos-illustrated-auto').plantFnosIllustratedSeeds(landsToPlant, { propagateErrors: options.propagateErrors });
         fnosIllustratedPlanted.push(...fnosResult.plantedLandIds);
@@ -829,7 +850,7 @@ async function autoPlantEmptyLands(deadLandIds: number[], emptyLandIds: number[]
                 result: 'bag_load_error',
             });
             if (options.propagateErrors) throw e;
-            return { plantedLands: [] };
+            return { plantedLands: [...fnosIllustratedPlanted] }; // [fnos-fork] 已优先种下的（牧草地/图鉴）照常返回
         }
 
         const plantedLands: number[] = [...fnosIllustratedPlanted, ...(bagResult.plantedLandIds || [])]; // [fnos-fork] 含图鉴优先播种

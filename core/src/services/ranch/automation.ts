@@ -12,6 +12,8 @@ const { getShopGoodsById } = require('../../config/gameConfig');
 const reservations = require('./operation-state');
 const { getAmbientSendContext, runWithSendContext } = require('./context');
 const daily = require('./daily');
+// [fnos-fork] 2026-11-16 小号等大号、牧场图鉴、好友牧场大小号规则与额外动作（见 fnos-ranch.ts）
+const fnosRanch = require('./fnos-ranch');
 
 let nextCheckAt = 0;
 let nextFriendIndex = 0;
@@ -38,7 +40,7 @@ const due = (state: any) => !state.doneToday && Date.now() >= (state.nextCheckAt
 
 function getRoutineState(): any {
     const auto = getAutomation();
-    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_grass_buy'].includes(key) && auto[key]);
+    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_grass_buy'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
     return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState())), nextCheckAt };
 }
 
@@ -48,6 +50,9 @@ function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: numbe
     const candidates = goods.filter(good => good.available && good.animal?.enable_flag
         && good.animal.husbandry_type === (kind === 1 ? '窝' : '棚') && good.price.id === 1007 && BigInt(good.price.count) > 0n);
     if (strategy === 'preferred') return candidates.find(good => good.animal.id === preferred);
+    // [fnos-fork] 自动完成牧场图鉴：优先买产物还没进图鉴的动物
+    const forBook = fnosRanch.pickAnimalForBook(candidates);
+    if (forBook) return forBook;
     const level = (good: any) => Number(getShopGoodsById(Number(good.id))?.conds?.match(/:(\d+)$/)?.[1] || good.requiredLevel || 0);
     return candidates.sort((a, b) => level(b) - level(a) || b.animal.id - a.animal.id)[0];
 }
@@ -81,8 +86,9 @@ async function run(options: { farmDeadline?: () => number } = {}): Promise<void>
                 nextActionAt = upcoming.length ? Date.now() + Math.min(...upcoming) - state.serverTime : Infinity;
                 // 续跑期间出现新成熟动物时，先处理自家产出，再接着原来的进度。
                 for (const [action, flag] of [['harvest', 'can_harvest'], ['produce', 'can_deliver']]) {
-                    const ready = raw.cells.facilities.some((f: any) => f.ranch?.animals.some((a: any) => a[flag])
-                        || action === 'harvest' && f.ranch?.shelves.some((s: any) => s.can_collect));
+                    // [fnos-fork] 小号等大号：在等大号偷的货架不算「可收」，避免反复进场
+                    const ready = action === 'harvest' ? fnosRanch.ownHarvestReady(raw)
+                        : raw.cells.facilities.some((f: any) => f.ranch?.animals.some((a: any) => a[flag]));
                     if (ready && enabled(action === 'harvest' ? 'ranch_harvest' : 'ranch_produce')) {
                         completedPhases.delete(action);
                         completedSteps.delete(`${action}:{"all":true}`);
@@ -141,7 +147,13 @@ async function run(options: { farmDeadline?: () => number } = {}): Promise<void>
                 }
             }
 
-            await phase('harvest', () => act('ranch_harvest', 'harvest', { all: true }));
+            await phase('harvest', async () => {
+                // [fnos-fork] 小号等大号：有货架在等大号偷时只收成熟动物（op=4），不碰货架
+                if (!enabled('ranch_harvest')) return;
+                if (fnosRanch.planOwnHarvest(raw).mode === 'all') return act('ranch_harvest', 'harvest', { all: true });
+                const ready = raw.cells.facilities.flatMap((f: any) => (f.ranch?.animals || []).filter((a: any) => a.can_harvest));
+                for (const animal of ready) await act('ranch_harvest', 'harvest', { ranchId: quantity(animal.ranch_inst_id), animalId: animal.animal_inst_id });
+            });
             await phase('produce', () => act('ranch_produce', 'produce', { all: true }));
             await phase('clean', () => act('ranch_clean', 'clean'));
             await phase('sell', () => act('ranch_sell', 'sell', { all: true }));
@@ -218,20 +230,22 @@ async function run(options: { farmDeadline?: () => number } = {}): Promise<void>
             await phase('feed-organic', async () => { if (enabled('ranch_feed_organic') && available(7004) > 0n) await act('ranch_feed_organic', 'feed', { all: true, bucketType: 1 }); });
 
             await phase('friends', async () => {
-                if (Object.values(FRIEND_CONTROLS).some(enabled)) {
+                if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork] 帮好友生产 / 给好友加牧草
+                    fnosRanch.beginFriendPhase({ gold: Number(available(1007)) });
                     checkpoint();
                     const interactions = require('./friends');
                     const times = await interactions.getInteractionTimes();
                     const wanted = (action: string) => enabled(FRIEND_CONTROLS[action])
                         && (!['stroke', 'putMosquito'].includes(action) || times[action] > 0);
-                    if (Object.keys(FRIEND_CONTROLS).some(wanted)) {
+                    if (Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork]
                         const friends = await require('../friend').getFriendsList();
                         // 沿用本轮巡查，每轮最多拜访三位，避免长期占用农牧场共用连接。
-                        for (; friendVisits < Math.min(3, friends.length) && Object.keys(FRIEND_CONTROLS).some(wanted); friendVisits++) {
+                        for (; friendVisits < Math.min(3, friends.length) && (Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled()); friendVisits++) {
                             checkpoint();
                             const friend = friends.find((row: any) => String(row.gid) === pendingFriendGid) || friends[nextFriendIndex % friends.length];
                             try {
-                                const result = await interactions.automateFriend(friend.gid, wanted, shouldYield);
+                                // [fnos-fork] 大小号规则：不偷大号 / 不帮大号清 / 放蚊子只给大号或不给大小号
+                                const result = await interactions.automateFriend(friend.gid, fnosRanch.wrapFriendWanted(friend.gid, wanted), shouldYield);
                                 Object.assign(times, result.times);
                                 steps++;
                                 for (const outcome of result.results) {
@@ -256,6 +270,8 @@ async function run(options: { farmDeadline?: () => number } = {}): Promise<void>
             if (cycleChanged) daily.markTasksChanged();
             await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); steps++; } });
             await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); steps++; } });
+            await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
+            if (fnosRanch.holdWakeAt() > 0) nextActionAt = Math.min(nextActionAt, fnosRanch.holdWakeAt()); // [fnos-fork] 等大号超时放行时提前回来
             nextCheckAt = Math.max(Date.now() + SCENE_REENTRY_MS, Math.min(nextCheckAt, nextActionAt, cycleChanged ? Date.now() + 30_000 : Infinity));
             resetCycle();
         });
