@@ -217,8 +217,9 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
             else {
                 // [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有）、大小号置灰原因与今日剩余次数
                 const fnosRanch = require('./fnos-ranch');
-                state.friends = (await require('../friend').getFriendsList()).map((friend: any) => ({ gid: String(friend.gid), name: friend.name, avatarUrl: friend.avatarUrl,
-                    level: Number(friend.level) || 0, fnosRules: fnosRanch.manualFriendRules(friend.gid) }));
+                // [fnos-fork] 2026-11-17 牧场等级：列表字段 25 → 缓存 → 默认 Lv1，按牧场等级从高到低排序（同级保持原顺序）
+                state.friends = require('./fnos-friend-levels').decorateFriends((await require('../friend').getFriendsList()).map((friend: any) => ({ gid: String(friend.gid), name: friend.name, avatarUrl: friend.avatarUrl,
+                    level: Number(friend.level) || 0, ranchLevel: Number(friend.ranchLevel) || 0, fnosRules: fnosRanch.manualFriendRules(friend.gid) })));
                 try { state.friendTimes = await require('./friends').getInteractionTimes(); } catch { state.friendTimes = null; }
             }
         }

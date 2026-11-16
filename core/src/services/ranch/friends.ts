@@ -17,7 +17,7 @@ function targets(ranches: any[]): any[] {
             itemIds: shelf.lots.filter((lot: any) => lot.can_steal && !lot.stealers.some((id: any) => quantity(id) === gid)).map((lot: any) => quantity(lot.item_id)) })));
 }
 
-async function visit(hostGid: unknown, run: (entry: any, ranches: any[], host: string) => Promise<any>): Promise<any> {
+async function visit(hostGid: unknown, run: (entry: any, ranches: any[], host: string) => Promise<any>, fnosOptions: { entryOnly?: boolean } = {}): Promise<any> {
     const host = positiveId(hostGid, '好友GID');
     if (host === quantity(network.getUserState().gid)) throw error('INVALID_ARGUMENT', '请选择好友牧场');
     return inScene(async () => {
@@ -27,7 +27,9 @@ async function visit(hostGid: unknown, run: (entry: any, ranches: any[], host: s
         try {
             const entry = await rpc('enterFriend', { host_gid: host, reason: 2 });
             if (quantity(entry.basic?.gid) !== host || !entry.homestead_cells) throw error('RANCH_RESPONSE_MISMATCH', '好友牧场回包与目标不匹配');
-            const detail = await rpc('animals', { host_gid: host });
+            require('./fnos-friend-levels').recordLevel(host, Number(entry.basic.big_farm_level), 'visit'); // [fnos-fork] 进场顺手记牧场等级
+            // [fnos-fork] entryOnly：慢读牧场等级只要进场回包，不再读动物详情
+            const detail = fnosOptions.entryOnly ? { ranches: [] } : await rpc('animals', { host_gid: host });
             result = await run(entry, detail.ranches, host);
             return result;
         } catch (error: any) {
@@ -67,6 +69,12 @@ async function getFriend(hostGid: unknown): Promise<any> {
                     canSteal: eligible.some(target => target.ranchId === quantity(ranch.ranch_inst_id) && target.slot === shelf.slot_index),
                     products: shelf.lots.map((lot: any) => itemDto({ id: lot.item_id, count: lot.remain_num })) })) })) };
     });
+}
+
+/** [fnos-fork] 慢读好友牧场等级：只进场读 basic.big_farm_level 再离开（离场确认同 visit），不做任何操作。 */
+async function peekLevel(hostGid: unknown, canRun: () => boolean = () => true): Promise<number> {
+    if (!canRun()) return 0;
+    return visit(hostGid, async (entry) => Number(entry.basic.big_farm_level) || 0, { entryOnly: true });
 }
 
 async function getInteractionTimes(): Promise<any> {
@@ -367,4 +375,4 @@ async function automateFriend(hostGid: unknown, enabled: (action: string) => boo
     });
 }
 
-module.exports = { getFriend, prepareSteal, steal, getInteractionTimes, prepareInteraction, interact, automateFriend, prepareBad, bad, badPlan };
+module.exports = { getFriend, prepareSteal, steal, getInteractionTimes, prepareInteraction, interact, automateFriend, prepareBad, bad, badPlan, peekLevel };

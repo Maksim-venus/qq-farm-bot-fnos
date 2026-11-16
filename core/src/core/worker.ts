@@ -15,7 +15,7 @@ const { processInviteCodes } = require('../services/invite');
 const { autoBuyFertilizer, checkAndBuyFertilizerBoth, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
 const { performDailyMonthCardGift, getMonthCardDailyState } = require('../services/monthcard');
 const { performDailyVipGift, getVipDailyState } = require('../services/qqvip');
-const { runExclusiveAutomationTask } = require('../services/automation-lock');
+const { runExclusiveAutomationTask, isAutomationTaskRunning } = require('../services/automation-lock');
 const ranchAutomation = require('../services/ranch/automation');
 const { createScheduler, getSchedulerRegistrySnapshot } = require('../services/scheduler');
 const { checkDailyShareStatus, getShareDailyState } = require('../services/share');
@@ -451,6 +451,7 @@ function startUnifiedScheduler(): void {
     unifiedSchedulerRunning = true;
     resetUnifiedSchedule();
     scheduleUnifiedNextTick();
+    try { scheduleFnosRanchLevelRead(require('../services/ranch/fnos-friend-levels').nextReadDelayMs() + 60_000); } catch { /* [fnos-fork] */ }
 }
 
 function stopUnifiedScheduler(): void {
@@ -459,6 +460,36 @@ function stopUnifiedScheduler(): void {
     farmTaskRunning = false;
     friendTaskRunning = false;
     workerScheduler.clear('unified_next_tick');
+    workerScheduler.clear('fnos_ranch_level_read'); // [fnos-fork]
+}
+
+// [fnos-fork] 2026-11-17 好友牧场等级慢读：每 60–120 秒最多进 1 位好友牧场只读等级（见 services/ranch/fnos-friend-levels.ts）。
+// 只在完全空闲时做：已登录、空闲静默未生效、没有任何自动化任务持锁（巡田 / 好友巡查 / 牧场巡查 / 推送收菜都走同一把锁）、
+// 巡田 / 好友 / 牧场下一次都在 30 秒之后、不在「自己收菜优先」让路窗口；条件不满足就等下一轮。
+const FNOS_RANCH_LEVEL_GAP_MS = 30_000;
+function fnosRanchLevelIdle(): boolean {
+    if (!loginReady || !unifiedSchedulerRunning || shutdownStarted) return false;
+    if (farmTaskRunning || friendTaskRunning || ranchRoutineQueued || harvestSellRunning || isAutomationTaskRunning()) return false;
+    const now = Date.now();
+    try {
+        if (fnosQuietPriority().isFnosIdleActive()) return false;
+        if (fnosQuietPriority().shouldYieldToOwnHarvest(now)) return false;
+    } catch { return false; }
+    const soonest = Math.min(Number(nextFarmRunAt) || 0, Number(nextFriendRunAt) || 0, ranchNextRunAt());
+    return soonest - now > FNOS_RANCH_LEVEL_GAP_MS;
+}
+
+function scheduleFnosRanchLevelRead(delayMs: number): void {
+    if (!unifiedSchedulerRunning) return;
+    const generation = runtimeGeneration;
+    workerScheduler.setTimeoutTask('fnos_ranch_level_read', Math.max(10_000, delayMs), async () => {
+        if (generation !== runtimeGeneration || !unifiedSchedulerRunning) return;
+        let next = 120_000;
+        try {
+            next = await require('../services/ranch/fnos-friend-levels').runSlowReadOnce(fnosRanchLevelIdle);
+        } catch { /* ignore */ }
+        if (generation === runtimeGeneration) scheduleFnosRanchLevelRead(next);
+    });
 }
 
 function stopMysteryShopTimer(): void {

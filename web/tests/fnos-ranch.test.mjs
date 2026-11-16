@@ -81,7 +81,10 @@ test('fnos-ranch-visitors：筛选、徽标、时间格式；牧场好友分区�
   assert.match(ranchView, /key: 'visitors', label: '最近访客'/)
 })
 
-test('牧场好友列表按等级从高到低排序（与农场一致）', () => {
+test('牧场好友列表按牧场等级从高到低排序，未读取的按 Lv1', () => {
   const panel = readFileSync(new URL('../src/components/ranch/RanchFriendsPanel.vue', import.meta.url), 'utf8')
-  assert.match(panel, /\[\.\.\.list\]\.sort\(\(a, b\) => \(Number\(b\?\.level\) \|\| 0\) - \(Number\(a\?\.level\) \|\| 0\)\)/)
+  assert.match(panel, /\[\.\.\.list\]\.sort\(\(a, b\) => fnosRanchLevelOf\(b\) - fnosRanchLevelOf\(a\)\)/)
+  assert.match(panel, /Number\(friend\?\.ranchLevel\) > 0 \? Number\(friend\.ranchLevel\) : 1/)
+  assert.match(panel, /暂按 Lv1/)
+  assert.doesNotMatch(panel, /Number\(b\?\.level\)/)
 })
