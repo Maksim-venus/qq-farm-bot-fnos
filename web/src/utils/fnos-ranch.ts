@@ -4,59 +4,31 @@
  */
 
 export interface FnosRanch {
-  rotation: boolean
-  rotationIdleMinutes: number
-  rotationMinGapSeconds: number
   altHold: boolean
   altHoldFallbackMinutes: number
   illustratedAutoClaim: boolean
   illustratedAutoComplete: boolean
-  friendSteal: boolean
-  friendClean: boolean
-  friendMosquito: boolean
   friendFeed: boolean
   friendFeedPerTime: number
   friendFeedGoldKeep: number
   friendHelpProduce: boolean
-  friendPutMosquito: boolean
-  friendPutPerFriend: number
-  friendIntervalMinutes: number
-  friendMaxPerPatrol: number
-  friendDailyVisitLimit: number
 }
 
 export const FNOS_RANCH_DEFAULT: FnosRanch = {
-  rotation: true,
-  rotationIdleMinutes: 1,
-  rotationMinGapSeconds: 30,
   altHold: true,
   altHoldFallbackMinutes: 60,
   illustratedAutoClaim: false,
   illustratedAutoComplete: false,
-  friendSteal: false,
-  friendClean: false,
-  friendMosquito: false,
   friendFeed: false,
   friendFeedPerTime: 10,
   friendFeedGoldKeep: 10000,
   friendHelpProduce: false,
-  friendPutMosquito: false,
-  friendPutPerFriend: 3,
-  friendIntervalMinutes: 10,
-  friendMaxPerPatrol: 5,
-  friendDailyVisitLimit: 100,
 }
 
 const RANGES: Partial<Record<keyof FnosRanch, [number, number]>> = {
-  rotationIdleMinutes: [1, 60],
-  rotationMinGapSeconds: [30, 600],
   altHoldFallbackMinutes: [5, 720],
-  friendIntervalMinutes: [5, 180],
-  friendMaxPerPatrol: [1, 20],
-  friendDailyVisitLimit: [10, 500],
   friendFeedPerTime: [1, 500],
   friendFeedGoldKeep: [0, 999999999],
-  friendPutPerFriend: [1, 9],
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {

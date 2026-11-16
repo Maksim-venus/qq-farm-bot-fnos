@@ -52,6 +52,12 @@ const ranchSwitches = [
   ['ranch_task', '自动领取任务奖励'],
   ['ranch_share', '每日分享礼包'],
 ] as const
+const ranchFriendSwitches = [
+  ['ranch_friend_steal', '自动偷取产物'],
+  ['ranch_friend_clean', '自动清理'],
+  ['ranch_stroke', '自动抚摸动物'],
+  ['ranch_friend_mosquito', '自动放蚊子'],
+] as const
 const ranchStrategies = [
   { label: '按已解锁等级', value: 'level' },
   { label: '指定动物', value: 'preferred' },
@@ -85,6 +91,16 @@ const ranchStrategies = [
               <BaseInput v-model.number="settings.automation.ranch_check_minutes" class="w-full" label="巡查间隔（分钟）" type="number" min="1" max="60" step="1" />
             </div>
           </div>
+          <div v-if="panel === 'automation'" class="mt-4">
+            <h4 class="mb-2 text-sm font-bold">
+              好友互动
+            </h4>
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div v-for="[key, label] in ranchFriendSwitches" :key="key" class="automation-setting-item">
+                <BaseSwitch v-model="settings.automation[key]" :label="label" />
+              </div>
+            </div>
+          </div>
           <div v-else class="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <BaseSelect v-model="settings.automation.ranch_strategy" label="养殖策略" :options="ranchStrategies" />
             <BaseSelect v-if="settings.automation.ranch_strategy === 'bag_priority'" v-model="settings.automation.ranch_bag_fallback" label="库存不足时" :options="ranchStrategies.slice(0, 2)" />
@@ -106,20 +122,11 @@ const ranchStrategies = [
                 飞牛增强
               </h4>
               <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                农场优先，牧场轮换值守；小号等大号；牧场图鉴；好友牧场
+                小号等大号；牧场图鉴；好友牧场帮忙生产、加牧草
               </p>
             </div>
           </div>
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.rotation" label="轮换值守（关闭=按上面的巡查间隔）" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.rotationIdleMinutes" class="w-full" label="农场无事时每隔（分钟）去牧场" type="number" min="1" max="60" step="1" :disabled="!settings.fnosRanch.rotation" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.rotationMinGapSeconds" class="w-full" label="两次进牧场最少间隔（秒）" type="number" min="30" max="600" step="10" :disabled="!settings.fnosRanch.rotation" />
-            </div>
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.fnosRanch.altHold" label="小号：货架产物先等大号偷" />
             </div>
@@ -133,22 +140,7 @@ const ranchStrategies = [
               <BaseSwitch v-model="settings.fnosRanch.illustratedAutoComplete" label="自动完成牧场图鉴（买幼崽优先缺的）" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendSteal" label="好友牧场：自动偷成熟产物" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendClean" label="好友牧场：清理便便" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendMosquito" label="好友牧场：打蚊子" />
-            </div>
-            <div class="automation-setting-item">
               <BaseSwitch v-model="settings.fnosRanch.friendHelpProduce" label="好友牧场：帮忙生产" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendPutMosquito" label="好友牧场：放蚊子（捣乱）" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendPutPerFriend" class="w-full" label="每个好友每次最多放蚊子（只）" type="number" min="1" max="9" step="1" :disabled="!settings.fnosRanch.friendPutMosquito" />
             </div>
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草（花金币，约 60 金币/份）" />
@@ -159,20 +151,11 @@ const ranchStrategies = [
             <div class="automation-setting-item">
               <BaseInput v-model.number="settings.fnosRanch.friendFeedGoldKeep" class="w-full" label="自己金币低于此值不加" type="number" min="0" max="999999999" step="1000" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
-            <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendIntervalMinutes" class="w-full" label="好友牧场巡查间隔（分钟）" type="number" min="5" max="180" step="1" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed && !settings.fnosRanch.friendHelpProduce && !settings.fnosRanch.friendPutMosquito" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendMaxPerPatrol" class="w-full" label="每次最多走几个好友" type="number" min="1" max="20" step="1" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed && !settings.fnosRanch.friendHelpProduce && !settings.fnosRanch.friendPutMosquito" />
-            </div>
-            <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendDailyVisitLimit" class="w-full" label="每天最多访问好友牧场（次）" type="number" min="10" max="500" step="10" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed && !settings.fnosRanch.friendHelpProduce && !settings.fnosRanch.friendPutMosquito" />
-            </div>
           </div>
           <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-            轮换值守：农场这一轮有收/种/务农或好友巡查有访问，就去牧场逛一圈；农场没事时按上面的分钟数去一次；自己的菜 1 分钟内要熟时先不去。
-            小号等大号沿用「大小号协作」的大号和超时设置；有货架在等时只收成熟动物，不收货架。
-            好友牧场跳过黑名单、静默时段；小号开了「不偷大号的菜」时不偷大号、开了「只给大号放捣乱」时不帮大号清害；大号优先巡查自己的小号。每个好友按 偷 → 帮忙生产（开了偷会等产物上架再偷）→ 清理 → 放蚊子 → 加牧草 的顺序。清理一次会清掉该好友牧场全部蚊子和便便（游戏接口不分种类），有开启种类的害才清。放蚊子不给自己的大号、小号放（小号开了「只给大号放捣乱」时与农场一样只给大号放，即使放蚊子开关关着），每个窝棚最多 3 只，每天共 100 次（游戏额度），本次清过害的好友不放。给好友加牧草扣金币（约 60 金币/份），自己金币低于保留值就不加，且不超过好友牧草机剩余容量。自己牧场的打蚊子、清便便用上面「日常牧场」的「清理」开关。日志标签「牧场」。
+            小号等大号沿用「大小号协作」的大号和超时设置，作用于上面的「自动收获」：有货架在等大号偷时只收成熟动物，不收货架。
+            帮忙生产、给好友加牧草挂在上面「好友互动」的好友巡查里（每轮最多 3 位好友，按到期时间给农场让路）；给好友加牧草扣金币（约 60 金币/份），自己金币低于保留值就不加，且不超过好友牧草机剩余容量。
+            好友互动的大小号规则与农场一致：小号开了「不偷大号的菜」时不偷大号；开了「只给大号放捣乱」时只给大号放蚊子、不帮大号清理；其余情况不给自己的大号、小号放蚊子。日志标签「牧场」。
           </p>
         </section>
       </div>

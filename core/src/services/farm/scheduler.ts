@@ -483,10 +483,6 @@ async function runFarmOperation(
              module: 'farm', event: '农场循环', opType, actions
          });
     }
-    // [fnos-fork] 2026-11-16 牧场轮换值守：记下本轮是否有活、自己作物最近成熟时间
-    if (automatic) {
-        try { require('../ranch/fnos-ranch').recordFarmRound({ lands, hadWork: actions.length > 0 }); } catch { /* ignore */ }
-    }
     return { hadWork: actions.length > 0, actions };
 }
 

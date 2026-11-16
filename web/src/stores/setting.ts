@@ -14,6 +14,10 @@ export interface AutomationConfig {
   ranch_feed_normal?: boolean
   ranch_feed_organic?: boolean
   ranch_clean?: boolean
+  ranch_stroke?: boolean
+  ranch_friend_steal?: boolean
+  ranch_friend_clean?: boolean
+  ranch_friend_mosquito?: boolean
   ranch_task?: boolean
   ranch_share?: boolean
   ranch_check_minutes?: number
@@ -95,59 +99,31 @@ function lockLightUi(ui: UIConfig | undefined | null): UIConfig {
 
 // [fnos-fork] 2026-11-16 牧场增强 / 牧草地（与 utils/fnos-ranch.ts 相同；此处内联，store 不多依赖其他模块）
 export interface FnosRanch {
-  rotation: boolean
-  rotationIdleMinutes: number
-  rotationMinGapSeconds: number
   altHold: boolean
   altHoldFallbackMinutes: number
   illustratedAutoClaim: boolean
   illustratedAutoComplete: boolean
-  friendSteal: boolean
-  friendClean: boolean
-  friendMosquito: boolean
   friendFeed: boolean
   friendFeedPerTime: number
   friendFeedGoldKeep: number
   friendHelpProduce: boolean
-  friendPutMosquito: boolean
-  friendPutPerFriend: number
-  friendIntervalMinutes: number
-  friendMaxPerPatrol: number
-  friendDailyVisitLimit: number
 }
 
 const FNOS_RANCH_DEFAULT: FnosRanch = {
-  rotation: true,
-  rotationIdleMinutes: 1,
-  rotationMinGapSeconds: 30,
   altHold: true,
   altHoldFallbackMinutes: 60,
   illustratedAutoClaim: false,
   illustratedAutoComplete: false,
-  friendSteal: false,
-  friendClean: false,
-  friendMosquito: false,
   friendFeed: false,
   friendFeedPerTime: 10,
   friendFeedGoldKeep: 10000,
   friendHelpProduce: false,
-  friendPutMosquito: false,
-  friendPutPerFriend: 3,
-  friendIntervalMinutes: 10,
-  friendMaxPerPatrol: 5,
-  friendDailyVisitLimit: 100,
 }
 
 const RANGES: Partial<Record<keyof FnosRanch, [number, number]>> = {
-  rotationIdleMinutes: [1, 60],
-  rotationMinGapSeconds: [30, 600],
   altHoldFallbackMinutes: [5, 720],
-  friendIntervalMinutes: [5, 180],
-  friendMaxPerPatrol: [1, 20],
-  friendDailyVisitLimit: [10, 500],
   friendFeedPerTime: [1, 500],
   friendFeedGoldKeep: [0, 999999999],
-  friendPutPerFriend: [1, 9],
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {

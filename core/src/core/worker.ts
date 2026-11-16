@@ -108,6 +108,7 @@ let isRunning: boolean = false;
 let loginReady: boolean = false;
 let appliedConfigRevision: number = 0;
 let unifiedSchedulerRunning: boolean = false;
+let unifiedTickGeneration: number | null = null;
 let farmTaskRunning: boolean = false;
 let nextFarmRunAt: number = 0;
 let friendTaskRunning: boolean = false;
@@ -128,14 +129,28 @@ let runtimeGeneration: number = 0;
 let lastDailyRunDate: string = '';
 let ranchRoutineQueued = false;
 
-function runRanchRoutine(detached = false): Promise<void> {
-    if (ranchRoutineQueued || !loginReady) return Promise.resolve();
+function ranchNextRunAt(): number {
+    if (ranchRoutineQueued) return Infinity;
     const state = ranchAutomation.getRoutineState();
-    if (state.doneToday || Date.now() < state.nextCheckAt) return Promise.resolve();
+    return state.doneToday ? Infinity : state.nextCheckAt;
+}
+
+function runRanchRoutine(detached = false): Promise<void> {
+    if (!loginReady || Date.now() < ranchNextRunAt()) return Promise.resolve();
+    const generation = runtimeGeneration;
     ranchRoutineQueued = true;
     return runExclusiveAutomationTask('ranch_routine', async () => {
-        if (loginReady) await ranchAutomation.run();
-    }, { detached }).finally(() => { ranchRoutineQueued = false; });
+        if (!loginReady || generation !== runtimeGeneration) return;
+        const state = ranchAutomation.getRoutineState();
+        if (state.doneToday || Date.now() < state.nextCheckAt) return;
+        await ranchAutomation.run({ farmDeadline: () => Math.min(
+            nextFarmRunAt || Infinity,
+            friendTaskRunning ? Date.now() : nextFriendRunAt || Infinity,
+        ) });
+    }, { detached }).finally(() => {
+        ranchRoutineQueued = false;
+        scheduleUnifiedNextTick();
+    });
 }
 const workerScheduler = createScheduler('worker');
 
@@ -306,10 +321,6 @@ async function runFarmTick(auto: any): Promise<void> {
     } finally {
         nextFarmRunAt = Date.now() + farmMs;
         farmTaskRunning = false;
-        // [fnos-fork] 2026-11-16 牧场轮换值守：农场一轮结束后看看是否该去牧场（在牧场例程里判断最小间隔/作物将熟等）
-        if (loginReady && require('../services/ranch/fnos-ranch').rotationEnabled()) {
-            void runRanchRoutine(true).catch((error: any) => logWarn('牧场', `牧场例程失败：${error.message}`));
-        }
     }
 }
 
@@ -337,9 +348,7 @@ async function runFriendTick(auto: any): Promise<void> {
     try {
         // checkFriends 内部保留各自开关、经验上限、黑名单和每日捣乱次数判断。
         // 好友农场任务排在自己农场之后，前台操作永远优先于它。
-        const fnosFriendVisited = await runWithRequestClass('friend', () => checkFriends());
-        // [fnos-fork] 2026-11-16 好友事件处理完 → 轮换值守去牧场逛一圈
-        try { require('../services/ranch/fnos-ranch').recordFriendRound(!!fnosFriendVisited); } catch { /* ignore */ }
+        await runWithRequestClass('friend', () => checkFriends());
     } catch (e: any) {
         log('系统', `好友统一任务执行失败: ${e.message}`, { module: 'system', event: '好友统一任务', result: 'error' });
     } finally {
@@ -357,33 +366,41 @@ async function runUnifiedTick(): Promise<void> {
     const now = Date.now();
     const dueFarm = now >= nextFarmRunAt;
     const dueFriend = now >= nextFriendRunAt;
-    if (!dueFarm && !dueFriend) return;
+    if (!dueFarm && !dueFriend && now < ranchNextRunAt()) return;
 
     const auto = getAutomation();
     // 好友按单次访问持锁，等待间隔不阻塞后续农场巡查。
     if (dueFarm) await runExclusiveAutomationTask('farm_tick', () => runFarmTick(auto));
     if (!unifiedSchedulerRunning || !loginReady || generation !== runtimeGeneration) return;
     if (dueFriend && !friendTaskRunning) void runFriendTick(auto);
+    void runRanchRoutine(true).catch((error: any) => logWarn('牧场', `牧场例程失败：${error.message}`));
 }
 
 function scheduleUnifiedNextTick(): void {
     if (!unifiedSchedulerRunning) return;
+    // 牧场离场可提前唤醒，但正在等待连接的农场巡查不能再排一轮。
+    if (unifiedTickGeneration === runtimeGeneration) return;
     workerScheduler.clear('unified_next_tick');
     if (!loginReady) return;
 
     const now = Date.now();
     const nextAt = Math.min(
         farmTaskRunning ? Number.POSITIVE_INFINITY : (Number(nextFarmRunAt) || (now + 1000)),
-        friendTaskRunning ? Number.POSITIVE_INFINITY : (Number(nextFriendRunAt) || (now + 1000))
+        friendTaskRunning ? Number.POSITIVE_INFINITY : (Number(nextFriendRunAt) || (now + 1000)),
+        ranchNextRunAt(),
     );
     if (!Number.isFinite(nextAt)) return;
     const delayMs = Math.max(1000, nextAt - now); // 最低 1 秒
 
+    const generation = runtimeGeneration;
     workerScheduler.setTimeoutTask('unified_next_tick', delayMs, async () => {
+        if (generation !== runtimeGeneration || !unifiedSchedulerRunning || unifiedTickGeneration === generation) return;
+        unifiedTickGeneration = generation;
         try {
             await runUnifiedTick();
         } finally {
-            scheduleUnifiedNextTick();
+            if (unifiedTickGeneration === generation) unifiedTickGeneration = null;
+            if (generation === runtimeGeneration) scheduleUnifiedNextTick();
         }
     });
 }
