@@ -52,7 +52,7 @@ export interface FnosRanchConfig {
     friendClean: boolean;
     /** 好友牧场打蚊子（hazard_type=1） */
     friendMosquito: boolean;
-    /** 给好友加牧草，消耗自己的牧草 7001 */
+    /** 给好友加牧草（AddFeed use_gold:true，扣金币约 60/份） */
     friendFeed: boolean;
     /** 帮好友生产（TriggerProduce，好友动物 can_deliver 时） */
     friendHelpProduce: boolean;
