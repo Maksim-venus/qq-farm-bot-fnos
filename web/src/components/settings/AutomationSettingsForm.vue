@@ -136,28 +136,34 @@ const ranchStrategies = [
               <BaseSwitch v-model="settings.fnosRanch.friendSteal" label="好友牧场：自动偷成熟产物" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendClean" label="好友牧场：清理便便（待抓包）" disabled />
+              <BaseSwitch v-model="settings.fnosRanch.friendClean" label="好友牧场：清理便便" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendMosquito" label="好友牧场：打蚊子（待抓包）" disabled />
+              <BaseSwitch v-model="settings.fnosRanch.friendMosquito" label="好友牧场：打蚊子" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草，花自己的牧草（待抓包）" disabled />
+              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草（花自己的牧草）" />
             </div>
             <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendIntervalMinutes" class="w-full" label="好友牧场巡查间隔（分钟）" type="number" min="5" max="180" step="1" :disabled="!settings.fnosRanch.friendSteal" />
+              <BaseInput v-model.number="settings.fnosRanch.friendFeedPerTime" class="w-full" label="每个好友每次最多加（份）" type="number" min="1" max="500" step="1" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
             <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendMaxPerPatrol" class="w-full" label="每次最多走几个好友" type="number" min="1" max="20" step="1" :disabled="!settings.fnosRanch.friendSteal" />
+              <BaseInput v-model.number="settings.fnosRanch.friendFeedKeep" class="w-full" label="自己至少保留牧草（份）" type="number" min="0" max="99999" step="10" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
             <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendDailyVisitLimit" class="w-full" label="每天最多访问好友牧场（次）" type="number" min="10" max="500" step="10" :disabled="!settings.fnosRanch.friendSteal" />
+              <BaseInput v-model.number="settings.fnosRanch.friendIntervalMinutes" class="w-full" label="好友牧场巡查间隔（分钟）" type="number" min="5" max="180" step="1" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendMaxPerPatrol" class="w-full" label="每次最多走几个好友" type="number" min="1" max="20" step="1" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendDailyVisitLimit" class="w-full" label="每天最多访问好友牧场（次）" type="number" min="10" max="500" step="10" :disabled="!settings.fnosRanch.friendSteal && !settings.fnosRanch.friendClean && !settings.fnosRanch.friendMosquito && !settings.fnosRanch.friendFeed" />
             </div>
           </div>
           <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
             轮换值守：农场这一轮有收/种/务农或好友巡查有访问，就去牧场逛一圈；农场没事时按上面的分钟数去一次；自己的菜 1 分钟内要熟时先不去。
             小号等大号沿用「大小号协作」的大号和超时设置；有货架在等时只收成熟动物，不收货架。
-            好友牧场跳过黑名单、静默时段；小号开了「不偷大号的菜」时不偷大号；大号优先巡查自己的小号。清理便便、打蚊子、给好友加牧草还没抓到真实请求，暂不可用。日志标签「牧场」。
+            好友牧场跳过黑名单、静默时段；小号开了「不偷大号的菜」时不偷大号、开了「只给大号放捣乱」时不帮大号清害；大号优先巡查自己的小号。清理一次会清掉该好友牧场全部蚊子和便便（游戏接口不分种类），有开启种类的害才清。加牧草只在自己牧草多于保留下限时加，且不超过好友牧草机剩余容量。游戏每日次数用完后当天不再请求。日志标签「牧场」。
           </p>
         </section>
       </div>

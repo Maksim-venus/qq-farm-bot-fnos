@@ -121,7 +121,7 @@ test('nextOwnMatureSec：取未来最早成熟阶段（兼容毫秒）', () => {
     assert.equal(ranch.nextOwnMatureSec(lands, 200), 500);
 });
 
-test('pickFriendTargets：黑名单、小号不偷大号、大号优先自己的小号、冷却、轮转游标；清理类恒不选', () => {
+test('pickFriendTargets：黑名单、小号不偷大号/不帮大号清、大号优先自己的小号、冷却、轮转游标', () => {
     const cfg = ranch.normalizeFnosRanch({ friendSteal: true });
     const friends = [1, 2, 3, 4, 5, 1001].map(gid => ({ gid, name: `f${gid}` }));
     const base = { friends, myGid: 1001, blacklist: [2], alt: null, myAltGids: [], cfg, cooldown: new Map(), cursor: 0, nowMs: 0, limit: 2 };
@@ -140,8 +140,18 @@ test('pickFriendTargets：黑名单、小号不偷大号、大号优先自己的
     // 冷却
     r = ranch.pickFriendTargets({ ...base, cooldown: new Map([[1, 10]]), nowMs: 5, limit: 5 });
     assert.deepEqual(r.targets.map(t => t.gid), [3, 4, 5]);
-    // 偷关掉 → 没有目标（清理等抓包后再做）
-    r = ranch.pickFriendTargets({ ...base, cfg: ranch.normalizeFnosRanch({ friendSteal: false, friendClean: true }), limit: 5 });
+    // 只开清理：清理目标；小号 badOnlyMaster 时不帮大号清
+    const cleanCfg = ranch.normalizeFnosRanch({ friendSteal: false, friendMosquito: true });
+    r = ranch.pickFriendTargets({ ...base, cfg: cleanCfg, limit: 5 });
+    assert.deepEqual(r.targets.map(t => t.gid), [1, 3, 4, 5]);
+    assert.ok(r.targets.every(t => t.clean && !t.steal && !t.feed));
+    r = ranch.pickFriendTargets({ ...base, cfg: cleanCfg, alt: { enabled: true, masterGid: 3, badOnlyMaster: true }, limit: 5 });
+    assert.deepEqual(r.targets.map(t => t.gid), [1, 4, 5]);
+    // 清理次数用完 → 没有目标
+    r = ranch.pickFriendTargets({ ...base, cfg: cleanCfg, cleanAllowed: false, limit: 5 });
+    assert.equal(r.targets.length, 0);
+    // 全关 → 没有目标
+    r = ranch.pickFriendTargets({ ...base, cfg: ranch.normalizeFnosRanch({ friendSteal: false }), limit: 5 });
     assert.equal(r.targets.length, 0);
 });
 
@@ -191,4 +201,78 @@ test('fnosRanch 持久化：新进程读回，其他字段不受影响', () => {
     assert.equal(out.or.rotation, true);
     assert.deepEqual(out.og, { count: 0, autoBuy: true });
     fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('好友牧场照顾纯函数：害的分类与开关、加牧草数量、牧草机、op 差分', () => {
+    const ranches = [{ hazards: [{ hazard_id: 2, hazard_type: 1 }, { hazard_id: 3, hazard_type: 1 }] }, { hazards: [{ hazard_id: 9, hazard_type: 2 }] }];
+    assert.deepEqual(ranch.hazardsToClean(ranches, { friendMosquito: true, friendClean: false }), { total: 3, wanted: 2, kinds: { mosquito: 2, poop: 1 } });
+    assert.equal(ranch.hazardsToClean(ranches, { friendMosquito: false, friendClean: true }).wanted, 1);
+    assert.equal(ranch.hazardsToClean(ranches, { friendMosquito: false, friendClean: false }).wanted, 0);
+    assert.equal(ranch.hazardsToClean([{}], { friendMosquito: true, friendClean: true }).total, 0);
+    const cfg = { friendFeedPerTime: 10, friendFeedKeep: 200 };
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 97 }, 1000, cfg), 3); // 1116-3：97/100 → 100
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 1000, cfg), 10);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 205, cfg), 5);
+    assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, 150, cfg), 0);
+    assert.equal(ranch.planFriendFeed(null, 1000, cfg), 0);
+    const entry = { homestead_cells: { facilities: [{ instance_id: '10001', state: 1, ranch: {} }, { instance_id: '10002', state: 1, capacity: 100, feed_machine: { feed_count: 97 } }] } };
+    assert.deepEqual(ranch.friendFeedMachine(entry), { id: '10002', capacity: 100, feedCount: 97 });
+    const a = new Map([[1, { used: 0 }], [2, { used: 3 }]]);
+    const b = new Map([[1, { used: 1 }], [2, { used: 3 }]]);
+    assert.deepEqual(ranch.diffOpTimes(a, b), [1]);
+    assert.deepEqual(ranch.diffOpTimes(null, b), []);
+});
+
+test('好友牧场照顾：按抓包参数清理/加牧草、自动识别每日次数 op、用完当天不再请求', async () => {
+    ranch.resetFnosRanchRuntime();
+    const sent = [];
+    const st = { ops: [{ op_id: 501, times_limit: 2, used_times: 0, remaining_times: 2 }, { op_id: 502, times_limit: 5, used_times: 0, remaining_times: 5 }] };
+    const bump = id => { const o = st.ops.find(x => x.op_id === id); o.used_times++; o.remaining_times--; };
+    mock('services/ranch/transport', {
+        rpc: async (route, input) => {
+            sent.push([route, JSON.parse(JSON.stringify(input))]);
+            if (route === 'opTimes') return { ops: st.ops.map(o => ({ ...o })) };
+            if (route === 'clean') { bump(501); return { ranches: [{ hazards: [] }], op_results: [{ kind: 3, rewards: [{ id: 1102, count: 10 }] }] }; }
+            if (route === 'addGrass') { bump(502); return { detail: { feed_count: 100 } }; }
+            throw new Error(`unexpected ${  route}`);
+        },
+    });
+    const entry = { homestead_cells: { facilities: [{ instance_id: '10002', state: 1, capacity: 100, feed_machine: { feed_count: 97 } }] } };
+    const hazards = [{ ranch_inst_id: '10001', hazards: [{ hazard_id: 2, hazard_type: 1 }] }];
+    mock('services/ranch/friends', { targets: () => [], visit: async (gid, run) => run(entry, hazards, String(gid)) });
+    mock('services/ranch/model', { sumItems: list => list.map(i => ({ ...i, name: `#${i.id}` })), quantity: v => String(v) });
+    const cfg = ranch.normalizeFnosRanch({ friendMosquito: true, friendFeed: true, friendFeedKeep: 100 });
+    ranch._rt.dayKey = 'd1';
+    const grass = { left: 500 };
+    let r = await ranch._visitFriend({ gid: 1276854731, name: 'a', steal: false, clean: true, feed: true }, cfg, grass);
+    assert.equal(r.cleaned, 1);
+    assert.equal(r.fed, 3);
+    assert.equal(grass.left, 497);
+    assert.deepEqual(sent.filter(([x]) => x !== 'opTimes'), [
+        ['clean', { host_gid: '1276854731', ranch_inst_ids: [] }],
+        ['addGrass', { instance_id: '10002', add_count: 3, use_gold: false, host_gid: '1276854731' }],
+    ]);
+    assert.equal(ranch._rt.opMap.clean, 501);
+    assert.equal(ranch._rt.opMap.feed, 502);
+    // 第二次清理：已识别 op，不再前后查询；之后次数用完
+    sent.length = 0;
+    r = await ranch._visitFriend({ gid: 2, name: 'b', steal: false, clean: true, feed: false }, cfg, grass);
+    assert.equal(r.cleaned, 1);
+    assert.deepEqual(sent.map(([x]) => x), ['clean']);
+    sent.length = 0;
+    r = await ranch._visitFriend({ gid: 3, name: 'c', steal: false, clean: true, feed: false }, cfg, grass);
+    assert.equal(r.cleaned, 0);
+    assert.deepEqual(sent, []);
+    // 只开清便便、但只有蚊子 → 不清
+    ranch.resetFnosRanchRuntime();
+    sent.length = 0;
+    r = await ranch._visitFriend({ gid: 4, name: 'd', steal: false, clean: true, feed: false }, ranch.normalizeFnosRanch({ friendClean: true }), grass);
+    assert.deepEqual(sent, []);
+    // 请求报次数上限 → 当天停止
+    ranch.resetFnosRanchRuntime();
+    ranch._rt.dayKey = 'd2';
+    ranch._rt.opMap.clean = 501;
+    mock('services/ranch/transport', { rpc: async route => { if (route === 'clean') throw new Error('今日次数已达上限'); return { ops: [] }; } });
+    await assert.rejects(ranch._visitFriend({ gid: 5, name: 'e', steal: false, clean: true, feed: false }, cfg, grass));
+    assert.equal(ranch._rt.exhausted.clean, 'd2');
 });

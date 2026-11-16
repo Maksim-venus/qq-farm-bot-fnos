@@ -23,6 +23,7 @@ const ROUTES: Record<string, [string, string, string, string?]> = {
     harvest: ['animalpb.AnimalService', 'HarvestRanch', 'RanchHarvestRanch'],
     feed: ['animalpb.AnimalService', 'FeedAnimal', 'RanchFeedAnimal'],
     clean: ['animalpb.RanchService', 'CleanAllRanch', 'RanchCleanAllRanch'],
+    opTimes: ['animalpb.RanchService', 'GetRanchOpTimes', 'RanchGetRanchOpTimes'], // [fnos-fork] 2026-11-16 好友牧场每日次数（1116-3 #158）
     stroke: ['animalpb.RanchService', 'StrokeAnimal', 'RanchStrokeAnimal'],
     bag: ['itempb.ItemService', 'GetBag', 'RanchGetBag'],
     bagTabs: ['itempb.ItemService', 'GetBagTab', 'RanchGetBagTab'],

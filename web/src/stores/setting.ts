@@ -106,6 +106,8 @@ export interface FnosRanch {
   friendClean: boolean
   friendMosquito: boolean
   friendFeed: boolean
+  friendFeedPerTime: number
+  friendFeedKeep: number
   friendIntervalMinutes: number
   friendMaxPerPatrol: number
   friendDailyVisitLimit: number
@@ -123,6 +125,8 @@ const FNOS_RANCH_DEFAULT: FnosRanch = {
   friendClean: false,
   friendMosquito: false,
   friendFeed: false,
+  friendFeedPerTime: 10,
+  friendFeedKeep: 200,
   friendIntervalMinutes: 10,
   friendMaxPerPatrol: 5,
   friendDailyVisitLimit: 100,
@@ -135,6 +139,8 @@ const RANGES: Partial<Record<keyof FnosRanch, [number, number]>> = {
   friendIntervalMinutes: [5, 180],
   friendMaxPerPatrol: [1, 20],
   friendDailyVisitLimit: [10, 500],
+  friendFeedPerTime: [1, 500],
+  friendFeedKeep: [0, 99999],
 }
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
