@@ -15,6 +15,8 @@ export interface FnosForkConfigs {
     /** [fnos-fork] 2026-10-28 图鉴奖励自动领取 / 自动完成图鉴 */
     illustrated: { autoClaimRewards: boolean; autoComplete: boolean };
     /** [fnos-fork] 2026-10-31 偷收比 */
+    /** [fnos-fork] 2026-11-16 牧场：等大号、图鉴、轮换值守、好友牧场 */
+    ranch: import('./ranch/fnos-ranch').FnosRanchConfig;
     stealRatio: {
         thresholdPercent: number;
         ignoreApplications: boolean;
@@ -32,6 +34,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
     const { normalizeFnosAltAccount } = require('./farm/fnos-alt-account');
     const { normalizeFnosIllustratedAuto } = require('./fnos-illustrated-auto');
     const { normalizeFnosStealRatio } = require('./friend/fnos-steal-ratio');
+    const { normalizeFnosRanch } = require('./ranch/fnos-ranch');
     try {
         const store = require('../models/store');
         const snapshot = store.getConfigSnapshot(accountId) || {};
@@ -39,6 +42,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             alt: normalizeFnosAltAccount(snapshot.fnosAltAccount),
             illustrated: normalizeFnosIllustratedAuto(snapshot.fnosIllustratedAuto),
             stealRatio: normalizeFnosStealRatio(snapshot.fnosStealRatio),
+            ranch: normalizeFnosRanch(snapshot.fnosRanch),
             error: '',
         };
     } catch (e: any) {
@@ -47,7 +51,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
             lastReadErrorLogAt = Date.now();
             try { require('../utils/utils').logWarn('系统', `读取 fork 设置（大号/小号、图鉴、偷收比）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
         }
-        return { alt: normalizeFnosAltAccount(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), stealRatio: normalizeFnosStealRatio(undefined), error: message };
+        return { alt: normalizeFnosAltAccount(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), stealRatio: normalizeFnosStealRatio(undefined), ranch: normalizeFnosRanch(undefined), error: message };
     }
 }
 

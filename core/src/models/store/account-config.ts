@@ -128,6 +128,8 @@ function getConfigSnapshot(accountId?: unknown): AccountConfig & { ui: typeof gl
         fnosAltAccount: { ...cfg.fnosAltAccount },
         fnosIllustratedAuto: { ...cfg.fnosIllustratedAuto }, // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
         fnosStealRatio: { ...cfg.fnosStealRatio }, // [fnos-fork] 偷收比
+        fnosRanch: { ...cfg.fnosRanch }, // [fnos-fork] 2026-11-16 牧场增强
+        fnosGrassLands: { ...cfg.fnosGrassLands }, // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
         ui: { ...globalConfig.ui },
     } as any;
 }
@@ -308,6 +310,14 @@ function applyConfigSnapshot(snapshot: Record<string, any> | undefined, options:
         if (JSON.stringify(next.fnosIllustratedAuto) !== beforeIll) {
             try { require('../../services/fnos-illustrated-auto').onFnosIllustratedAutoConfigChanged(); } catch { /* ignore */ }
         }
+    }
+    // [fnos-fork] 2026-11-16 牧场增强（等大号、图鉴、轮换值守、好友牧场）
+    if (cfg.fnosRanch !== undefined && cfg.fnosRanch !== null) {
+        next.fnosRanch = require('../../services/ranch/fnos-ranch').normalizeFnosRanch(cfg.fnosRanch, next.fnosRanch);
+    }
+    // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
+    if (cfg.fnosGrassLands !== undefined && cfg.fnosGrassLands !== null) {
+        next.fnosGrassLands = require('../../services/farm/fnos-grass-lands').normalizeFnosGrassLands(cfg.fnosGrassLands, next.fnosGrassLands);
     }
     // [fnos-fork] 偷收比
     if (cfg.fnosStealRatio !== undefined && cfg.fnosStealRatio !== null) {

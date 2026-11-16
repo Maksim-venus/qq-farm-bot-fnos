@@ -339,6 +339,8 @@ function createDataProvider(options: DataProviderOptions) {
                 'fnosAltAccount', // [fnos-fork] 大号/小号
                 'fnosIllustratedAuto', // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴
                 'fnosStealRatio', // [fnos-fork] 偷收比
+                'fnosRanch', // [fnos-fork] 2026-11-16 牧场增强
+                'fnosGrassLands', // [fnos-fork] 2026-11-16 最后 X 块地只种牧草
             ]) {
                 copyIfPresent(key);
             }

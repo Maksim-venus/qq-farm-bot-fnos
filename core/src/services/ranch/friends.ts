@@ -89,4 +89,5 @@ async function steal(input: any): Promise<any> {
     });
 }
 
-module.exports = { getFriend, prepareSteal, steal };
+// [fnos-fork] visit / targets 供 fnos-ranch 好友牧场巡查复用（一次进出完成检查+偷取）
+module.exports = { getFriend, prepareSteal, steal, visit, targets };

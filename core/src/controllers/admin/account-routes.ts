@@ -383,11 +383,14 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const autoAcceptHarvestStealSteal = id && (typeof store.getAutoAcceptHarvestStealSteal === 'function') ? store.getAutoAcceptHarvestStealSteal(id) : 1;
             // [fnos-fork] 图鉴奖励领取 / 自动完成图鉴：设置页「自动控制」读取（2026-11-15 起）
             const fnosIllustratedAuto = id ? (store.getConfigSnapshot(id) || {}).fnosIllustratedAuto : undefined;
+            // [fnos-fork] 2026-11-16 牧场增强：设置页牧场空间「自动控制」读取
+            const fnosGrassLands = require('../../services/farm/fnos-grass-lands').normalizeFnosGrassLands(id ? (store.getConfigSnapshot(id) || {}).fnosGrassLands : undefined); // [fnos-fork] 2026-11-16
+            const fnosRanch = require('../../services/ranch/fnos-ranch').normalizeFnosRanch(id ? (store.getConfigSnapshot(id) || {}).fnosRanch : undefined);
             const ui = store.getUI();
             const offlineReminder = store.getOfflineReminder
                 ? store.getOfflineReminder()
                 : { channel: 'webhook', endpoint: '', token: '', secret: '', title: '账号下线提醒', msg: '账号下线', offlineDeleteSec: 0 };
-            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, stealDelaySeconds, plantOrderRandom, plantDelaySeconds, fertilizerBuyOrganicCount, fertilizerBuyOrganicThresholdHours, fertilizerBuyNormalCount, fertilizerBuyNormalThresholdHours, fertilizerBuyCheckIntervalMinutes, bagSeedPriority, bagSeedMultiLandReservationEnabled, bagSeedLandTypes, bagSeedFallbackStrategy, autoAcceptFriendMinLevel, autoAcceptRequireOwnLevel, autoAcceptHarvestStealEnabled, autoAcceptHarvestStealHarvest, autoAcceptHarvestStealSteal, fnosIllustratedAuto, ui, offlineReminder } });
+            res.json({ ok: true, data: { intervals, strategy, preferredSeed, friendQuietHours, automation, stealDelaySeconds, plantOrderRandom, plantDelaySeconds, fertilizerBuyOrganicCount, fertilizerBuyOrganicThresholdHours, fertilizerBuyNormalCount, fertilizerBuyNormalThresholdHours, fertilizerBuyCheckIntervalMinutes, bagSeedPriority, bagSeedMultiLandReservationEnabled, bagSeedLandTypes, bagSeedFallbackStrategy, autoAcceptFriendMinLevel, autoAcceptRequireOwnLevel, autoAcceptHarvestStealEnabled, autoAcceptHarvestStealHarvest, autoAcceptHarvestStealSteal, fnosIllustratedAuto, fnosRanch, fnosGrassLands, ui, offlineReminder } });
         } catch (e: any) {
             handleApiError(res, e);
         }

@@ -131,6 +131,10 @@ export interface AccountConfig {
     /** [fnos-fork] 在线期间来偷菜的自动删除，缺省 false */
     autoDeleteOnlineStealer?: boolean;
   };
+  /** [fnos-fork] 2026-11-16 牧场增强：等大号、图鉴、轮换值守、好友牧场（见 services/ranch/fnos-ranch.ts） */
+  fnosRanch?: import('../services/ranch/fnos-ranch').FnosRanchConfig;
+  /** [fnos-fork] 2026-11-16 农场最后 X 块地只种牧草（见 services/farm/fnos-grass-lands.ts） */
+  fnosGrassLands?: import('../services/farm/fnos-grass-lands').FnosGrassLandsConfig;
 }
 
 export interface OfflineReminder {

@@ -21,7 +21,7 @@ export type AutomationSettingsFormModel = Pick<
   | 'autoAcceptHarvestStealHarvest'
   | 'autoAcceptHarvestStealSteal'
 > & { emailClaimHour: number | string }
-& Partial<Pick<SettingsState, 'fnosIllustratedAuto'>> // [fnos-fork] 图鉴
+& Partial<Pick<SettingsState, 'fnosIllustratedAuto' | 'fnosRanch' | 'fnosGrassLands'>> // [fnos-fork] 图鉴、牧场增强、牧草地
 
 withDefaults(defineProps<{
   inRanch?: boolean
@@ -94,6 +94,72 @@ const ranchStrategies = [
             </template>
           </div>
         </section>
+
+        <!-- [fnos-fork] 2026-11-16 牧场增强：轮换值守、小号等大号、牧场图鉴、好友牧场（随「保存自动控制」保存到 fnosRanch） -->
+        <section v-if="panel === 'automation' && settings.fnosRanch" class="farm-card rounded-2xl p-4" data-testid="fnos-ranch">
+          <div class="mb-4 flex items-start gap-3">
+            <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-400">
+              <span class="i-carbon-repeat text-xl" />
+            </div>
+            <div>
+              <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                飞牛增强
+              </h4>
+              <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                农场优先，牧场轮换值守；小号等大号；牧场图鉴；好友牧场
+              </p>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.rotation" label="轮换值守（关闭=按上面的巡查间隔）" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.rotationIdleMinutes" class="w-full" label="农场无事时每隔（分钟）去牧场" type="number" min="1" max="60" step="1" :disabled="!settings.fnosRanch.rotation" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.rotationMinGapSeconds" class="w-full" label="两次进牧场最少间隔（秒）" type="number" min="30" max="600" step="10" :disabled="!settings.fnosRanch.rotation" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.altHold" label="小号：货架产物先等大号偷" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.altHoldFallbackMinutes" class="w-full" label="农场超时为 0 时牧场最长等（分钟）" type="number" min="5" max="720" step="5" :disabled="!settings.fnosRanch.altHold" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.illustratedAutoClaim" label="牧场图鉴奖励自动领取" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.illustratedAutoComplete" label="自动完成牧场图鉴（买幼崽优先缺的）" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.friendSteal" label="好友牧场：自动偷成熟产物" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.friendClean" label="好友牧场：清理便便（待抓包）" disabled />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.friendMosquito" label="好友牧场：打蚊子（待抓包）" disabled />
+            </div>
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草，花自己的牧草（待抓包）" disabled />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendIntervalMinutes" class="w-full" label="好友牧场巡查间隔（分钟）" type="number" min="5" max="180" step="1" :disabled="!settings.fnosRanch.friendSteal" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendMaxPerPatrol" class="w-full" label="每次最多走几个好友" type="number" min="1" max="20" step="1" :disabled="!settings.fnosRanch.friendSteal" />
+            </div>
+            <div class="automation-setting-item">
+              <BaseInput v-model.number="settings.fnosRanch.friendDailyVisitLimit" class="w-full" label="每天最多访问好友牧场（次）" type="number" min="10" max="500" step="10" :disabled="!settings.fnosRanch.friendSteal" />
+            </div>
+          </div>
+          <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+            轮换值守：农场这一轮有收/种/务农或好友巡查有访问，就去牧场逛一圈；农场没事时按上面的分钟数去一次；自己的菜 1 分钟内要熟时先不去。
+            小号等大号沿用「大小号协作」的大号和超时设置；有货架在等时只收成熟动物，不收货架。
+            好友牧场跳过黑名单、静默时段；小号开了「不偷大号的菜」时不偷大号；大号优先巡查自己的小号。清理便便、打蚊子、给好友加牧草还没抓到真实请求，暂不可用。日志标签「牧场」。
+          </p>
+        </section>
       </div>
 
       <div v-if="!inRanch" class="automation-card-column">
@@ -128,6 +194,18 @@ const ranchStrategies = [
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.automation.land_upgrade" class="automation-setting-item" label="自动升级土地" />
             </div>
+            <!-- [fnos-fork] 2026-11-16 最后 X 块地只种牧草 -->
+            <template v-if="settings.fnosGrassLands">
+              <div class="automation-setting-item" data-testid="fnos-grass-lands">
+                <BaseInput v-model.number="settings.fnosGrassLands.count" class="w-full" label="最后 X 块地只种牧草（0=关闭）" type="number" min="0" max="24" step="1" />
+              </div>
+              <div class="automation-setting-item">
+                <BaseSwitch v-model="settings.fnosGrassLands.autoBuy" :disabled="!settings.fnosGrassLands.count" label="牧草种子不够时自动买" />
+              </div>
+              <p v-if="settings.fnosGrassLands.count > 0" class="text-xs text-gray-500 leading-relaxed sm:col-span-2 dark:text-gray-400">
+                已解锁土地按编号排序，最后 {{ settings.fnosGrassLands.count }} 块空出来时只种牧草（收牧草 ×20，10 分钟熟），其余地照原播种规则（含图鉴优先播种）。牧草种子不够时{{ settings.fnosGrassLands.autoBuy ? '从商店补买（20 金币/个）' : '这几块地先空着' }}，日志标签「牧草地」。
+              </p>
+            </template>
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.automation.task" class="automation-setting-item" label="自动做任务" />
             </div>

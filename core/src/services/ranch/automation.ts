@@ -12,6 +12,7 @@ const { getShopGoodsById } = require('../../config/gameConfig');
 const reservations = require('./operation-state');
 const { getAmbientSendContext, runWithSendContext } = require('./context');
 const daily = require('./daily');
+const fnosRanch = require('./fnos-ranch'); // [fnos-fork] 2026-11-16 等大号、图鉴、轮换值守、好友牧场
 
 let nextCheckAt = 0;
 const enabled = (key: string) => getAutomation()[key] === true;
@@ -19,8 +20,15 @@ const due = (state: any) => !state.doneToday && Date.now() >= (state.nextCheckAt
 
 function getRoutineState(): any {
     const auto = getAutomation();
-    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_grass_buy'].includes(key) && auto[key]);
-    return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState())), nextCheckAt };
+    // [fnos-fork] fork 的图鉴/好友牧场也算牧场要做的事
+    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_grass_buy'].includes(key) && auto[key]) || fnosRanch.hasForkWork();
+    const doneToday = !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState()));
+    // [fnos-fork] 轮换值守：何时进牧场由 fnos-ranch 决定（上游 nextCheckAt 作为到点唤醒之一）；关闭后回到上游固定间隔
+    if (!doneToday && fnosRanch.rotationEnabled()) {
+        const rotation = fnosRanch.rotationDue(nextCheckAt);
+        return { doneToday, nextCheckAt: rotation.due ? 0 : rotation.nextAt, rotation: rotation.reason };
+    }
+    return { doneToday, nextCheckAt };
 }
 
 function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: number): any {
@@ -28,6 +36,9 @@ function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: numbe
     const preferred = kind === 1 ? settings.ranch_coop_animal : settings.ranch_shed_animal;
     const candidates = goods.filter(good => good.available && good.animal?.enable_flag
         && good.animal.husbandry_type === (kind === 1 ? '窝' : '棚') && good.price.id === 1007 && BigInt(good.price.count) > 0n);
+    // [fnos-fork] 自动完成牧场图鉴：优先买产物还没进图鉴的动物
+    const forBook = fnosRanch.pickAnimalForBook(candidates);
+    if (forBook) return forBook;
     if (strategy === 'preferred') return candidates.find(good => good.animal.id === preferred);
     const level = (good: any) => Number(getShopGoodsById(Number(good.id))?.conds?.match(/:(\d+)$/)?.[1] || good.requiredLevel || 0);
     return candidates.sort((a, b) => level(b) - level(a) || b.animal.id - a.animal.id)[0];
@@ -78,7 +89,14 @@ async function run(): Promise<void> {
                 }
             }
 
-            await act('ranch_harvest', 'harvest', { all: true });
+            // [fnos-fork] 小号等大号：有货架在等大号偷时只收成熟动物（op=4），不碰货架
+            const harvestPlan = fnosRanch.planOwnHarvest(raw);
+            if (harvestPlan.mode === 'all') {
+                await act('ranch_harvest', 'harvest', { all: true });
+            } else if (enabled('ranch_harvest')) {
+                const ready = raw.cells.facilities.flatMap((f: any) => (f.ranch?.animals || []).filter((a: any) => a.can_harvest));
+                for (const animal of ready) await act('ranch_harvest', 'harvest', { ranchId: quantity(animal.ranch_inst_id), animalId: animal.animal_inst_id });
+            }
             await act('ranch_produce', 'produce', { all: true });
             await act('ranch_clean', 'clean');
             await act('ranch_sell', 'sell', { all: true });
@@ -148,6 +166,9 @@ async function run(): Promise<void> {
             if (changed) daily.markTasksChanged();
             if (enabled('ranch_task') && due(daily.getTaskRoutineState())) await daily.claimTasks();
             if (enabled('ranch_share') && due(daily.getShareRoutineState())) await daily.claimShare();
+            // [fnos-fork] 牧场图鉴自动领取/读取缺失产物；好友牧场巡查（自己的菜快熟时跳过，先回农场）
+            if (await fnosRanch.runBook()) changed = true;
+            if (!fnosRanch.shouldYieldToFarm()) await fnosRanch.runFriendPatrol();
             // 成长、生产和建筑完成时间可提前唤醒；仍由现有 30 秒例程统一调度。
             const state = snapshot(raw);
             const upcoming = state.facilities.flatMap((f: any) => [
@@ -156,11 +177,14 @@ async function run(): Promise<void> {
             ]).filter((at: any) => at > state.serverTime);
             if (upcoming.length) nextCheckAt = Math.min(nextCheckAt, Date.now() + Math.max(30_000, Math.min(...upcoming) - state.serverTime));
             if (changed) nextCheckAt = Math.min(nextCheckAt, Date.now() + 30_000);
+            if (harvestPlan.wakeAtMs) nextCheckAt = Math.min(nextCheckAt, Math.max(Date.now() + 30_000, harvestPlan.wakeAtMs)); // [fnos-fork]
         });
     } catch (error: any) {
         if (error.code === 'RANCH_AUTOMATION_DISABLED') return;
         nextCheckAt = Date.now() + Math.max(auto.ranch_check_minutes, 10) * 60_000;
         log('牧场', `日常牧场巡查失败：${error.message}`, { module: 'ranch', event: 'ranch_automation', result: 'error' });
+    } finally {
+        fnosRanch.markRanchVisited(); // [fnos-fork] 轮换值守：两次进牧场的最小间隔从这里算
     }
 }
 

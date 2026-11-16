@@ -306,6 +306,10 @@ async function runFarmTick(auto: any): Promise<void> {
     } finally {
         nextFarmRunAt = Date.now() + farmMs;
         farmTaskRunning = false;
+        // [fnos-fork] 2026-11-16 牧场轮换值守：农场一轮结束后看看是否该去牧场（在牧场例程里判断最小间隔/作物将熟等）
+        if (loginReady && require('../services/ranch/fnos-ranch').rotationEnabled()) {
+            void runRanchRoutine(true).catch((error: any) => logWarn('牧场', `牧场例程失败：${error.message}`));
+        }
     }
 }
 
@@ -333,7 +337,9 @@ async function runFriendTick(auto: any): Promise<void> {
     try {
         // checkFriends 内部保留各自开关、经验上限、黑名单和每日捣乱次数判断。
         // 好友农场任务排在自己农场之后，前台操作永远优先于它。
-        await runWithRequestClass('friend', () => checkFriends());
+        const fnosFriendVisited = await runWithRequestClass('friend', () => checkFriends());
+        // [fnos-fork] 2026-11-16 好友事件处理完 → 轮换值守去牧场逛一圈
+        try { require('../services/ranch/fnos-ranch').recordFriendRound(!!fnosFriendVisited); } catch { /* ignore */ }
     } catch (e: any) {
         log('系统', `好友统一任务执行失败: ${e.message}`, { module: 'system', event: '好友统一任务', result: 'error' });
     } finally {
