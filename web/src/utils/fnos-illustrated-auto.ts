@@ -5,7 +5,8 @@
 
 export interface FnosIllustratedAuto { autoClaimRewards: boolean, autoComplete: boolean }
 
-export const FNOS_ILLUSTRATED_AUTO_DEFAULT: FnosIllustratedAuto = { autoClaimRewards: false, autoComplete: false }
+// [fnos-fork] 2026-11-17 图鉴奖励自动领取默认开启（与后端一致）
+export const FNOS_ILLUSTRATED_AUTO_DEFAULT: FnosIllustratedAuto = { autoClaimRewards: true, autoComplete: false }
 
 function bool(src: any, key: string, fallback: boolean): boolean {
   return src && typeof src === 'object' && src[key] !== undefined ? !!src[key] : fallback

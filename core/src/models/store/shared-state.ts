@@ -582,6 +582,8 @@ function loadGlobalConfig(): void {
         // [fnos-fork] 2026-11-15 奶茶 fork 功能下架：主进程启动时先清掉残留的奶茶设置字段（幂等，失败不影响启动）
         if (!process.env.FARM_ACCOUNT_ID) {
             try { require('../../services/fnos-milk-tea-cleanup').cleanupFnosMilkTeaData(require('node:path').dirname(STORE_FILE)); } catch { /* ignore */ }
+            // [fnos-fork] 2026-11-17 图鉴 / 牧场图鉴（含巨大图鉴）奖励自动领取改为默认开启：老配置一次性打开（有标记文件，只做一次）
+            try { require('../../services/fnos-claim-default-migration').migrateIllustratedClaimDefaultOn(require('node:path').dirname(STORE_FILE)); } catch { /* ignore */ }
         }
         const data: any = configStorage.load({ migrate: !process.env.FARM_ACCOUNT_ID });
         if (data && typeof data === 'object') {

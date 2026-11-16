@@ -6,7 +6,12 @@ export {};
  * - 图鉴（services/illustrated.ts、proto/illustratedpb.proto）：
  *   IllustratedService.GetIllustratedLevelListV2{type}（level_list[].can_claim / claimed）判断是否有可领等级奖励；
  *   IllustratedService.ClaimAllRewardsV2{type} 一键领取（经上游 claimIllustratedRewards，串行、领取前复核）。
- *   type 1 = 作物图鉴，type 2 = 变异图鉴（上游只支持这两种；IllustratedRewardRedDotNotifyV2 里的牧场图鉴没有实现，不处理）。
+ *   type 1 = 作物图鉴，type 2 = 变异图鉴（农场图鉴只有这两种；牧场图鉴 type 101 与巨大图鉴在 services/ranch/fnos-ranch.ts runBook）。
+ *
+ * [fnos-fork] 2026-11-17 图鉴奖励自动领取改为默认开启（老配置由 fnos-claim-default-migration 一次性打开）；
+ *   领取检查每 30 分钟一次（读 2 次等级列表，有 can_claim && !claimed 才发 ClaimAllRewardsV2），
+ *   收到 IllustratedRewardRedDotNotifyV2 红点时提前检查：normal / premium → 农场两本图鉴，ranch → 牧场图鉴下次巡查时检查。
+ *   空闲静默（「空闲时只保留心跳」）期间整轮跳过。
  *   IllustratedService.GetIllustratedListV2{rarity:0,type:1} 的 list[].fruit_id / unlocked 判断作物是否已收藏。
  * - 商店（services/farm/planting.ts）：ShopService.ShopInfo(2) 种子商店（getAvailableSeeds：goodsId、price、
  *   locked、soldOut、requiresUnlockCard、itemCount），ShopService.BuyGoods 购买（经上游 purchaseSeed，
@@ -20,6 +25,9 @@ export {};
  */
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000;
+/** [fnos-fork] 2026-11-17 图鉴奖励领取检查间隔（红点通知会提前触发） */
+const CLAIM_INTERVAL_MS = 30 * 60 * 1000;
+const RED_DOT_DELAY_MS = 5 * 1000;
 const FIRST_TICK_DELAY_MS = 12 * 1000;
 const MAX_PENDING = 2; // 同时最多 2 个待种种子，满了不再买
 const MAX_ATTEMPTS = 3; // 同一种子最多自动买 3 次
@@ -32,7 +40,8 @@ export interface FnosIllustratedAutoConfig {
     autoComplete: boolean;
 }
 
-const DEFAULT_FNOS_ILLUSTRATED_AUTO: FnosIllustratedAutoConfig = { autoClaimRewards: false, autoComplete: false };
+// [fnos-fork] 2026-11-17 图鉴奖励自动领取默认开启；自动完成图鉴会花金币买种子，仍默认关
+const DEFAULT_FNOS_ILLUSTRATED_AUTO: FnosIllustratedAutoConfig = { autoClaimRewards: true, autoComplete: false };
 
 function normalizeFnosIllustratedAuto(input: unknown, fallback: FnosIllustratedAutoConfig = DEFAULT_FNOS_ILLUSTRATED_AUTO): FnosIllustratedAutoConfig {
     const base = { ...DEFAULT_FNOS_ILLUSTRATED_AUTO, ...(fallback || {}) };
@@ -118,9 +127,20 @@ function removePending(seedId: number): void {
     }
 }
 
+/** [fnos-fork] 下次图鉴奖励领取检查时间（0 = 下一轮就查） */
+let claimNextAt = 0;
+
+/** 本轮是否检查图鉴奖励：到了间隔才查；查了就推迟 CLAIM_INTERVAL_MS。 */
+function takeClaimTurn(nowMs: number = Date.now()): boolean {
+    if (nowMs < claimNextAt) return false;
+    claimNextAt = nowMs + CLAIM_INTERVAL_MS;
+    return true;
+}
+
 function resetFnosIllustratedRuntime(options: { clearPending?: boolean } = {}): void {
     for (const k of Object.keys(lastLog)) delete lastLog[k];
     pendingCache = null;
+    claimNextAt = 0;
     if (options.clearPending) {
         pendingCache = { pending: {}, attempts: {} };
         savePending();
@@ -321,12 +341,12 @@ function defaultDeps(): any {
 }
 
 /** 一轮：领取图鉴奖励、自动完成图鉴。 */
-async function runIllustratedAutoTick(options: { deps?: any } = {}) {
+async function runIllustratedAutoTick(options: { deps?: any; claim?: boolean } = {}) {
     const cfg = readConfig();
     const result = { claimed: 0, bought: false };
     if (!cfg.autoClaimRewards && !cfg.autoComplete) return result;
     const deps = { ...defaultDeps(), ...(options.deps || {}) };
-    if (cfg.autoClaimRewards) result.claimed = await runClaimRewards(deps);
+    if (cfg.autoClaimRewards && options.claim !== false) result.claimed = await runClaimRewards(deps); // [fnos-fork] claim=false：本轮未到领取检查间隔
     if (cfg.autoComplete) result.bought = await runAutoComplete(deps);
     return result;
 }
@@ -382,12 +402,18 @@ async function plantFnosIllustratedSeeds(landIds: number[], options: { propagate
 
 let activeScheduler: any = null;
 let activeTick: (() => Promise<any>) | null = null;
+let redDotListener: ((notify: any) => void) | null = null; // [fnos-fork] 2026-11-17
 let lastTickErrorLogAt = 0;
 
 function startFnosIllustratedAuto(scheduler: any, runExclusive: (name: string, fn: () => Promise<any>) => Promise<any>): void {
     for (const k of Object.keys(lastLog)) delete lastLog[k];
     pendingCache = null;
-    const tick = () => (require('./fnos-quiet-priority').isFnosIdleActive() ? Promise.resolve(null) /* 空闲时只保留心跳：本次跳过 */ : runExclusive('fnos_illustrated_auto', () => runIllustratedAutoTick())).catch((e: any) => {
+    claimNextAt = 0;
+    const tick = () => (require('./fnos-quiet-priority').isFnosIdleActive() ? Promise.resolve(null) /* 空闲时只保留心跳：本次跳过 */ : runExclusive('fnos_illustrated_auto', () => {
+        const cfg = readConfig();
+        if (!cfg.autoClaimRewards && !cfg.autoComplete) return Promise.resolve(null);
+        return runIllustratedAutoTick({ claim: cfg.autoClaimRewards ? takeClaimTurn() : false });
+    })).catch((e: any) => {
         if (Date.now() - lastTickErrorLogAt > 30 * 60 * 1000) {
             lastTickErrorLogAt = Date.now();
             try { require('../utils/utils').logWarn('图鉴', `图鉴自动检查出错：${e && e.message ? e.message : e}`, { module: 'farm', event: '图鉴自动', result: 'error' }); } catch { /* ignore */ }
@@ -398,6 +424,32 @@ function startFnosIllustratedAuto(scheduler: any, runExclusive: (name: string, f
     activeTick = tick;
     scheduler.setTimeoutTask('fnos_illustrated_auto_first', FIRST_TICK_DELAY_MS, tick);
     scheduler.setIntervalTask('fnos_illustrated_auto', CHECK_INTERVAL_MS, tick);
+    // [fnos-fork] 2026-11-17 图鉴奖励红点：有可领奖励时提前检查
+    try {
+        const { networkEvents } = require('../utils/network');
+        if (redDotListener) networkEvents.off('illustratedRewardRedDot', redDotListener);
+        redDotListener = (notify: any) => onIllustratedRewardRedDot(notify);
+        networkEvents.on('illustratedRewardRedDot', redDotListener);
+    } catch { /* ignore */ }
+}
+
+/** 红点 → 农场图鉴（normal / premium）提前检查；牧场（ranch）交给牧场巡查。返回触发了哪些。 */
+function onIllustratedRewardRedDot(notify: any): { farm: boolean; ranch: boolean } {
+    const out = { farm: false, ranch: false };
+    if (!notify) return out;
+    let cfg: FnosIllustratedAutoConfig;
+    try { cfg = readConfig(); } catch { return out; }
+    if (cfg.autoClaimRewards && (notify.normal_reward_available || notify.premium_reward_available)) {
+        claimNextAt = 0;
+        out.farm = true;
+        if (activeScheduler && activeTick) {
+            try { activeScheduler.setTimeoutTask('fnos_illustrated_auto_first', RED_DOT_DELAY_MS, activeTick); } catch { /* ignore */ }
+        }
+    }
+    if (notify.ranch_reward_available) {
+        try { out.ranch = require('./ranch/fnos-ranch').markBookDue(); } catch { /* ignore */ }
+    }
+    return out;
 }
 
 function onFnosIllustratedAutoConfigChanged(): void {
@@ -409,6 +461,9 @@ function onFnosIllustratedAutoConfigChanged(): void {
 
 module.exports = {
     CHECK_INTERVAL_MS,
+    CLAIM_INTERVAL_MS,
+    takeClaimTurn,
+    onIllustratedRewardRedDot,
     MAX_PENDING,
     MAX_ATTEMPTS,
     DEFAULT_FNOS_ILLUSTRATED_AUTO,

@@ -10,6 +10,9 @@ export {};
  *    否则从首次看到可收算起超时放行（农场 timeoutMinutes；为 0 时用 altHoldFallbackMinutes，默认 60）。
  *    还有货架在等时只用 HarvestRanch op=4 收成熟动物，不碰货架；全部放行后按上游 op=1 一键收。
  * 2. 牧场图鉴：自动领取（上游 claimIllustrated normal/giant，先报价再按 expected 提交）；
+ *    普通图鉴 = GetIllustratedListV2{type:101}.has_claimable_reward → ClaimAllRewardsV2{type:101}；
+ *    巨大图鉴 = GetRanchWeightScoreV2 levels[].can_claim && !claimed → 逐级 ClaimRanchWeightScoreRewardV2{id}。
+ *    2026-11-17 起默认开启；每 30 分钟最多读一次（红点 ranch_reward_available 提前），只有这项要做时不再每轮巡查都进牧场；
  *    自动完成：自动买幼崽时优先挑产物还没进图鉴的动物。
  * 3. 上游好友牧场自动化（friends.automateFriend）的大小号规则（类比农场 fnos-alt-coop）：
  *    - 偷：小号开了「不偷大号的菜」（skipStealMaster）不偷大号；
@@ -51,7 +54,7 @@ const REMOVED_FNOS_RANCH_KEYS = [
 const DEFAULT_FNOS_RANCH: FnosRanchConfig = {
     altHold: true,
     altHoldFallbackMinutes: 60,
-    illustratedAutoClaim: false,
+    illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴奖励自动领取默认开启（老配置一次性迁移见 fnos-claim-default-migration）
     illustratedAutoComplete: false,
     friendHelpProduce: false,
     friendFeed: false,
@@ -236,7 +239,10 @@ async function runBook(nowMs: number = Date.now()): Promise<boolean> {
                     const done = await operateQuoted('claimIllustrated', { kind });
                     if (done) {
                         changed = true;
-                        log(`${done.quote.label || '领取牧场图鉴奖励'}（${kind === 'normal' ? '普通图鉴' : '巨大图鉴'}）${done.result.notice ? `：${done.result.notice}` : '完成'}`, { event: 'fnos牧场图鉴', result: 'ok' });
+                        // [fnos-fork] 2026-11-17 日志写明领到的东西（巨大图鉴附领取的等级数）
+                        const got = (done.result.rewards || []).map((item: any) => `${item.name || `物品 #${item.id}`} ×${item.count}`).join('、');
+                        const levels = kind === 'giant' && done.quote.count ? `${done.quote.count} 级` : '';
+                        log(`${kind === 'normal' ? '牧场图鉴' : '巨大图鉴'}奖励已领取${levels ? `（${levels}）` : ''}：${got || done.result.notice || '（回包未列出物品）'}`, { event: 'fnos牧场图鉴', result: 'ok', kind });
                     }
                 } catch (e: any) {
                     log(`牧场图鉴奖励领取失败（${kind}）：${e.message}`, { event: 'fnos牧场图鉴', result: 'error' }, true);
@@ -278,11 +284,22 @@ function ownHarvestReady(raw: any): boolean {
 }
 
 /** 牧场一圈里还有 fork 要做的事（让上游 getRoutineState 不要判为「今日无事」）。 */
-function hasForkWork(): boolean {
+function hasForkWork(nowMs: number = Date.now()): boolean {
     try {
         const { ranch } = readConfigs();
-        return ranch.illustratedAutoClaim || ranch.illustratedAutoComplete || ranch.friendHelpProduce || ranch.friendFeed;
+        // [fnos-fork] 2026-11-17 图鉴只在到期时算「有活」，避免只开了图鉴领取也每轮巡查都进牧场
+        return ((ranch.illustratedAutoClaim || ranch.illustratedAutoComplete) && nowMs >= rt.nextBookAt) || ranch.friendHelpProduce || ranch.friendFeed;
     } catch { return false; }
+}
+
+/** [fnos-fork] 红点 ranch_reward_available：下次牧场巡查就检查图鉴。开关关着返回 false。 */
+function markBookDue(): boolean {
+    try {
+        const { ranch } = readConfigs();
+        if (!ranch.illustratedAutoClaim) return false;
+    } catch { return false; }
+    rt.nextBookAt = 0;
+    return true;
 }
 
 // ============ 3. 上游好友牧场自动化的大小号规则 ============
@@ -492,6 +509,7 @@ module.exports = {
     runBook,
     pickAnimalForBook,
     hasForkWork,
+    markBookDue,
     friendActionAllowed,
     friendActionBlockReason,
     manualFriendRules,

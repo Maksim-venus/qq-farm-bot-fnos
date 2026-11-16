@@ -20,9 +20,10 @@ function loadModule(name) {
 
 const m = loadModule('fnos-illustrated-auto')
 
-test('读取回包：缺字段补默认（全部关闭）', () => {
-  assert.deepEqual(m.fnosNormalizeIllustratedAuto(undefined), { autoClaimRewards: false, autoComplete: false })
-  assert.deepEqual(m.fnosNormalizeIllustratedAuto({ autoComplete: 1 }), { autoClaimRewards: false, autoComplete: true })
+test('读取回包：缺字段补默认（奖励领取默认开 2026-11-17，自动完成默认关）', () => {
+  assert.deepEqual(m.fnosNormalizeIllustratedAuto(undefined), { autoClaimRewards: true, autoComplete: false })
+  assert.deepEqual(m.fnosNormalizeIllustratedAuto({ autoComplete: 1 }), { autoClaimRewards: true, autoComplete: true })
+  assert.deepEqual(m.fnosNormalizeIllustratedAuto({ autoClaimRewards: false }), { autoClaimRewards: false, autoComplete: false })
   assert.deepEqual(m.fnosNormalizeIllustratedAuto({ autoClaimRewards: true, autoComplete: false, fnosMilkTeaExtra: {} }), { autoClaimRewards: true, autoComplete: false })
 })
 
@@ -45,4 +46,12 @@ test('设置页：图鉴开关在「自动控制」里，随「保存自动控�
   for (const text of [fork, form, page, store].map(strip)) {
     assert.doesNotMatch(text, /milk-tea|MilkTea|奶茶|雇佣|工资|金露云酪|seedExchange/)
   }
+})
+
+test('[fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴领取默认开；农场日志「图鉴奖励」筛选包含实际事件名', () => {
+  const read = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
+  assert.match(read('utils/fnos-ranch.ts'), /illustratedAutoClaim: true/)
+  assert.match(read('stores/setting.ts'), /illustratedAutoClaim: true/)
+  assert.match(read('components/settings/AutomationSettingsForm.vue'), /牧场图鉴 \/ 巨大图鉴奖励自动领取/)
+  assert.match(read('views/Dashboard.vue'), /value: 'illustrated_rewards,图鉴奖励领取,图鉴奖励'/)
 })

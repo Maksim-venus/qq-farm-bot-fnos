@@ -857,7 +857,10 @@ function handleNotify(msg: any): void {
         // 图鉴奖励红点通知
         if (type.includes('IllustratedRewardRedDotNotifyV2')) {
             try {
-                networkEvents.emit('illustratedRewardRedDot');
+                // [fnos-fork] 带上解码后的红点（normal / premium / ranch），供图鉴奖励自动领取立即检查；解码失败仍按原样发事件
+                let notify: any = null;
+                try { notify = types.IllustratedRewardRedDotNotifyV2 ? types.IllustratedRewardRedDotNotifyV2.decode(eventBody) : null; } catch { notify = null; }
+                networkEvents.emit('illustratedRewardRedDot', notify);
             } catch {}
             return;
         }

@@ -112,7 +112,7 @@ export interface FnosRanch {
 const FNOS_RANCH_DEFAULT: FnosRanch = {
   altHold: true,
   altHoldFallbackMinutes: 60,
-  illustratedAutoClaim: false,
+  illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 默认开
   illustratedAutoComplete: false,
   friendFeed: false,
   friendFeedPerTime: 10,
@@ -158,7 +158,7 @@ function fnosNormalizeGrassLands(input: unknown): FnosGrassLands {
 export interface FnosIllustratedAuto { autoClaimRewards: boolean, autoComplete: boolean }
 function fnosNormalizeIllustratedAuto(input: any): FnosIllustratedAuto {
   const src = input && typeof input === 'object' ? input : {}
-  return { autoClaimRewards: src.autoClaimRewards !== undefined ? !!src.autoClaimRewards : false, autoComplete: src.autoComplete !== undefined ? !!src.autoComplete : false }
+  return { autoClaimRewards: src.autoClaimRewards !== undefined ? !!src.autoClaimRewards : true /* [fnos-fork] 2026-11-17 默认开 */, autoComplete: src.autoComplete !== undefined ? !!src.autoComplete : false }
 }
 
 // [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（与 utils/fnos-quiet-priority.ts 相同；此处内联，store 不多依赖其他模块）

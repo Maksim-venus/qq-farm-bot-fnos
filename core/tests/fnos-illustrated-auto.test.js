@@ -97,10 +97,10 @@ const shopItem = (s, extra = {}) => ({ seedId: s.seedId, goodsId: 100 + s.seedId
 
 test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
-test('normalize：默认关闭；真实 store 默认关闭', () => {
-    assert.deepEqual(auto.normalizeFnosIllustratedAuto(undefined), { autoClaimRewards: false, autoComplete: false });
+test('normalize：奖励领取默认开（2026-11-17）、自动完成默认关；真实 store 同', () => {
+    assert.deepEqual(auto.normalizeFnosIllustratedAuto(undefined), { autoClaimRewards: true, autoComplete: false });
     assert.deepEqual(auto.normalizeFnosIllustratedAuto({ autoComplete: 1 }, { autoClaimRewards: true, autoComplete: false }), { autoClaimRewards: true, autoComplete: true });
-    assert.deepEqual(store.getConfigSnapshot('7').fnosIllustratedAuto, { autoClaimRewards: false, autoComplete: false });
+    assert.deepEqual(store.getConfigSnapshot('7').fnosIllustratedAuto, { autoClaimRewards: true, autoComplete: false });
 });
 
 test('未开启：不发请求；播种挂钩原样返回', async () => {
@@ -218,8 +218,8 @@ test('pickSeedToBuy 纯函数：全部已收藏', () => {
 });
 
 test('持久化：账号配置文件读回', () => {
-    store.applyConfigSnapshot({ fnosIllustratedAuto: { autoClaimRewards: true, autoComplete: false } }, { accountId: '8' });
+    store.applyConfigSnapshot({ fnosIllustratedAuto: { autoClaimRewards: false, autoComplete: true } }, { accountId: '8' });
     const { execFileSync } = require('node:child_process');
     const out = execFileSync(process.execPath, ['-e', `const s=require(${JSON.stringify(path.join(__dirname, '../dist/models/store'))});console.log(JSON.stringify([s.getConfigSnapshot('8').fnosIllustratedAuto, s.getConfigSnapshot('9').fnosIllustratedAuto]))`], { env: { ...process.env, QQ_FARM_DATA_DIR: DATA_DIR } }).toString().trim().split('\n').pop();
-    assert.deepEqual(JSON.parse(out), [{ autoClaimRewards: true, autoComplete: false }, { autoClaimRewards: false, autoComplete: false }]);
+    assert.deepEqual(JSON.parse(out), [{ autoClaimRewards: false, autoComplete: true }, { autoClaimRewards: true, autoComplete: false }]);
 });

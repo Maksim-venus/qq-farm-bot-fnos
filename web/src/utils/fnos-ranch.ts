@@ -17,7 +17,7 @@ export interface FnosRanch {
 export const FNOS_RANCH_DEFAULT: FnosRanch = {
   altHold: true,
   altHoldFallbackMinutes: 60,
-  illustratedAutoClaim: false,
+  illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴奖励自动领取默认开启
   illustratedAutoComplete: false,
   friendFeed: false,
   friendFeedPerTime: 10,
