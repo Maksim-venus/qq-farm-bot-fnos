@@ -366,6 +366,10 @@ async function runFriendPetSyncRound(): Promise<FriendPetSyncResult> {
 function scheduleNextSyncRound(delayMs: number): void {
     if (!syncTimerActive) return;
     petSyncScheduler.setTimeoutTask('friend_pet_sync_round', Math.max(1000, delayMs), async () => {
+        // [fnos-fork] 2026-11-17 宠物同步是杂项：自家收获 / 偷菜 / 帮忙即将到点或好友巡查在跑时先不做，30 秒后再看
+        let fnosMiscWait = false;
+        try { fnosMiscWait = !!require('../fnos-timetable').miscShouldWait(); } catch { fnosMiscWait = false; }
+        if (fnosMiscWait) { scheduleNextSyncRound(30_000); return; }
         let nextDelayMs: number = SYNC_CHECK_INTERVAL_MS;
         try {
             const result: FriendPetSyncResult = await runExclusiveAutomationTask('friend_pet_sync', runFriendPetSync);

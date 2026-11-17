@@ -25,7 +25,7 @@ export {};
  *     同一好友 REVISIT_GAP_MS 内不重复去。偷 / 帮 / 捣乱规则、次数上限、大小号规则全部沿用好友巡查（visit-plan + fnos-alt-coop）。
  *   - 好友牧场同理：牧场轮里先去到点的好友牧场，大小号规则沿用 fnos-ranch.wrapFriendWanted。
  *   - 数据按账号存 data/fnos-timetable/<账号>.json（本地毫秒时间），重启后接着用。
- *   - 杂项（任务、礼包、图鉴、神秘商店、偷收比、每日福利、牧场任务 / 分享 / 图鉴）只在 MISC_QUIET_WINDOW_MS 内没有任何
+ *   - 杂项（任务、礼包、图鉴、神秘商店、偷收比统计、好友宠物同步、每日福利、牧场任务 / 分享 / 图鉴）只在 MISC_QUIET_WINDOW_MS 内没有任何
  *     到点事项（自家收获、好友时间表、好友巡查进行中）时做：miscShouldWait()。
  */
 
@@ -455,17 +455,44 @@ function miscShouldWait(nowMs: number = Date.now()): boolean {
     return shouldMiscWait({ nowMs, busy: probe.busy, times: [...probe.times, farmDueTime(), ranchDueTime()] });
 }
 
-/** 给前端：每位好友还多久可偷 / 要帮 / 牧场可偷（本地毫秒） */
-function snapshotForUi(): Array<{ gid: number; name: string; farmRipeAt: number; farmHelpAt: number; ranchReadyAt: number }> {
-    const s = current();
+/** 给前端的一行：本地毫秒；*SeenAt = 进去读过的时间（0 = 还没扫描过成熟时间） */
+export interface TimetableUiRow {
+    gid: number; name: string;
+    farmRipeAt: number; farmHelpAt: number; farmSeenAt: number; farmVisitedAt: number;
+    ranchReadyAt: number; ranchSeenAt: number; ranchVisitedAt: number;
+}
+
+/** 纯函数：状态 → 前端行（「还多久可偷」列） */
+function buildSnapshot(s: TimetableState): TimetableUiRow[] {
     const keys = new Set([...Object.keys(s.farm), ...Object.keys(s.ranch)]);
-    return [...keys].map(key => ({
-        gid: Number(key),
-        name: (s.farm[key] && s.farm[key].name) || (s.ranch[key] && s.ranch[key].name) || '',
-        farmRipeAt: s.farm[key] ? s.farm[key].ripeAt : 0,
-        farmHelpAt: s.farm[key] ? s.farm[key].helpAt : 0,
-        ranchReadyAt: s.ranch[key] ? s.ranch[key].readyAt : 0,
-    }));
+    return [...keys].map(key => {
+        const f = s.farm[key];
+        const r = s.ranch[key];
+        return {
+            gid: Number(key),
+            name: (f && f.name) || (r && r.name) || '',
+            farmRipeAt: f ? f.ripeAt : 0,
+            farmHelpAt: f ? f.helpAt : 0,
+            farmSeenAt: f ? f.seenAt : 0,
+            farmVisitedAt: f ? f.visitedAt : 0,
+            ranchReadyAt: r ? r.readyAt : 0,
+            ranchSeenAt: r ? r.seenAt : 0,
+            ranchVisitedAt: r ? r.visitedAt : 0,
+        };
+    });
+}
+
+/** 给前端：每位好友还多久可偷 / 要帮 / 牧场可偷（本地毫秒；worker 内） */
+function snapshotForUi(): TimetableUiRow[] {
+    return buildSnapshot(current());
+}
+
+/** 管理端（主进程）读某账号的时间表文件：worker 每次变化 5 秒内落盘 */
+function readSnapshotForAccount(id: string): TimetableUiRow[] {
+    try {
+        const { readJsonFile } = require('./json-db');
+        return buildSnapshot(sanitize(readJsonFile(stateFile(id), () => ({}))));
+    } catch { return []; }
 }
 
 function resetTimetableRuntime(): void {
@@ -514,6 +541,8 @@ module.exports = {
     setBusyProbe,
     miscShouldWait,
     snapshotForUi,
+    buildSnapshot,
+    readSnapshotForAccount,
     flushNow,
     resetTimetableRuntime,
 };

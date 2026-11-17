@@ -329,7 +329,7 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
             nextCheckAt = Math.max(Date.now() + SCENE_REENTRY_MS, Math.min(nextCheckAt, nextActionAt, cycleChanged ? Date.now() + 30_000 : Infinity));
             resetCycle();
         });
-        reentryAtMs = Date.now() + SCENE_REENTRY_MS; // [fnos-fork]
+        reentryAtMs = Date.now(); // [fnos-fork] 2026-11-17 去掉 20 秒重进间隔：什么时候再进牧场由农牧轮流（每边至少 1 分钟）决定
         return 'done';
     } catch (error: any) {
         if (error.code === 'RANCH_PATROL_YIELD') {

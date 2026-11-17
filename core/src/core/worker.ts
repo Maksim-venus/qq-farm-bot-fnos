@@ -134,7 +134,7 @@ function ranchNextRunAt(): number {
     if (fnosQuietPriority().isFnosIdleActive()) return Infinity; // [fnos-fork] 空闲时只保留心跳：静默期间牧场自动化也暂停
     const state = ranchAutomation.getRoutineState();
     if (state.doneToday) return Infinity;
-    // [fnos-fork] 2026-11-17 严格交替：只看场景重进间隔（20 秒，让路后 3 秒），ranch_check_minutes 不再是进牧场的门槛
+    // [fnos-fork] 2026-11-17 严格交替：牧场一轮做完立即可进（每边至少 1 分钟由 fnos-turns 控制；让路后 3 秒续跑），ranch_check_minutes 不再是进牧场的门槛
     return state.reentryAt !== undefined ? Number(state.reentryAt) || 0 : state.nextCheckAt;
 }
 
@@ -208,7 +208,11 @@ function fnosFriendPending(nowMs: number): boolean {
 
 function fnosEvaluateTurn(nowMs: number): void {
     try {
-        fnosTurns.evaluateTurn({ nowMs, ranchDue: nowMs >= ranchNextRunAt(), ranchHasWork: fnosRanchHasWork(), friendActive: !!getAutomation().friend, friendPending: fnosFriendPending(nowMs) });
+        const ownRanchAt = typeof ranchAutomation.timedWakeAt === 'function' ? Number(ranchAutomation.timedWakeAt()) || 0 : 0;
+        fnosTurns.evaluateTurn({
+            nowMs, ranchDue: nowMs >= ranchNextRunAt(), ranchHasWork: fnosRanchHasWork(), friendActive: !!getAutomation().friend, friendPending: fnosFriendPending(nowMs),
+            ownFarmAt: fnosOwnMatureAt(nowMs), ownRanchAt,
+        });
     } catch { /* ignore */ }
 }
 
@@ -228,7 +232,9 @@ function runRanchRoutine(detached = false): Promise<void> {
     const timedDue = ranchTimedAt > 0 && now >= ranchTimedAt;
     const ranchTurn = fnosTurns.currentTurn() === 'ranch';
     const insert = !ranchTurn && timedDue;
-    if (ranchTurn ? (now < ranchNextRunAt() && !timedDue) : !insert) return Promise.resolve();
+    // 牧场轮这一轮已做完、在等满 1 分钟时不重跑，只处理插队（自家动物到期 / 好友牧场时间表）
+    const roundDone = ranchTurn && typeof fnosTurns.ranchRoundDone === 'function' && fnosTurns.ranchRoundDone();
+    if (ranchTurn ? ((roundDone || now < ranchNextRunAt()) && !timedDue) : !insert) return Promise.resolve();
     const generation = runtimeGeneration;
     ranchRoutineQueued = true;
     return runExclusiveAutomationTask('ranch_routine', async () => {
@@ -254,7 +260,7 @@ function runRanchRoutine(detached = false): Promise<void> {
         const status = await ranchAutomation.run(ranchTurn
             ? { sliceMs: Number.POSITIVE_INFINITY, farmDeadline: deadline }
             : { sliceMs: 60_000, farmDeadline: deadline });
-        if (ranchTurn) fnosTurns.noteRanchRun(String(status || 'done')); // [fnos-fork]
+        if (ranchTurn && !roundDone) fnosTurns.noteRanchRun(String(status || 'done')); // [fnos-fork]
     }, { detached }).finally(() => {
         ranchRoutineQueued = false;
         fnosRanchLastEndAt = Date.now();

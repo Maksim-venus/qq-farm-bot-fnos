@@ -143,3 +143,14 @@ test('源码约束：时间表访问走同一套访问计划 + 大小号规则�
     assert.match(read('services/friend/visit-strategy.ts'), /noteFarmLands\(gid, name, lands\)/);
     assert.match(read('services/ranch/friends.ts'), /noteRanch\(host, '', ranches\)/);
 });
+
+test('[2026-11-17] buildSnapshot：前端「还多久可偷」行带上成熟 / 帮忙 / 牧场可偷时间和是否扫描过', () => {
+    const tt = require('../dist/services/fnos-timetable');
+    const rows = tt.buildSnapshot({
+        farm: { 11: { name: '甲', ripeAt: 5000, helpAt: 6000, seenAt: 100, visitedAt: 100 } },
+        ranch: { 11: { name: '', readyAt: 7000, seenAt: 200, visitedAt: 200 }, 22: { name: '乙', readyAt: 0, seenAt: 0, visitedAt: 0 } },
+    });
+    assert.deepEqual(rows.find(r => r.gid === 11), { gid: 11, name: '甲', farmRipeAt: 5000, farmHelpAt: 6000, farmSeenAt: 100, farmVisitedAt: 100, ranchReadyAt: 7000, ranchSeenAt: 200, ranchVisitedAt: 200 });
+    assert.deepEqual(rows.find(r => r.gid === 22), { gid: 22, name: '乙', farmRipeAt: 0, farmHelpAt: 0, farmSeenAt: 0, farmVisitedAt: 0, ranchReadyAt: 0, ranchSeenAt: 0, ranchVisitedAt: 0 });
+    assert.deepEqual(tt.readSnapshotForAccount('no-such-account-xyz'), [], '没有文件时返回空');
+});
