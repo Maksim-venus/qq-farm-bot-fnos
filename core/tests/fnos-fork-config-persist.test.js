@@ -48,7 +48,7 @@ test('fnosAltAccount / fnosIllustratedAuto 持久化并在新进程中读回；�
     assert.deepEqual(out.tea, []);
     assert.equal(out.steal, 7);
     assert.equal(out.otherAlt.enabled, false);
-    assert.equal(out.otherIll.autoClaimRewards, false);
+    assert.equal(out.otherIll.autoClaimRewards, true); // [fnos-fork] 2026-11-17 默认开
     fs.rmSync(dir, { recursive: true, force: true });
 });
 

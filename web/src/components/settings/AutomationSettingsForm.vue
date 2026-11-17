@@ -134,7 +134,8 @@ const ranchStrategies = [
               <BaseInput v-model.number="settings.fnosRanch.altHoldFallbackMinutes" class="w-full" label="农场超时为 0 时牧场最长等（分钟）" type="number" min="5" max="720" step="5" :disabled="!settings.fnosRanch.altHold" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.illustratedAutoClaim" label="牧场图鉴奖励自动领取" />
+              <!-- [fnos-fork] 2026-11-17 普通图鉴 + 巨大图鉴（重量分等级奖励），默认开，约 30 分钟检查一次，有红点时提前 -->
+              <BaseSwitch v-model="settings.fnosRanch.illustratedAutoClaim" label="牧场图鉴 / 巨大图鉴奖励自动领取" title="普通图鉴等级奖励和巨大图鉴重量分奖励；约 30 分钟随牧场巡查检查一次，收到图鉴红点时提前，「空闲时只保留心跳」期间暂停" />
             </div>
             <div class="automation-setting-item">
               <BaseSwitch v-model="settings.fnosRanch.illustratedAutoComplete" label="自动完成牧场图鉴（买幼崽优先缺的）" />
@@ -516,7 +517,8 @@ const ranchStrategies = [
                 图鉴
               </h4>
               <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                账号运行时约每 10 分钟检查一次作物图鉴和变异图鉴，保存后约 12 秒先执行一次
+                <!-- [fnos-fork] 2026-11-17 -->
+                账号运行时约每 30 分钟检查一次作物图鉴和变异图鉴的可领奖励（收到图鉴红点时提前；自动完成图鉴约每 10 分钟），保存后约 12 秒先执行一次；牧场图鉴 / 巨大图鉴在牧场空间「飞牛增强」里
               </p>
             </div>
           </div>

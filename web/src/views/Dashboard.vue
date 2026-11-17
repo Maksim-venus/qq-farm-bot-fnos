@@ -116,7 +116,8 @@ const events = [
   { label: '分享奖励', value: 'daily_share' },
   { label: '会员礼包', value: 'vip_daily_gift' },
   { label: '月卡礼包', value: 'month_card_gift' },
-  { label: '图鉴奖励', value: 'illustrated_rewards' },
+  // [fnos-fork] 2026-11-17 图鉴奖励：实际写入的事件是「图鉴奖励领取」（fork 自动领取）与「图鉴奖励」（上游登录时领取），一并筛选
+  { label: '图鉴奖励', value: 'illustrated_rewards,图鉴奖励领取,图鉴奖励' },
   { label: '邮箱领取', value: 'email_rewards' },
   { label: '出售成功', value: 'sell_success' },
   { label: '土地升级', value: 'upgrade_land' },
@@ -126,7 +127,7 @@ const events = [
 ]
 
 const eventLabelMap: Record<string, string> = Object.fromEntries(
-  events.filter(e => e.value).map(e => [e.value, e.label]),
+  events.filter(e => e.value).flatMap(e => e.value.split(',').map(value => [value, e.label])), // [fnos-fork] 一项可对应多个事件
 )
 
 function getEventLabel(event: string) {
