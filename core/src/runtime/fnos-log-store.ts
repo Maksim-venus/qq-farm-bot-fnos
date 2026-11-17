@@ -5,7 +5,7 @@
  * 农场 / 好友日志占九成以上，牧场日志很快就被挤掉；重启后也全部丢失。
  *
  * 这里为每个账号的农场、牧场各维护一份独立缓冲：
- *   - 农场默认 5000 条、牧场默认 3000 条，另外只保留最近 3 天；
+ *   - 农场默认 20000 条、牧场默认 3000 条，另外只保留最近 3 天；
  *   - 追加写入 data/fnos-run-logs/<账号>/<farm|ranch>.jsonl（每 2 秒批量写一次），
  *     文件行数超过上限 + 1000 时按内存内容重写，所以文件大小有上限；
  *   - 启动后第一次用到某账号时从文件读回，重启后日志还在；
@@ -48,7 +48,7 @@ export interface FnosRanchDaySummary {
 }
 
 export const FNOS_LOG_STORE_DEFAULTS = {
-    farmCap: 5000,
+    farmCap: 20000,
     ranchCap: 3000,
     maxAgeMs: 3 * 24 * 3600 * 1000,
     flushMs: 2000,

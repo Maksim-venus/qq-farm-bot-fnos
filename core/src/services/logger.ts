@@ -40,6 +40,137 @@ function sanitizeMeta(value: any, depth = 0): any {
     return out;
 }
 
+// ============ [fnos-fork] 2026-11-17 combined.log 按天切分，只留 7 天 ============
+// 原来 data/logs/combined.log 只追加不切分（NAS 上已 400MB+）。现在每天一个文件 combined-YYYY-MM-DD.log（本机时区），
+// 启动时删掉 7 天前的；旧的 combined.log 在主进程启动时改名归档为 combined-legacy-<日期>.log，
+// 超过 10MB 的只保留末尾 10MB（只读末尾一段，不整读大文件，不拖慢启动），归档同样 7 天后删除。
+// 多个进程（主进程 + 各账号 worker）都以追加方式写同一天的文件，O_APPEND 下单行写入不会交错。
+const FNOS_COMBINED_KEEP_DAYS = 7;
+const FNOS_LEGACY_KEEP_BYTES = 10 * 1024 * 1024;
+const FNOS_COMBINED_FILE_RE = /^combined-(?:legacy-)?(\d{4}-\d{2}-\d{2})(?:-\d+)?\.log$/;
+
+function fnosLocalDateKey(ms: number = Date.now()): string {
+    const d = new Date(ms);
+    const pad = (n: number) => (n < 10 ? `0${n}` : String(n));
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function fnosCombinedLogFile(dir: string, ms: number = Date.now()): string {
+    return path.join(dir, `combined-${fnosLocalDateKey(ms)}.log`);
+}
+
+/** 删掉 keepDays 天前的按天日志与归档（按文件名里的日期判断）。 */
+function fnosCleanupCombinedLogs(dir: string, ms: number = Date.now(), keepDays = FNOS_COMBINED_KEEP_DAYS): string[] {
+    const removed: string[] = [];
+    const cutoff = fnosLocalDateKey(ms - keepDays * 24 * 3600 * 1000);
+    let names: string[] = [];
+    try {
+        names = fs.readdirSync(dir);
+    } catch {
+        return removed;
+    }
+    for (const name of names) {
+        const m = FNOS_COMBINED_FILE_RE.exec(name);
+        if (!m || m[1] > cutoff) continue;
+        try {
+            fs.unlinkSync(path.join(dir, name));
+            removed.push(name);
+        } catch {
+            // ignore
+        }
+    }
+    return removed;
+}
+
+/** 把旧的单文件 combined.log 归档：小的直接改名，大的只留末尾 keepBytes（从整行开始）。返回归档文件名或空串。 */
+function fnosArchiveLegacyCombinedLog(dir: string, ms: number = Date.now(), keepBytes = FNOS_LEGACY_KEEP_BYTES): string {
+    const legacy = path.join(dir, 'combined.log');
+    let stat: any;
+    try {
+        stat = fs.statSync(legacy);
+    } catch {
+        return '';
+    }
+    if (!stat.isFile()) return '';
+    const date = fnosLocalDateKey(ms);
+    let name = `combined-legacy-${date}.log`;
+    for (let i = 1; fs.existsSync(path.join(dir, name)); i++) name = `combined-legacy-${date}-${i}.log`;
+    const target = path.join(dir, name);
+    try {
+        if (stat.size <= keepBytes) {
+            fs.renameSync(legacy, target);
+            return name;
+        }
+        const fd = fs.openSync(legacy, 'r');
+        try {
+            const buf = Buffer.alloc(keepBytes);
+            const read = fs.readSync(fd, buf, 0, keepBytes, stat.size - keepBytes);
+            let start = buf.indexOf(0x0A);
+            start = start >= 0 && start < read ? start + 1 : 0;
+            fs.writeFileSync(target, buf.subarray(start, read));
+        } finally {
+            fs.closeSync(fd);
+        }
+        fs.unlinkSync(legacy);
+        return name;
+    } catch {
+        return '';
+    }
+}
+
+let fnosLogDirPrepared = false;
+
+function fnosPrepareLogDir(dir: string): void {
+    if (fnosLogDirPrepared) return;
+    fnosLogDirPrepared = true;
+    try {
+        if (process.env.FARM_WORKER !== '1') fnosArchiveLegacyCombinedLog(dir);
+        fnosCleanupCombinedLogs(dir);
+    } catch {
+        // 日志整理失败不影响启动
+    }
+}
+
+const FnosTransportBase: any = winston && winston.Transport ? winston.Transport : class {};
+const MESSAGE_SYMBOL = Symbol.for('message');
+
+/** winston 传输：按本机日期写 combined-YYYY-MM-DD.log，跨天时换文件并清理过期文件。 */
+class FnosDailyFileTransport extends FnosTransportBase {
+    dir: string;
+    date = '';
+    stream: any = null;
+
+    constructor(opts: any) {
+        super(opts);
+        this.dir = opts.dir;
+    }
+
+    log(info: any, callback: () => void): void {
+        setImmediate(() => this.emit('logged', info));
+        try {
+            const now = Date.now();
+            const date = fnosLocalDateKey(now);
+            if (date !== this.date || !this.stream) {
+                if (this.stream) this.stream.end();
+                this.date = date;
+                this.stream = fs.createWriteStream(fnosCombinedLogFile(this.dir, now), { flags: 'a' });
+                this.stream.on('error', () => {});
+                fnosCleanupCombinedLogs(this.dir, now);
+            }
+            const line = info[MESSAGE_SYMBOL] || JSON.stringify(info);
+            this.stream.write(`${line}\n`);
+        } catch {
+            // ignore
+        }
+        if (callback) callback();
+    }
+
+    close(): void {
+        if (this.stream) this.stream.end();
+        this.stream = null;
+    }
+}
+
 let fallbackLogDir: string | null = null;
 
 function ensureFallbackLogDir(): string {
@@ -47,6 +178,7 @@ function ensureFallbackLogDir(): string {
     const dataDir = ensureDataDir();
     const dir = path.join(dataDir, 'logs');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fnosPrepareLogDir(dir); // [fnos-fork]
     fallbackLogDir = dir;
     return fallbackLogDir;
 }
@@ -62,7 +194,7 @@ function appendFallbackLog(level: string, moduleName: string, message: string, m
             meta: sanitizeMeta(meta || {}),
         };
         const line = `${JSON.stringify(payload)}\n`;
-        fs.appendFileSync(path.join(dir, 'combined.log'), line, 'utf8');
+        fs.appendFileSync(fnosCombinedLogFile(dir), line, 'utf8'); // [fnos-fork] 按天切分
         if (level === 'error') {
             fs.appendFileSync(path.join(dir, 'error.log'), line, 'utf8');
         }
@@ -111,6 +243,7 @@ function getRootLogger(): any {
     const dataDir = ensureDataDir();
     const logDir = path.join(dataDir, 'logs');
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    fnosPrepareLogDir(logDir); // [fnos-fork] 归档旧 combined.log、删 7 天前的按天日志
 
     const level = String(process.env.LOG_LEVEL || 'info').toLowerCase();
     const { combine, timestamp, errors, json, colorize, printf } = winston.format;
@@ -139,8 +272,9 @@ function getRootLogger(): any {
                     }),
                 ),
             }),
-            new winston.transports.File({
-                filename: path.join(logDir, 'combined.log'),
+            // [fnos-fork] 按天切分：combined-YYYY-MM-DD.log，只留 7 天
+            new FnosDailyFileTransport({
+                dir: logDir,
                 format: combine(timestamp(), errors({ stack: true }), json()),
             }),
             new winston.transports.File({
@@ -178,6 +312,10 @@ function createModuleLogger(moduleName = 'app'): ModuleLogger {
 
 module.exports = {
     createModuleLogger,
+    fnosLocalDateKey,
+    fnosCombinedLogFile,
+    fnosCleanupCombinedLogs,
+    fnosArchiveLegacyCombinedLog,
     sanitizeMeta,
     redactString,
 };

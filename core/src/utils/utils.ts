@@ -179,10 +179,13 @@ function normalizeLogArgs(arg1: string, arg2: string | object | null, arg3?: any
 }
 
 function log(arg1: string, arg2: string | object | null, arg3: any = null): void {
-    const { tag, msg, meta } = normalizeLogArgs(arg1, arg2, arg3);
+    const { tag, msg: rawMsg, meta } = normalizeLogArgs(arg1, arg2, arg3);
     const safeMeta = normalizeMeta(meta);
     if (!safeMeta.module) safeMeta.module = inferModuleFromTag(tag);
     const displayTag = resolveModuleTag(safeMeta.module);
+    const finalMsg = require('./fnos-log-throttle').fnosThrottleLogMessage(displayTag, rawMsg, safeMeta); // [fnos-fork] 刷屏提示每小时只记一次
+    if (finalMsg === null) return;
+    const msg: string = finalMsg;
     coreLogger.info(msg, { tag: displayTag, ...safeMeta });
     if (logHook) {
         try { logHook(displayTag, msg, false, safeMeta); } catch {}
@@ -190,10 +193,13 @@ function log(arg1: string, arg2: string | object | null, arg3: any = null): void
 }
 
 function logWarn(arg1: string, arg2: string | object | null, arg3: any = null): void {
-    const { tag, msg, meta } = normalizeLogArgs(arg1, arg2, arg3);
+    const { tag, msg: rawMsg, meta } = normalizeLogArgs(arg1, arg2, arg3);
     const safeMeta = normalizeMeta(meta);
     if (!safeMeta.module) safeMeta.module = inferModuleFromTag(tag);
     const displayTag = resolveModuleTag(safeMeta.module);
+    const finalMsg = require('./fnos-log-throttle').fnosThrottleLogMessage(displayTag, rawMsg, safeMeta); // [fnos-fork] 刷屏提示每小时只记一次
+    if (finalMsg === null) return;
+    const msg: string = finalMsg;
     coreLogger.warn(msg, { tag: displayTag, ...safeMeta });
     if (logHook) {
         try { logHook(displayTag, msg, true, safeMeta); } catch {}
