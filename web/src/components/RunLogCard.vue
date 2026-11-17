@@ -139,7 +139,7 @@ const farmEvents = [
 ]
 
 const farmEventLabelMap: Record<string, string> = Object.fromEntries(
-  farmEvents.filter(e => e.value).map(e => [e.value, e.label]),
+  farmEvents.filter(e => e.value).flatMap(e => e.value.split(',').map(value => [value, e.label])), // 一项可对应多个事件
 )
 
 // 上游 PR #139 的牧场事件中文名，fork 分组筛选没覆盖到的事件按这里显示
