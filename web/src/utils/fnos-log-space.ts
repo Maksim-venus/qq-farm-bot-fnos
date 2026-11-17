@@ -20,7 +20,7 @@ interface Option { label: string, value: string }
 /** 牧场事件筛选：一项可对应多个 meta.event（逗号分隔，服务端按“任一匹配”过滤）。 */
 export const FNOS_RANCH_EVENT_OPTIONS: Option[] = [
   { label: '所有事件', value: '' },
-  { label: '牧场巡查', value: 'ranch_automation,ranch_scene_restore' },
+  { label: '牧场巡查', value: 'ranch_automation,ranch_scene_restore,fnos牧场轮次' }, // [fnos-fork] 2026-11-17 含农牧轮次切换
   { label: '收获', value: 'ranch_harvest' },
   { label: '生产', value: 'ranch_produce' },
   { label: '喂养 / 罐头', value: 'ranch_feed,ranch_useCan' },
@@ -46,7 +46,7 @@ export const FNOS_RANCH_EVENT_OPTIONS: Option[] = [
 /** 牧场范围筛选：自己牧场 / 好友牧场 / 任务礼包。 */
 export const FNOS_RANCH_SCOPE_OPTIONS: Option[] = [
   { label: '全部范围', value: '' },
-  { label: '自己牧场', value: 'ranch_automation,ranch_scene_restore,ranch_harvest,ranch_produce,ranch_feed,ranch_useCan,ranch_addGrass,ranch_buy,ranch_place,ranch_clean,ranch_sell,ranch_upgrade,ranch_completeUpgrade,fnos牧场等大号,fnos牧场图鉴,ranch_claimIllustrated,fnos牧场' },
+  { label: '自己牧场', value: 'ranch_automation,ranch_scene_restore,fnos牧场轮次,ranch_harvest,ranch_produce,ranch_feed,ranch_useCan,ranch_addGrass,ranch_buy,ranch_place,ranch_clean,ranch_sell,ranch_upgrade,ranch_completeUpgrade,fnos牧场等大号,fnos牧场图鉴,ranch_claimIllustrated,fnos牧场' },
   { label: '好友牧场', value: 'ranch_steal,ranch_putMosquito,ranch_fnosBad,ranch_cleanFriend,ranch_stroke,ranch_fnosHelpProduce,ranch_fnosFeedFriend,ranch_friend,ranch_friend_leave,fnos好友牧场' },
   { label: '任务与礼包', value: 'ranch_task_claim,ranch_daily_share' },
 ]

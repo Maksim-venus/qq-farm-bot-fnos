@@ -88,3 +88,9 @@ test('牧场好友列表按牧场等级从高到低排序，未读取的按 Lv1'
   assert.match(panel, /暂按 Lv1/)
   assert.doesNotMatch(panel, /Number\(b\?\.level\)/)
 })
+
+test('[fnos-fork] 2026-11-17 农牧轮流：农场日志可筛「农牧轮次」，牧场「牧场巡查」含轮次切换', () => {
+  const read = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
+  assert.match(read('views/Dashboard.vue'), /value: 'fnos轮次切换,fnos轮次插队'/)
+  assert.match(read('utils/fnos-log-space.ts'), /ranch_automation,ranch_scene_restore,fnos牧场轮次'/)
+})

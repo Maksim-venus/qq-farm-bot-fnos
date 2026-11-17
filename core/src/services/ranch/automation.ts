@@ -16,6 +16,8 @@ const daily = require('./daily');
 const fnosRanch = require('./fnos-ranch');
 
 let nextCheckAt = 0;
+/** [fnos-fork] 2026-11-17 农牧轮流：上一轮算出的「定时事件」时间（动物成熟 / 升级完成 / 等大号到点），供插队判断；0 = 无 */
+let timedWakeAtMs = 0;
 let nextFriendIndex = 0;
 let friendVisits = 0;
 let pendingFriendGid: string | null = null;
@@ -57,8 +59,11 @@ function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: numbe
     return candidates.sort((a, b) => level(b) - level(a) || b.animal.id - a.animal.id)[0];
 }
 
-async function run(options: { farmDeadline?: () => number } = {}): Promise<void> {
-    if (getRoutineState().doneToday) return;
+// [fnos-fork] 2026-11-17 农牧轮流：sliceMs = 每次进场最多连续做多久（默认 5 秒切片给农场让路；轮流模式传 Infinity，一轮做完，只为插队的农场定时事件让路）。
+// 返回本次结果：done 一整轮做完 / yielded 让路未完 / skipped 无事可做 / disabled / error。
+async function run(options: { farmDeadline?: () => number; sliceMs?: number } = {}): Promise<string> {
+    if (getRoutineState().doneToday) return 'skipped';
+    const sliceMs = options.sliceMs ?? PATROL_SLICE_MS;
     const auto: RanchAutomationConfig = getAutomation();
     if (!cycleStartedAt) cycleStartedAt = Date.now();
     nextCheckAt = cycleStartedAt + auto.ranch_check_minutes * 60_000;
@@ -66,7 +71,7 @@ async function run(options: { farmDeadline?: () => number } = {}): Promise<void>
         await inScene(async (cells: any) => {
             const startedAt = Date.now();
             let steps = 0;
-            const shouldYield = () => Date.now() >= Math.min(startedAt + PATROL_SLICE_MS, options.farmDeadline?.() ?? Infinity);
+            const shouldYield = () => Date.now() >= Math.min(startedAt + sliceMs, options.farmDeadline?.() ?? Infinity);
             const checkpoint = () => {
                 if (steps > 0 && shouldYield()) throw Object.assign(new Error('牧场巡查让路'), { code: 'RANCH_PATROL_YIELD' });
             };
@@ -274,19 +279,27 @@ async function run(options: { farmDeadline?: () => number } = {}): Promise<void>
             await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); steps++; } });
             await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
             if (fnosRanch.holdWakeAt() > 0) nextActionAt = Math.min(nextActionAt, fnosRanch.holdWakeAt()); // [fnos-fork] 等大号超时放行时提前回来
+            timedWakeAtMs = Number.isFinite(nextActionAt) ? nextActionAt : 0; // [fnos-fork] 农牧轮流插队时间点
             nextCheckAt = Math.max(Date.now() + SCENE_REENTRY_MS, Math.min(nextCheckAt, nextActionAt, cycleChanged ? Date.now() + 30_000 : Infinity));
             resetCycle();
         });
+        return 'done';
     } catch (error: any) {
         if (error.code === 'RANCH_PATROL_YIELD') {
             nextCheckAt = Date.now() + SCENE_REENTRY_MS;
-            return;
+            return 'yielded';
         }
         resetCycle();
-        if (error.code === 'RANCH_AUTOMATION_DISABLED') return;
+        if (error.code === 'RANCH_AUTOMATION_DISABLED') return 'disabled';
         nextCheckAt = Date.now() + Math.max(auto.ranch_check_minutes, 10) * 60_000;
         log('牧场', `日常牧场巡查失败：${error.message}`, { module: 'ranch', event: 'ranch_automation', result: 'error' });
+        return 'error';
     }
 }
 
-module.exports = { run, getRoutineState, selectAnimal, resetSchedule: () => { nextCheckAt = 0; resetCycle(); } };
+/** [fnos-fork] 2026-11-17 农牧轮流：牧场定时事件（动物成熟 / 升级完成 / 等大号到点）的时间，今天无事或没有时返回 0 */
+function timedWakeAt(): number {
+    return getRoutineState().doneToday ? 0 : timedWakeAtMs;
+}
+
+module.exports = { run, getRoutineState, selectAnimal, timedWakeAt, resetSchedule: () => { nextCheckAt = 0; timedWakeAtMs = 0; resetCycle(); } };
