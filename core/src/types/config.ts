@@ -138,6 +138,10 @@ export interface AccountConfig {
     idleKeepaliveOnly: boolean;
     idleMinMinutes: number;
     idleMaxMinutes: number;
+    /** [fnos-fork] 2026-11-17 按时间表偷菜 / 好友扫描间隔（分钟）/ 自家提前秒数 */
+    timetableSteal?: boolean;
+    friendScanMinutes?: number;
+    ownLeadSec?: number;
   };
   /** [fnos-fork] 2026-11-16 牧场增强：小号等大号、图鉴、好友牧场帮生产/加牧草（见 services/ranch/fnos-ranch.ts） */
   fnosRanch?: import('../services/ranch/fnos-ranch').FnosRanchConfig;

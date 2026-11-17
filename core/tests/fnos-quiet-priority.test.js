@@ -91,12 +91,15 @@ const ALT_HOLD = { enabled: true, masterGid: MASTER, masterName: 'Maksim', holdF
 
 // ---------- 归一化与持久化 ----------
 
+// [fnos-fork] 2026-11-17 按时间表偷菜 / 好友扫描间隔 / 自家提前秒数（同一份 fnosQuietPriority）
+const FNOS_TT_DEFAULTS = { timetableSteal: true, friendScanMinutes: 5, ownLeadSec: 2 };
+
 test('归一化：默认「自己收菜优先」开、合并 10 秒，「空闲时只保留心跳」关、1～10 分钟；越界收拢；缺字段沿用已保存值', () => {
-    assert.deepEqual(quiet.normalizeFnosQuietPriority(undefined), { ownHarvestFirst: true, mergeWindowSec: 10, idleKeepaliveOnly: false, idleMinMinutes: 1, idleMaxMinutes: 10 });
-    assert.deepEqual(quiet.normalizeFnosQuietPriority({ mergeWindowSec: 99, idleMinMinutes: 0, idleMaxMinutes: 999 }), { ownHarvestFirst: true, mergeWindowSec: 30, idleKeepaliveOnly: false, idleMinMinutes: 1, idleMaxMinutes: 180 });
+    assert.deepEqual(quiet.normalizeFnosQuietPriority(undefined), { ownHarvestFirst: true, mergeWindowSec: 10, idleKeepaliveOnly: false, idleMinMinutes: 1, idleMaxMinutes: 10, ...FNOS_TT_DEFAULTS });
+    assert.deepEqual(quiet.normalizeFnosQuietPriority({ mergeWindowSec: 99, idleMinMinutes: 0, idleMaxMinutes: 999 }), { ownHarvestFirst: true, mergeWindowSec: 30, idleKeepaliveOnly: false, idleMinMinutes: 1, idleMaxMinutes: 180, ...FNOS_TT_DEFAULTS });
     assert.deepEqual(quiet.normalizeFnosQuietPriority({ idleMinMinutes: 20, idleMaxMinutes: 5 }).idleMinMinutes, 5, '最短大于最长时互换');
-    const prev = quiet.normalizeFnosQuietPriority({ ownHarvestFirst: false, idleKeepaliveOnly: true, idleMaxMinutes: 30 });
-    assert.deepEqual(quiet.normalizeFnosQuietPriority({ mergeWindowSec: 0 }, prev), { ownHarvestFirst: false, mergeWindowSec: 0, idleKeepaliveOnly: true, idleMinMinutes: 1, idleMaxMinutes: 30 });
+    const prev = quiet.normalizeFnosQuietPriority({ ownHarvestFirst: false, idleKeepaliveOnly: true, idleMaxMinutes: 30, ...FNOS_TT_DEFAULTS });
+    assert.deepEqual(quiet.normalizeFnosQuietPriority({ mergeWindowSec: 0 }, prev), { ownHarvestFirst: false, mergeWindowSec: 0, idleKeepaliveOnly: true, idleMinMinutes: 1, idleMaxMinutes: 30, ...FNOS_TT_DEFAULTS });
 });
 
 function readAccountConfigFile(id) {
@@ -107,7 +110,7 @@ function readAccountConfigFile(id) {
 test('持久化：保存后写进 data/account-configs/<id>.json，读回一致；只改一项时其余不变；worker 读到同一份', () => {
     store.applyConfigSnapshot({ fnosQuietPriority: { idleKeepaliveOnly: true, idleMinMinutes: 3, idleMaxMinutes: 15 } }, { accountId: 'q1' });
     let raw = readAccountConfigFile('q1');
-    assert.deepEqual(raw.fnosQuietPriority, { ownHarvestFirst: true, mergeWindowSec: 10, idleKeepaliveOnly: true, idleMinMinutes: 3, idleMaxMinutes: 15 });
+    assert.deepEqual(raw.fnosQuietPriority, { ownHarvestFirst: true, mergeWindowSec: 10, idleKeepaliveOnly: true, idleMinMinutes: 3, idleMaxMinutes: 15, ...FNOS_TT_DEFAULTS });
     store.applyConfigSnapshot({ fnosQuietPriority: { ownHarvestFirst: false } }, { accountId: 'q1' });
     raw = readAccountConfigFile('q1');
     assert.equal(raw.fnosQuietPriority.ownHarvestFirst, false);
@@ -231,7 +234,7 @@ test('不开「先留给大号偷」的小号按普通账号处理（可以合�
 // ---------- 空闲时只保留心跳 ----------
 
 test('空闲：巡田无动作 + 好友无访问 → 静默（成熟前 10 秒结束），期间统一调度推迟；推送巡田有动作立刻结束', async () => {
-    apply({ automation: BASE_AUTO, fnosAltAccount: { enabled: false }, fnosQuietPriority: { ownHarvestFirst: true, idleKeepaliveOnly: true, idleMinMinutes: 1, idleMaxMinutes: 10 } });
+    apply({ automation: BASE_AUTO, fnosAltAccount: { enabled: false }, fnosQuietPriority: { ownHarvestFirst: true, idleKeepaliveOnly: true, idleMinMinutes: 1, idleMaxMinutes: 10, ...FNOS_TT_DEFAULTS } });
     reset([growingLand(15, 1800)]);
     await scheduler.checkFarm();
     let now = Date.now();
@@ -295,7 +298,7 @@ test('空闲：上一轮有动作或好友有人要访问时不静默；关掉�
 });
 
 test('空闲 + 小号有留给大号的地：最多静默 60 秒就复查（不会因为静默提前收）', async () => {
-    apply({ automation: BASE_AUTO, fnosAltAccount: ALT_HOLD, fnosQuietPriority: { ownHarvestFirst: true, idleKeepaliveOnly: true, idleMinMinutes: 5, idleMaxMinutes: 30 } });
+    apply({ automation: BASE_AUTO, fnosAltAccount: ALT_HOLD, fnosQuietPriority: { ownHarvestFirst: true, idleKeepaliveOnly: true, idleMinMinutes: 5, idleMaxMinutes: 30, ...FNOS_TT_DEFAULTS } });
     reset([matureLand(15), growingLand(16, 3600)]);
     await scheduler.checkFarm();
     assert.deepEqual(harvestCalls, []);

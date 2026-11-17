@@ -10,6 +10,10 @@ export interface FnosQuietPriority {
   idleKeepaliveOnly: boolean
   idleMinMinutes: number
   idleMaxMinutes: number
+  /** [fnos-fork] 2026-11-17 按时间表偷菜（默认开）、好友列表扫描间隔（分钟，默认 5）、自家到期前几秒进去等（默认 2） */
+  timetableSteal: boolean
+  friendScanMinutes: number
+  ownLeadSec: number
 }
 
 export const FNOS_QUIET_PRIORITY_DEFAULT: FnosQuietPriority = {
@@ -18,6 +22,9 @@ export const FNOS_QUIET_PRIORITY_DEFAULT: FnosQuietPriority = {
   idleKeepaliveOnly: false,
   idleMinMinutes: 1,
   idleMaxMinutes: 10,
+  timetableSteal: true,
+  friendScanMinutes: 5,
+  ownLeadSec: 2,
 }
 
 function int(src: any, key: string, min: number, max: number, fallback: number): number {
@@ -41,5 +48,8 @@ export function fnosNormalizeQuietPriority(input: unknown): FnosQuietPriority {
     idleKeepaliveOnly: src.idleKeepaliveOnly !== undefined ? !!src.idleKeepaliveOnly : d.idleKeepaliveOnly,
     idleMinMinutes,
     idleMaxMinutes,
+    timetableSteal: src.timetableSteal !== undefined ? !!src.timetableSteal : d.timetableSteal,
+    friendScanMinutes: int(src, 'friendScanMinutes', 1, 60, d.friendScanMinutes),
+    ownLeadSec: int(src, 'ownLeadSec', 0, 10, d.ownLeadSec),
   }
 }

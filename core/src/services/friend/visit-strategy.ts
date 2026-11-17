@@ -833,6 +833,8 @@ export async function visitFriend(
     }
 
     const lands: any[] = enterReply.lands || [];
+    // [fnos-fork] 2026-11-17 好友时间表：进来就记下这位好友下一块作物的成熟时间
+    try { require('../fnos-timetable').noteFarmLands(gid, name, lands); } catch { /* ignore */ }
     if (lands.length === 0) {
         await leaveFriendFarm(gid);
         return { acted: false, entered: true };

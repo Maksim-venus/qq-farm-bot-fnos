@@ -409,7 +409,8 @@ function startFnosIllustratedAuto(scheduler: any, runExclusive: (name: string, f
     for (const k of Object.keys(lastLog)) delete lastLog[k];
     pendingCache = null;
     claimNextAt = 0;
-    const tick = () => (require('./fnos-quiet-priority').isFnosIdleActive() ? Promise.resolve(null) /* 空闲时只保留心跳：本次跳过 */ : runExclusive('fnos_illustrated_auto', () => {
+    const fnosMiscWait = () => { try { return require('./fnos-timetable').miscShouldWait(); } catch { return false; } }; // [fnos-fork] 2026-11-17 图鉴是杂项：收获 / 偷菜 / 帮忙即将到点时本次跳过
+    const tick = () => (require('./fnos-quiet-priority').isFnosIdleActive() || fnosMiscWait() ? Promise.resolve(null) /* 空闲时只保留心跳：本次跳过 */ : runExclusive('fnos_illustrated_auto', () => {
         const cfg = readConfig();
         if (!cfg.autoClaimRewards && !cfg.autoComplete) return Promise.resolve(null);
         return runIllustratedAutoTick({ claim: cfg.autoClaimRewards ? takeClaimTurn() : false });

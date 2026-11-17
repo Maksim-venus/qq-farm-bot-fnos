@@ -26,7 +26,7 @@ export interface FnosForkConfigs {
         autoDeleteOnlineStealer: boolean;
     };
     /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（见 services/fnos-quiet-priority.ts） */
-    quiet: { ownHarvestFirst: boolean; mergeWindowSec: number; idleKeepaliveOnly: boolean; idleMinMinutes: number; idleMaxMinutes: number };
+    quiet: { ownHarvestFirst: boolean; mergeWindowSec: number; idleKeepaliveOnly: boolean; idleMinMinutes: number; idleMaxMinutes: number; timetableSteal: boolean; friendScanMinutes: number; ownLeadSec: number };
     error: string;
 }
 

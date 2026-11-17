@@ -167,7 +167,7 @@ function fnosNormalizeIllustratedAuto(input: any): FnosIllustratedAuto {
 }
 
 // [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（与 utils/fnos-quiet-priority.ts 相同；此处内联，store 不多依赖其他模块）
-export interface FnosQuietPriority { ownHarvestFirst: boolean, mergeWindowSec: number, idleKeepaliveOnly: boolean, idleMinMinutes: number, idleMaxMinutes: number }
+export interface FnosQuietPriority { ownHarvestFirst: boolean, mergeWindowSec: number, idleKeepaliveOnly: boolean, idleMinMinutes: number, idleMaxMinutes: number, timetableSteal: boolean, friendScanMinutes: number, ownLeadSec: number }
 function fnosQuietInt(src: any, key: string, min: number, max: number, fallback: number): number {
   const n = Number.parseInt(String(src?.[key] ?? ''), 10)
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback
@@ -184,6 +184,9 @@ function fnosNormalizeQuietPriority(input: any): FnosQuietPriority {
     idleKeepaliveOnly: src.idleKeepaliveOnly !== undefined ? !!src.idleKeepaliveOnly : false,
     idleMinMinutes,
     idleMaxMinutes,
+    timetableSteal: src.timetableSteal !== undefined ? !!src.timetableSteal : true, // [fnos-fork] 2026-11-17 按时间表偷菜
+    friendScanMinutes: fnosQuietInt(src, 'friendScanMinutes', 1, 60, 5),
+    ownLeadSec: fnosQuietInt(src, 'ownLeadSec', 0, 10, 2),
   }
 }
 

@@ -2,16 +2,19 @@ export {};
 /**
  * [fnos-fork] 2026-11-17 农场、牧场轮流（用户批准「农场、牧场轮流」）。
  *
- * 一轮农场 = 一次巡田（含任务 / 礼包等 farm_tick 里的例程）+ 一次好友巡查（好友开关开着时）；
+ * 一轮农场 = 一次巡田（含任务 / 礼包等 farm_tick 里的例程）+ 一次好友巡查（好友开关开着、且这一轮里好友巡查到点 / 正在跑时）；
  * 一轮牧场 = 一次完整的牧场例程（自己牧场 + 好友牧场 + 牧场任务 / 分享 / 图鉴，ranch/automation.run 跑完一整轮不让路）。
- * 农场一轮做完、且牧场到了该巡查的时间（牧场自己的 ranch_check_minutes / 动物成熟 / 等大号到点）→ 切到牧场；
- * 牧场一轮做完 → 切回农场。两边都没到点时按原来的间隔等，不空转。
- * 取代原来「牧场按 ranch_check_minutes 独立调度、每 5 秒切片给农场让路」：轮到谁，谁就把一轮做完。
+ * 2026-11-17 用户改规则「农场跑完一轮，就去牧场，牧场跑完就去农场」：严格交替。
+ *   农场一轮做完 → 直接切牧场（不再等 ranch_check_minutes / 动物成熟；只保留 20 秒的场景重进间隔，避免来回切场景刷请求）；
+ *   牧场一轮做完 → 切回农场。牧场单轮超过 10 分钟强制回农场。
+ * 好友巡查改为「按时间表」后间隔是几分钟一次，没到点时不等它：这一轮农场只算巡田。
  *
  * 插队（无论轮到谁都立即处理，处理完回到原轮次）：
- *   - 农场：自家作物将熟（fnos-quiet-priority.ownPriorityMatureAt，「自己收菜优先」开着时精确到点）；
- *     推送收菜（farm_push_check）、在线偷菜（fnos-steal-ratio）本来就有各自的定时器，不受轮次限制。
- *   - 牧场：自家动物成熟 / 建筑升级完成 / 小号等大号超时放行（ranch/automation.timedWakeAt）。
+ *   - 农场：自家作物将熟（提前 ownLeadSec 秒进去等，fnos-quiet-priority.ownPriorityMatureAt）；
+ *     好友时间表到点（fnos-timetable：好友作物成熟 / 需要帮忙）→ 直接去该好友，不等整轮；
+ *     推送收菜（farm_push_check）本来就有自己的定时器，不受轮次限制。
+ *   - 牧场：自家动物成熟 / 建筑升级完成 / 小号等大号超时放行（ranch/automation.timedWakeAt，提前 ownLeadSec 秒）；
+ *     好友牧场时间表到点（fnos-timetable）。
  * 「空闲时只保留心跳」静默期间两边都停（worker 原有判断），静默结束从农场开始。
  *
  * 这里只有纯状态机，worker.ts 负责调用；日志在切换时各写一条（农场日志 + 牧场日志）。
@@ -78,15 +81,20 @@ function noteRanchRun(status: string, nowMs: number = Date.now()): void {
 
 /**
  * 评估是否切换轮次（worker 每次调度前调用）。
- * - 农场轮：巡田做完且（好友没开 / 好友巡查也做完），并且牧场已到点 → 切牧场；牧场没到点就开始新一轮农场（不写日志）。
+ * - 农场轮：巡田做完且（好友没开 / 好友巡查做完 / 这一轮好友巡查没到点），牧场有事可做且过了场景重进间隔（ranchDue）→ 切牧场；
+ *   牧场还在重进间隔里 / 今天无事 → 开始新一轮农场（不写日志）。
  * - 牧场轮：牧场已经不需要做（关了 / 今天无事）或超时 → 回农场。
+ * friendPending：好友巡查到点了或正在跑（缺省视为 true，与旧行为一致）。
  */
-function evaluateTurn(input: { nowMs: number; ranchDue: boolean; ranchHasWork: boolean; friendActive: boolean }): FnosTurn {
+function farmRoundDone(friendActive: boolean, friendPending: boolean): boolean {
+    return state.farmTickDone && (!friendActive || state.friendDone || !friendPending);
+}
+
+function evaluateTurn(input: { nowMs: number; ranchDue: boolean; ranchHasWork: boolean; friendActive: boolean; friendPending?: boolean }): FnosTurn {
     const now = input.nowMs;
     if (state.turn === 'farm') {
-        const farmRoundDone = state.farmTickDone && (!input.friendActive || state.friendDone);
-        if (farmRoundDone) {
-            if (input.ranchDue) switchTo('ranch', now, input.friendActive ? '农场一轮完成（巡田 + 好友巡查）' : '农场一轮完成（巡田）');
+        if (farmRoundDone(input.friendActive, input.friendPending !== false)) {
+            if (input.ranchHasWork && input.ranchDue) switchTo('ranch', now, input.friendActive && state.friendDone ? '农场一轮完成（巡田 + 好友巡查）' : '农场一轮完成（巡田）');
             else { state.farmTickDone = false; state.friendDone = false; }
         }
     } else if (!input.ranchHasWork) {
@@ -100,10 +108,10 @@ function evaluateTurn(input: { nowMs: number; ranchDue: boolean; ranchHasWork: b
 /**
  * 本次调度允许谁跑：
  *  - farm：农场轮常规巡田，或「自家作物将熟」插队；
- *  - friend：只在农场轮；
- *  - ranch：牧场轮常规，或「动物成熟 / 等大号到点」插队。
+ *  - friend：常规好友巡查只在农场轮；好友时间表到点（friendTimedDue）无论轮次都插队（friendInsert）；
+ *  - ranch：牧场轮常规，或「动物成熟 / 等大号到点 / 好友牧场时间表到点」插队。
  */
-function allowedNow(input: { farmTimedDue: boolean; ranchTimedDue: boolean }): { farm: boolean; friend: boolean; ranch: boolean; farmInsert: boolean; ranchInsert: boolean } {
+function allowedNow(input: { farmTimedDue: boolean; ranchTimedDue: boolean; friendTimedDue?: boolean }): { farm: boolean; friend: boolean; ranch: boolean; farmInsert: boolean; ranchInsert: boolean; friendInsert: boolean } {
     const farmTurn = state.turn === 'farm';
     return {
         farm: farmTurn || input.farmTimedDue,
@@ -111,29 +119,34 @@ function allowedNow(input: { farmTimedDue: boolean; ranchTimedDue: boolean }): {
         ranch: !farmTurn || input.ranchTimedDue,
         farmInsert: !farmTurn && input.farmTimedDue,
         ranchInsert: farmTurn && input.ranchTimedDue,
+        friendInsert: !!input.friendTimedDue,
     };
 }
 
 /**
- * 下次调度时间：只看当前允许的一方 + 另一方的插队时间点，避免轮到对方时每秒空转。
- * farmTimedAt / ranchTimedAt：插队时间点（0 = 无）。
+ * 下次调度时间：只看当前允许的一方 + 插队时间点（自家作物 / 自家牧场 / 好友时间表），避免轮到对方时每秒空转。
+ * farmTimedAt / ranchTimedAt / friendTimedAt：插队时间点（0 = 无）。
  */
 function nextWakeAt(input: {
     nowMs: number; nextFarmRunAt: number; nextFriendRunAt: number; ranchNextRunAt: number;
     farmTimedAt: number; ranchTimedAt: number; farmBusy: boolean; friendBusy: boolean; ranchDue: boolean; friendActive: boolean;
+    friendTimedAt?: number; ranchHasWork?: boolean;
 }): number {
     const inf = Number.POSITIVE_INFINITY;
-    const pos = (v: number) => (v > 0 ? v : inf);
+    const pos = (v: number | undefined) => (v && v > 0 ? v : inf);
+    const friendTimed = input.friendBusy ? inf : pos(input.friendTimedAt);
     if (state.turn === 'farm') {
-        const roundDone = state.farmTickDone && (!input.friendActive || state.friendDone);
+        const friendPending = input.friendActive && (input.friendBusy || input.nextFriendRunAt <= input.nowMs);
+        const roundDone = farmRoundDone(input.friendActive, friendPending);
         return Math.min(
-            input.farmBusy ? inf : input.nextFarmRunAt,
+            input.farmBusy ? inf : Math.min(input.nextFarmRunAt, pos(input.farmTimedAt)),
             input.friendBusy || !input.friendActive ? inf : input.nextFriendRunAt,
-            roundDone && input.ranchDue ? input.nowMs : inf,
+            roundDone && input.ranchHasWork !== false ? (input.ranchDue ? input.nowMs : input.ranchNextRunAt) : inf,
             pos(input.ranchTimedAt),
+            friendTimed,
         );
     }
-    return Math.min(input.ranchNextRunAt, input.farmBusy ? inf : pos(input.farmTimedAt));
+    return Math.min(input.ranchNextRunAt, input.farmBusy ? inf : pos(input.farmTimedAt), friendTimed);
 }
 
 module.exports = {
