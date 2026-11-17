@@ -52,6 +52,11 @@ const ranchSwitches = [
   ['ranch_task', '自动领取任务奖励'],
   ['ranch_share', '每日分享礼包'],
 ] as const
+// [fnos-fork] 2026-11-17 给好友加牧草的来源
+const fnosFriendFeedSources = [
+  { value: 'warehouse', label: '仓库牧草（默认）' },
+  { value: 'gold', label: '金币（约 60/份）' },
+]
 const ranchFriendSwitches = [
   ['ranch_friend_steal', '自动偷取产物'],
   ['ranch_friend_clean', '自动清理'],
@@ -144,18 +149,22 @@ const ranchStrategies = [
               <BaseSwitch v-model="settings.fnosRanch.friendHelpProduce" label="好友牧场：帮忙生产" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草（花金币，约 60 金币/份）" />
+              <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草" />
+            </div>
+            <!-- [fnos-fork] 2026-11-17 加草来源：默认用农场仓库牧草（7001），可改金币 -->
+            <div class="automation-setting-item">
+              <BaseSelect v-model="settings.fnosRanch.friendFeedSource" label="加草来源" :options="fnosFriendFeedSources" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
             <div class="automation-setting-item">
               <BaseInput v-model.number="settings.fnosRanch.friendFeedPerTime" class="w-full" label="每个好友每次最多加（份）" type="number" min="1" max="500" step="1" :disabled="!settings.fnosRanch.friendFeed" />
             </div>
             <div class="automation-setting-item">
-              <BaseInput v-model.number="settings.fnosRanch.friendFeedGoldKeep" class="w-full" label="自己金币低于此值不加" type="number" min="0" max="999999999" step="1000" :disabled="!settings.fnosRanch.friendFeed" />
+              <BaseInput v-model.number="settings.fnosRanch.friendFeedGoldKeep" class="w-full" label="自己金币低于此值不加（金币来源）" type="number" min="0" max="999999999" step="1000" :disabled="!settings.fnosRanch.friendFeed || settings.fnosRanch.friendFeedSource !== 'gold'" />
             </div>
           </div>
           <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
             小号等大号沿用「大小号协作」的大号和超时设置，作用于上面的「自动收获」：有货架在等大号偷时只收成熟动物，不收货架。
-            帮忙生产、给好友加牧草挂在上面「好友互动」的好友巡查里（每轮最多 3 位好友，按到期时间给农场让路）；给好友加牧草扣金币（约 60 金币/份），自己金币低于保留值就不加，且不超过好友牧草机剩余容量。
+            帮忙生产、给好友加牧草挂在上面「好友互动」的好友巡查里（每轮最多 3 位好友，按到期时间给农场让路）；给好友加牧草默认用农场仓库的牧草（每份 1 个牧草，仓库不够时只加够库存的份数并暂停、写日志，不会改用金币）；选「金币」则扣金币（约 60 金币/份），自己金币低于保留值就不加。都不超过每次上限和好友牧草机剩余容量。
             好友互动的大小号规则与农场一致：小号开了「不偷大号的菜」时不偷大号；开了「只给大号放捣乱」时只给大号放蚊子、不帮大号清理；其余情况不给自己的大号、小号放蚊子。日志标签「牧场」。
           </p>
         </section>

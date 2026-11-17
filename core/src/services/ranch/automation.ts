@@ -238,7 +238,7 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
 
             await phase('friends', async () => {
                 if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork] 帮好友生产 / 给好友加牧草
-                    fnosRanch.beginFriendPhase({ gold: Number(available(1007)) });
+                    fnosRanch.beginFriendPhase({ gold: Number(available(1007)), grass: Number(available(7001)) }); // [fnos-fork] 2026-11-17 给好友加牧草默认用仓库牧草
                     checkpoint();
                     const interactions = require('./friends');
                     const times = await interactions.getInteractionTimes();

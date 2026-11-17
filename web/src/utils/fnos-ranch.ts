@@ -9,6 +9,8 @@ export interface FnosRanch {
   illustratedAutoClaim: boolean
   illustratedAutoComplete: boolean
   friendFeed: boolean
+  /** [fnos-fork] 2026-11-17 加草来源：warehouse = 农场仓库牧草（默认）；gold = 金币 */
+  friendFeedSource: 'warehouse' | 'gold'
   friendFeedPerTime: number
   friendFeedGoldKeep: number
   friendHelpProduce: boolean
@@ -20,6 +22,7 @@ export const FNOS_RANCH_DEFAULT: FnosRanch = {
   illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴奖励自动领取默认开启
   illustratedAutoComplete: false,
   friendFeed: false,
+  friendFeedSource: 'warehouse',
   friendFeedPerTime: 10,
   friendFeedGoldKeep: 10000,
   friendHelpProduce: false,
@@ -44,6 +47,8 @@ export function fnosNormalizeRanch(input: unknown): FnosRanch {
     const range = RANGES[key]
     if (range)
       out[key] = clamp(src[key] ?? d, range[0], range[1], d as number)
+    else if (key === 'friendFeedSource') // [fnos-fork] 2026-11-17 旧配置缺字段 → 仓库牧草
+      out[key] = src[key] === 'gold' ? 'gold' : 'warehouse'
     else out[key] = src[key] !== undefined ? !!src[key] : d
   }
   return out as FnosRanch
