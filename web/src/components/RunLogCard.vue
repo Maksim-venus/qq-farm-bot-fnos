@@ -9,7 +9,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
-import { FNOS_RANCH_EVENT_OPTIONS, FNOS_RANCH_SCOPE_OPTIONS, fnosFilterLogSpace, fnosRanchEventLabel, fnosRanchEventParam } from '@/utils/fnos-log-space'
+import { FNOS_RANCH_EVENT_OPTIONS, FNOS_RANCH_SCOPE_OPTIONS, fnosFilterLogSpace, fnosIsRanchLog, fnosRanchEventLabel, fnosRanchEventParam } from '@/utils/fnos-log-space'
 
 const statusStore = useStatusStore()
 const toastStore = useToastStore()
@@ -67,8 +67,57 @@ const hasActiveLogFilter = computed(() =>
 const modules = FNOS_RANCH_SCOPE_OPTIONS
 const events = FNOS_RANCH_EVENT_OPTIONS
 
-function getEventLabel(event: string) {
-  return fnosRanchEventLabel(event)
+// 上游 PR #139 的牧场事件中文名，fork 分组筛选没覆盖到的事件按这里显示
+const upstreamRanchEventLabels: Record<string, string> = {
+  ranch_automation: '牧场巡查',
+  ranch_buy: '购买牧场商品',
+  ranch_place: '放养幼崽',
+  ranch_addGrass: '补充牧草',
+  ranch_useCan: '填充罐头',
+  ranch_feed: '喂养动物',
+  ranch_produce: '牧场生产',
+  ranch_harvest: '牧场收获',
+  ranch_sell: '出售牧场产物',
+  ranch_clean: '清理牧场',
+  ranch_upgrade: '升级牧场建筑',
+  ranch_completeUpgrade: '完成建筑升级',
+  ranch_claimTasks: '领取牧场任务',
+  ranch_reportEntry: '牧场成长任务',
+  ranch_exchange: '牧场集市兑换',
+  ranch_claimIllustrated: '牧场图鉴奖励',
+  ranch_claimDailyShare: '牧场每日分享',
+  ranch_buyCan: '购买牧场罐头',
+  ranch_steal: '偷取好友牧场',
+  ranch_stroke: '抚摸好友动物',
+  ranch_release: '放生动物',
+  ranch_putMosquito: '放蚊子',
+  ranch_cleanFriend: '清理好友牧场',
+  ranch_friend: '拜访好友牧场',
+  ranch_friend_leave: '离开好友牧场',
+  ranch_scene_restore: '恢复场景',
+  ranch_task_claim: '牧场任务',
+  ranch_daily_share: '牧场分享礼包',
+}
+
+// [fnos-fork] 先用 fork 分组标签，再用上游中文名；都没有时只显示中文事件名，英文内部事件名不显示（同上游 PR #139）
+function getEventLabel(event?: string) {
+  const key = String(event || '')
+  if (!key)
+    return ''
+  const label = fnosRanchEventLabel(key)
+  if (label && label !== key)
+    return label
+  return upstreamRanchEventLabels[key] || (/[\u3400-\u9FFF]/u.test(key) ? key : '')
+}
+
+// 上游 PR #139：牧场日志成功行用紫色左边框（本卡片只显示牧场日志，判断规则同 fnos-log-space）
+function isRanchLog(log: any) {
+  return fnosIsRanchLog(log)
+}
+
+// [fnos-fork] 保留日志原 tag（如「好友牧场」），没有 tag 时显示「牧场」
+function getModuleLabel(log: any) {
+  return log?.tag || (isRanchLog(log) ? '牧场' : '')
 }
 
 const logs = [
@@ -258,14 +307,14 @@ useIntervalFn(loadLogs, 10000)
           v-for="group in logGroups"
           :key="group.log.ts + group.key"
           class="log-row"
-          :class="`log-row--${group.level}`"
+          :class="[`log-row--${group.level}`, { 'log-row--ranch': isRanchLog(group.log) }]"
         >
           <span class="log-row__time">
             {{ formatLogTime(group.log.time) }}
           </span>
-          <span class="log-row__tag">{{ group.log.tag }}</span>
+          <span class="log-row__tag">{{ getModuleLabel(group.log) }}</span>
           <span class="log-row__body">
-            <span v-if="group.log.meta?.event" class="log-row__event">{{ getEventLabel(group.log.meta.event) }}</span>
+            <span v-if="getEventLabel(group.log.meta?.event)" class="log-row__event">{{ getEventLabel(group.log.meta.event) }}</span>
             <span class="log-row__msg">{{ group.log.msg }}</span>
             <span v-if="group.count > 1" class="log-row__repeat" :title="`${formatLogTime(group.firstTime)} 起重复 ${group.count} 次`">
               ×{{ group.count }} · {{ formatLogTime(group.firstTime) }} 起
@@ -393,6 +442,10 @@ useIntervalFn(loadLogs, 10000)
 
 .log-row--success {
   border-left-color: var(--ui-primary);
+}
+
+.log-row--success.log-row--ranch {
+  border-left-color: var(--ui-violet);
 }
 
 .log-row--warn {

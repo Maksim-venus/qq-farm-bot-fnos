@@ -113,8 +113,8 @@ export function clearFnosCategoryLogs(accountId = ''): void {
 export type FnosLogSpace = 'farm' | 'ranch' | '';
 
 /**
- * 牧场日志：meta.module = ranch，或 meta.event 以 ranch_ / fnos牧场 / fnos好友牧场 开头（牧场任务、分享礼包挂在 module=task 下，
- * 按 event 归到牧场），或 tag = 牧场。其余都算农场日志（含好友、仓库、任务、系统）。
+ * 牧场日志：meta.module = ranch，或 meta.event 以 ranch_ / fnos牧场 / fnos好友牧场 开头（上游 PR #139 起牧场任务、分享礼包也改为 module=ranch；
+ * 旧日志仍按 event 归到牧场），或 tag = 牧场。其余都算农场日志（含好友、仓库、任务、系统）。
  */
 export function isFnosRanchLog(entry: any): boolean {
     if (!entry || typeof entry !== 'object') return false;
