@@ -119,6 +119,7 @@ test('只给大号放捣乱：其他好友不放；「自动捣乱」关着也�
     reset(); setupFarms();
     setAutomation({ friend: true, friend_steal: true, friend_help: true, friend_bad: false });
     apply({ fnosAltAccount: { skipStealMaster: true, badOnlyMaster: true } });
+    apply({ fnosQuietPriority: { timetableSteal: false } }); // [fnos-fork] 2026-11-17 本用例验证上游等价行为：关掉「按时间表偷菜」的探成熟时间
     // 其他好友没有偷/帮需求时上游会把他当纯捣乱对象；本选项下不能去
     friendsReply.game_friends.push(friendEntry(4300000999, '纯捣乱候选', { steal_plant_num: 0, dry_num: 0, weed_num: 0, insect_num: 0 }));
     farms[4300000999] = [growing(1)];
@@ -168,4 +169,52 @@ test('adjustVisitPlanForAltCoop：大号不在好友列表时写日志，不影�
     assert.deepEqual(out.visits.map(v => v.gid), [OTHER]);
     assert.equal(out.badOnlyCount, 0);
     assert.ok(logs.some(l => l.includes('好友列表里没有大号')));
+});
+
+test('[fnos-fork] 2026-11-17 按时间表偷菜：自家一轮做完后好友状态轮巡进去探成熟时间（只进不捣乱）；「不偷大号」时不为偷去探大号；到点直接去且仍守大小号规则', async () => {
+    reset(); setupFarms();
+    setAutomation({ friend: true, friend_steal: true, friend_help: true, friend_bad: false });
+    apply({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', skipStealMaster: true, badOnlyMaster: true } });
+    apply({ fnosQuietPriority: { timetableSteal: true } });
+    const tt = require('../dist/services/fnos-timetable');
+    tt.resetTimetableRuntime();
+    friendsReply = { game_friends: [
+        friendEntry(MASTER, 'Maksim', { steal_plant_num: 0, dry_num: 0, weed_num: 0, insect_num: 0 }),
+        friendEntry(4300000777, '新朋友', { steal_plant_num: 0, dry_num: 0, weed_num: 0, insect_num: 0 }),
+    ] };
+    farms[4300000777] = [growing(1)];
+    coop.resetFnosAltCoopRuntime();
+    await scheduler.checkFriends();
+    assert.ok(!calls.includes('enter:4300000777'), '常规扫描不再探（列表里不可偷不要帮）：' + calls.join('\n'));
+    // 自家一轮做完后的「好友农场状态轮巡」：用缓存的好友列表进去读成熟时间
+    await scheduler.checkFriends({ fnosProbeRound: true });
+    assert.ok(calls.includes('enter:4300000777') && calls.includes('leave:4300000777'), calls.join('\n'));
+    assert.ok(logs.some(l => l.includes('好友农场状态轮巡：本轮 1 位')), logs.join('\n'));
+    assert.ok(!calls.some(c => c.startsWith('weed:4300000777') || c.startsWith('bug:4300000777') || c.startsWith('steal:4300000777')), calls.join('\n'));
+    // 进去读到了成熟时间（growing 的成熟阶段 NOW + 50000 秒）
+    const row = tt.snapshotForUi().find(r => r.gid === 4300000777);
+    assert.ok(row && row.farmRipeAt > Date.now(), JSON.stringify(row));
+
+    // 时间表到点：大号也到点了，但「不偷大号的菜」→ 不去偷大号；新朋友直接去
+    const st = require('../dist/services/fnos-timetable');
+    const s = st.snapshotForUi();
+    assert.ok(s.length >= 1);
+    // 直接把两人的成熟时间改成已过（visitedAt 也挪到去重间隔之前）
+    const file = require('node:path').join(DATA_DIR, 'fnos-timetable', '5.json');
+    st.flushNow();
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    data.farm[String(MASTER)] = { name: 'Maksim', ripeAt: Date.now() - 5000, helpAt: 0, seenAt: 1, visitedAt: 0 };
+    data.farm['4300000777'] = { ...data.farm['4300000777'], ripeAt: Date.now() - 5000, visitedAt: 0 };
+    fs.writeFileSync(file, JSON.stringify(data));
+    st.resetTimetableRuntime();
+    // resetTimetableRuntime 会先落盘旧数据；重新写一次
+    fs.writeFileSync(file, JSON.stringify(data));
+    calls.length = 0; logs.length = 0;
+    farms[4300000777] = [mature(1)];
+    await scheduler.checkFriends({ fnosTimetable: true });
+    assert.ok(calls.includes('steal:4300000777:1'), calls.join('\n'));
+    assert.ok(!calls.some(c => c === `enter:${MASTER}`), calls.join('\n'));
+    assert.ok(!calls.some(c => c.startsWith('weed:') || c.startsWith('bug:')), '时间表访问不捣乱');
+    assert.ok(logs.some(l => l.includes('按时间表前往 新朋友（预计成熟')), logs.join('\n'));
+    assert.ok(logs.some(l => l.includes('按「不偷大号的菜」跳过')), logs.join('\n'));
 });

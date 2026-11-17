@@ -21,11 +21,13 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseTextarea from '@/components/ui/BaseTextarea.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { useFnosTimetable } from '@/composables/useFnosTimetable' // [fnos-fork] 2026-11-17 还多久可偷
 import { useAccountStore } from '@/stores/account'
 import { useFriendStore } from '@/stores/friend'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
 import { fnosFriendMatchesStealFilter, fnosNormalizeStealRatio, fnosStealRatioInfo } from '@/utils/fnos-steal-ratio' // [fnos-fork] 偷收比筛选
+import { fnosFarmCountdown } from '@/utils/fnos-timetable'
 import { interactionItemTargetReason } from '@/utils/interaction-item-rules'
 
 const accountStore = useAccountStore()
@@ -33,6 +35,11 @@ const friendStore = useFriendStore()
 const statusStore = useStatusStore()
 const toast = useToastStore()
 const { currentAccountId, currentAccount } = storeToRefs(accountStore)
+// [fnos-fork] 2026-11-17 好友时间表「还多久可偷」列：每 30 秒读一次，每秒倒计时
+const { rows: fnosTtRows, now: fnosTtNow } = useFnosTimetable(currentAccountId)
+function fnosTtCell(friend: any) {
+  return fnosFarmCountdown(fnosTtRows.value[String(friend?.gid)], fnosTtNow.value, friendCanSteal(friend))
+}
 const { status } = storeToRefs(statusStore)
 const {
   friends,
@@ -1137,7 +1144,7 @@ async function handleBatchAddKnownFriendGids() {
             v-for="friend in paginatedFriends"
             :key="friend.gid"
             class="friend-card"
-            :class="{ 'is-expanded': expandedFriends.has(String(friend.gid)), 'is-blocked': blacklistGidSet.has(Number(friend.gid)) }"
+            :class="{ 'is-expanded': expandedFriends.has(String(friend.gid)), 'is-blocked': blacklistGidSet.has(Number(friend.gid)), 'is-tt-ready': !blacklistGidSet.has(Number(friend.gid)) && fnosTtCell(friend).ready }"
           >
             <div
               class="friend-row"
@@ -1169,6 +1176,10 @@ async function handleBatchAddKnownFriendGids() {
                 </div>
                 <div class="friend-tags">
                   <span v-if="getFriendLevel(friend) > 0" class="f-tag f-tag--level">Lv.{{ getFriendLevel(friend) }}</span>
+                  <!-- [fnos-fork] 2026-11-17 还多久可偷（成熟倒计时） -->
+                  <span class="f-tag f-tag--tt" :class="{ 'f-tag--tt-ready': fnosTtCell(friend).ready, 'f-tag--tt-counting': fnosTtCell(friend).counting }" :title="fnosTtCell(friend).title" data-testid="fnos-tt-farm">
+                    <span class="i-carbon-time" />{{ fnosTtCell(friend).counting ? `还多久可偷 ${fnosTtCell(friend).text}` : fnosTtCell(friend).text }}
+                  </span>
                   <span class="f-tag" :class="`f-tag--pet-${friendPetBadge(friend).state}`" :title="friendPetBadge(friend).title">
                     <img v-if="friendPetBadge(friend).image" :src="friendPetBadge(friend).image" alt="" loading="lazy">
                     <span v-else class="i-carbon-dog-walker" />
@@ -1732,6 +1743,28 @@ async function handleBatchAddKnownFriendGids() {
 .f-tag--pet-protect {
   color: var(--ui-violet);
   background: var(--ui-violet-soft);
+}
+
+/* [fnos-fork] 2026-11-17 好友时间表「还多久可偷」：倒计时 / 可偷高亮 */
+.f-tag--tt {
+  color: var(--ui-muted);
+  background: var(--ui-surface-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.f-tag--tt-counting {
+  color: var(--ui-ink);
+}
+
+.f-tag--tt-ready {
+  color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+  font-weight: var(--fw-600);
+}
+
+.friend-card.is-tt-ready {
+  border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border));
+  background: color-mix(in srgb, var(--ui-primary-soft) 45%, var(--ui-surface));
 }
 
 .f-tag--gold {

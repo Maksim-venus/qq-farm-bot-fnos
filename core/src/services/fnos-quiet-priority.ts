@@ -52,6 +52,12 @@ export interface FnosQuietPriorityConfig {
     /** 每次空闲静默最短 / 最长分钟数 */
     idleMinMinutes: number;
     idleMaxMinutes: number;
+    /** [fnos-fork] 2026-11-17 按时间表偷菜（好友时间表，见 services/fnos-timetable.ts），默认开 */
+    timetableSteal: boolean;
+    /** [fnos-fork] 2026-11-17 好友列表扫描间隔（分钟，按时间表偷菜开着时生效），默认 5 */
+    friendScanMinutes: number;
+    /** [fnos-fork] 2026-11-17 自家作物 / 动物到期前几秒进去等着收，默认 2 */
+    ownLeadSec: number;
 }
 
 const DEFAULT_FNOS_QUIET_PRIORITY: FnosQuietPriorityConfig = {
@@ -60,6 +66,9 @@ const DEFAULT_FNOS_QUIET_PRIORITY: FnosQuietPriorityConfig = {
     idleKeepaliveOnly: false,
     idleMinMinutes: 1,
     idleMaxMinutes: 10,
+    timetableSteal: true,
+    friendScanMinutes: 5,
+    ownLeadSec: 2,
 };
 
 function clampInt(value: any, min: number, max: number, fallback: number): number {
@@ -81,6 +90,9 @@ function normalizeFnosQuietPriority(input: unknown, fallback: FnosQuietPriorityC
         idleKeepaliveOnly: src.idleKeepaliveOnly !== undefined ? !!src.idleKeepaliveOnly : !!base.idleKeepaliveOnly,
         idleMinMinutes,
         idleMaxMinutes,
+        timetableSteal: src.timetableSteal !== undefined ? !!src.timetableSteal : base.timetableSteal !== false,
+        friendScanMinutes: clampInt(pick('friendScanMinutes'), 1, 60, DEFAULT_FNOS_QUIET_PRIORITY.friendScanMinutes),
+        ownLeadSec: clampInt(pick('ownLeadSec'), 0, 10, DEFAULT_FNOS_QUIET_PRIORITY.ownLeadSec),
     };
 }
 
@@ -408,7 +420,10 @@ function describeFnosQuietPriority(q: FnosQuietPriorityConfig): string {
     const idle = q.idleKeepaliveOnly
         ? `空闲时只保留心跳已启用（每次静默 ${q.idleMinMinutes}～${q.idleMaxMinutes} 分钟，自家作物成熟前 10 秒恢复）`
         : '空闲时只保留心跳未启用';
-    return `${own}；${idle}`;
+    const tt = q.timetableSteal
+        ? `按时间表偷菜已启用（每 ${q.friendScanMinutes} 分钟扫一次好友列表，好友作物成熟 / 需要帮忙 / 牧场可偷到点直接去）`
+        : '按时间表偷菜未启用';
+    return `${own}；${idle}；${tt}；自家到期前 ${q.ownLeadSec} 秒进去等`;
 }
 
 module.exports = {

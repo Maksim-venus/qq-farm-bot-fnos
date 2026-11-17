@@ -6,8 +6,10 @@ import { formatCount, useRanchActions } from '@/components/ranch/ranch-shared'
 import RanchAnimalCard from '@/components/ranch/RanchAnimalCard.vue'
 import RanchGate from '@/components/ranch/RanchGate.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { useFnosTimetable } from '@/composables/useFnosTimetable' // [fnos-fork] 2026-11-17 还多久可偷
 import { useAccountStore } from '@/stores/account'
 import { useRanchStore } from '@/stores/ranch'
+import { fnosRanchCountdown } from '@/utils/fnos-timetable'
 
 const ranch = useRanchStore()
 const { state, loading, error } = storeToRefs(ranch)
@@ -38,6 +40,12 @@ const visible = computed(() => {
 })
 const detail = computed(() => selected.value && state.value?.friendRanch?.gid === selected.value ? state.value.friendRanch : null)
 const detailShelves = computed(() => (detail.value?.ranches || []).flatMap((r: any) => r.shelves.map((s: any) => ({ ...s, key: `${r.id}:${s.slot}` }))))
+// [fnos-fork] 2026-11-17 好友时间表「还多久可偷」列（赶产倒计时）：每 30 秒读一次，每秒倒计时
+const { rows: fnosTtRows, now: fnosTtNow } = useFnosTimetable(currentAccountId)
+function fnosTtCell(friend: any) {
+  const live = selected.value === friend?.gid && !!detail.value?.canSteal
+  return fnosRanchCountdown(fnosTtRows.value[String(friend?.gid)], fnosTtNow.value, live)
+}
 
 async function loadList(id: string) {
   await ranch.load(id, 'friends')
@@ -147,7 +155,7 @@ async function reloadList() {
       <EmptyState v-else-if="listLoaded && !visible.length" title="没有匹配的好友" description="换个昵称或 GID 试试" icon="i-carbon-search" />
 
       <div v-else class="friends__list">
-        <div v-for="friend in visible" :key="friend.gid" class="friend-card" :class="{ 'is-expanded': selected === friend.gid }">
+        <div v-for="friend in visible" :key="friend.gid" class="friend-card" :class="{ 'is-expanded': selected === friend.gid, 'is-tt-ready': fnosTtCell(friend).ready }">
           <div
             class="friend-row"
             role="button"
@@ -177,6 +185,10 @@ async function reloadList() {
                 <span v-else class="f-tag">点击查看牧场</span>
                 <!-- [fnos-fork] 牧场等级（好友列表字段 25 / 本账号缓存；未读取的按 Lv1）；展开后已有「牧场 Lv」时不重复显示 -->
                 <span v-if="!(selected === friend.gid && detail)" class="f-tag f-tag--level" :class="{ 'f-tag--level-guess': friend.ranchLevelKnown === false }" :title="fnosRanchLevelTitle(friend)">Lv.{{ fnosRanchLevelOf(friend) }}</span>
+                <!-- [fnos-fork] 2026-11-17 还多久可偷（赶产倒计时） -->
+                <span class="f-tag f-tag--tt" :class="{ 'f-tag--tt-ready': fnosTtCell(friend).ready, 'f-tag--tt-counting': fnosTtCell(friend).counting }" :title="fnosTtCell(friend).title" data-testid="fnos-tt-ranch">
+                  <span class="i-carbon-time" />{{ fnosTtCell(friend).counting ? `还多久可偷 ${fnosTtCell(friend).text}` : fnosTtCell(friend).text }}
+                </span>
               </div>
             </div>
             <!-- [fnos-fork] 与农场好友一致的行内操作：偷取 / 捣乱（放蚊子），不符合大小号规则或次数用完时置灰 -->
@@ -472,6 +484,28 @@ async function reloadList() {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+/* [fnos-fork] 2026-11-17 好友时间表「还多久可偷」：倒计时 / 可偷高亮 */
+.f-tag--tt {
+  color: var(--ui-muted);
+  background: var(--ui-surface-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.f-tag--tt-counting {
+  color: var(--ui-ink);
+}
+
+.f-tag--tt-ready {
+  color: var(--ui-primary);
+  background: var(--ui-primary-soft);
+  font-weight: var(--fw-600);
+}
+
+.friend-card.is-tt-ready {
+  border-color: color-mix(in srgb, var(--ui-primary) 55%, var(--ui-border));
+  background: color-mix(in srgb, var(--ui-primary-soft) 45%, var(--ui-surface));
 }
 
 .f-tag--level-guess {

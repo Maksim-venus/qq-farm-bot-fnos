@@ -18,6 +18,27 @@ const fnosRanch = require('./fnos-ranch');
 let nextCheckAt = 0;
 /** [fnos-fork] 2026-11-17 农牧轮流：上一轮算出的「定时事件」时间（动物成熟 / 升级完成 / 等大号到点），供插队判断；0 = 无 */
 let timedWakeAtMs = 0;
+/** [fnos-fork] 2026-11-17 严格交替：上次牧场例程结束后最早多久能再进（场景重进间隔，取代 ranch_check_minutes 作为进场门槛） */
+let reentryAtMs = 0;
+const YIELD_REENTRY_MS = 3000;
+const ERROR_REENTRY_MS = 2 * 60_000;
+/** [fnos-fork] 2026-11-17 好友时间表：到点的好友牧场（gid），本轮好友阶段先去 */
+const fnosDueRanch: Array<{ gid: number; name: string; at: number }> = [];
+/** [fnos-fork] 2026-11-17 严格交替后牧场一轮很频繁：常规轮巡好友牧场（每轮 3 位）最多每隔「好友列表扫描间隔」
+ *  （按时间表偷菜关着时用 ranch_check_minutes）做一次；时间表到点的好友不受限 */
+let fnosNextRegularFriendsAt = 0;
+/** [fnos-fork] 2026-11-17 本轮好友牧场状态轮巡还没看的好友（让路后接着看） */
+const fnosRanchProbeQueue: number[] = [];
+function fnosRanchProbePending(): boolean {
+    if (fnosRanchProbeQueue.length) return true;
+    try {
+        const tt = require('../fnos-timetable');
+        if (!tt.isEnabled()) return false;
+        const cached = require('../friend').getFriendsListCacheOnly();
+        return Array.isArray(cached) && cached.length > 0 ? tt.hasRanchProbeWork(cached) : true;
+    } catch { return false; }
+}
+function sleep(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, Math.max(0, ms))); }
 let nextFriendIndex = 0;
 let friendVisits = 0;
 let pendingFriendGid: string | null = null;
@@ -43,7 +64,7 @@ const due = (state: any) => !state.doneToday && Date.now() >= (state.nextCheckAt
 function getRoutineState(): any {
     const auto = getAutomation();
     const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_grass_buy'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
-    return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState())), nextCheckAt };
+    return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState())), nextCheckAt, reentryAt: reentryAtMs };
 }
 
 function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: number): any {
@@ -67,6 +88,15 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
     const auto: RanchAutomationConfig = getAutomation();
     if (!cycleStartedAt) cycleStartedAt = Date.now();
     nextCheckAt = cycleStartedAt + auto.ranch_check_minutes * 60_000;
+    // [fnos-fork] 2026-11-17 好友时间表：到点的好友牧场排进本轮好友阶段（好友阶段做过了也重新打开）；好友互动全关时清空
+    if (!friendTimetableActive()) fnosDueRanch.length = 0;
+    else try {
+        for (const t of require('../fnos-timetable').takeDueRanch()) {
+            if (!fnosDueRanch.some(x => x.gid === t.gid)) fnosDueRanch.push({ gid: t.gid, name: t.name, at: t.at });
+        }
+    } catch { /* ignore */ }
+    if (fnosDueRanch.length) completedPhases.delete('friends');
+    const fnosMiscWait = () => { try { return require('../fnos-timetable').miscShouldWait(); } catch { return false; } };
     try {
         await inScene(async (cells: any) => {
             const startedAt = Date.now();
@@ -237,6 +267,8 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
             await phase('feed-organic', async () => { if (enabled('ranch_feed_organic') && available(7004) > 0n) await act('ranch_feed_organic', 'feed', { all: true, bucketType: 1 }); });
 
             await phase('friends', async () => {
+                // [fnos-fork] 2026-11-17 没有到点的好友牧场、常规轮巡也没到间隔、也没有要探的好友牧场：这一轮不碰好友（省掉次数查询和好友列表）
+                if (!fnosDueRanch.length && !pendingFriendGid && Date.now() < fnosNextRegularFriendsAt && !fnosRanchProbePending()) return;
                 if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork] 帮好友生产 / 给好友加牧草
                     fnosRanch.beginFriendPhase({ gold: Number(available(1007)), grass: Number(available(7001)) }); // [fnos-fork] 2026-11-17 给好友加牧草默认用仓库牧草
                     checkpoint();
@@ -246,10 +278,8 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
                         && (!['stroke', 'putMosquito'].includes(action) || times[action] > 0);
                     if (Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork]
                         const friends = await require('../friend').getFriendsList();
-                        // 沿用本轮巡查，每轮最多拜访三位，避免长期占用农牧场共用连接。
-                        for (; friendVisits < Math.min(3, friends.length) && (Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled()); friendVisits++) {
-                            checkpoint();
-                            const friend = friends.find((row: any) => String(row.gid) === pendingFriendGid) || friends[nextFriendIndex % friends.length];
+                        const anyWanted = () => Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled();
+                        const visitOne = async (friend: any): Promise<void> => {
                             try {
                                 // [fnos-fork] 大小号规则：不偷大号 / 不帮大号清 / 放蚊子只给大号或不给大小号
                                 const result = await interactions.automateFriend(friend.gid, fnosRanch.wrapFriendWanted(friend.gid, wanted), shouldYield);
@@ -268,28 +298,86 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
                                 log('牧场', `暂不能拜访 ${friend.name}：${error.message}`, { module: 'ranch', event: 'ranch_friend', result: 'skipped' });
                             }
                             pendingFriendGid = null;
-                            nextFriendIndex++;
+                        };
+                        // [fnos-fork] 2026-11-17 好友时间表：先去到点的好友牧场（不占每轮 3 位的名额）
+                        if (!anyWanted()) fnosDueRanch.length = 0;
+                        while (fnosDueRanch.length && anyWanted()) {
+                            checkpoint();
+                            const due = fnosDueRanch[0];
+                            const friend = friends.find((row: any) => Number(row.gid) === due.gid);
+                            if (friend) {
+                                if (pendingFriendGid !== String(friend.gid)) {
+                                    log('牧场', `按时间表前往 ${friend.name || due.name}（预计可偷 ${require('../fnos-timetable').formatClock(due.at)}）`, { module: 'ranch', event: 'fnos好友牧场', result: 'timetable', friendGid: due.gid });
+                                }
+                                await visitOne(friend);
+                            }
+                            fnosDueRanch.shift();
+                        }
+                        // [fnos-fork] 2026-11-17 用户「轮完自己的工作，立刻轮好友农牧场状态」：按时间表偷菜开着时，自家牧场做完后
+                        // 把要探的好友牧场（未扫描 / 暂无可偷到复查时间）轮一遍；已知可偷时间的跳过；翻阅节奏 500～1000 毫秒、每 300 位休息
+                        const tt = require('../fnos-timetable');
+                        if (tt.isEnabled()) {
+                            if (!fnosRanchProbeQueue.length && !pendingFriendGid) {
+                                const targets = tt.ranchProbeTargets(friends);
+                                fnosRanchProbeQueue.push(...targets.map((f: any) => Number(f.gid)));
+                                if (targets.length) log('牧场', `好友牧场状态轮巡：本轮 ${targets.length} 位，已知可偷时间的跳过`, { module: 'ranch', event: 'fnos好友牧场', result: 'probe', count: targets.length });
+                            }
+                            while ((fnosRanchProbeQueue.length || pendingFriendGid) && anyWanted()) {
+                                checkpoint();
+                                const gid = pendingFriendGid ? Number(pendingFriendGid) : fnosRanchProbeQueue[0];
+                                const friend = friends.find((row: any) => Number(row.gid) === gid);
+                                if (fnosRanchProbeQueue[0] === gid) fnosRanchProbeQueue.shift();
+                                if (!friend) { pendingFriendGid = null; continue; }
+                                const before = steps;
+                                await visitOne(friend);
+                                if (steps === before) tt.noteRanchProbeFailed(gid); // 进不去：1 小时内不再探
+                                const pace = tt.nextPageTurn();
+                                await sleep(pace.gapMs);
+                                if (pace.restMs > 0 && fnosRanchProbeQueue.length) {
+                                    log('牧场', `已翻阅 ${pace.count} 位好友，休息 ${Math.round(pace.restMs / 1000)} 秒`, { module: 'ranch', event: 'fnos好友牧场', result: 'rest' });
+                                    for (let left = pace.restMs; left > 0; left -= 1000) { checkpoint(); await sleep(Math.min(1000, left)); }
+                                }
+                            }
+                            if (!anyWanted()) fnosRanchProbeQueue.length = 0;
+                        } else
+                        // 沿用本轮巡查，每轮最多拜访三位，避免长期占用农牧场共用连接。
+                        if (Date.now() >= fnosNextRegularFriendsAt || pendingFriendGid) {
+                            for (; friendVisits < Math.min(3, friends.length) && anyWanted(); friendVisits++) {
+                                checkpoint();
+                                const friend = friends.find((row: any) => String(row.gid) === pendingFriendGid) || friends[nextFriendIndex % friends.length];
+                                await visitOne(friend);
+                                nextFriendIndex++;
+                            }
+                            let gapMs = 0;
+                            try { gapMs = Number(require('../fnos-timetable').scanIntervalMs()) || 0; } catch { gapMs = 0; }
+                            fnosNextRegularFriendsAt = Date.now() + (gapMs > 0 ? gapMs : Math.max(1, Number(auto.ranch_check_minutes) || 1) * 60_000);
                         }
                     }
                 }
             });
 
             if (cycleChanged) daily.markTasksChanged();
-            await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); steps++; } });
-            await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); steps++; } });
-            await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
+            // [fnos-fork] 2026-11-17 杂项（牧场任务 / 分享 / 图鉴）只在空闲时做：30 秒内有收获 / 偷菜 / 帮忙到点就留到下一轮
+            const miscWait = fnosMiscWait();
+            if (miscWait) log('牧场', '有收获 / 偷菜 / 帮忙即将到点，牧场任务、分享、图鉴留到空闲时再做', { module: 'ranch', event: 'fnos牧场轮次', result: 'misc_deferred' });
+            if (!miscWait) await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); steps++; } });
+            if (!miscWait) await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); steps++; } });
+            if (!miscWait) await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
             if (fnosRanch.holdWakeAt() > 0) nextActionAt = Math.min(nextActionAt, fnosRanch.holdWakeAt()); // [fnos-fork] 等大号超时放行时提前回来
             timedWakeAtMs = Number.isFinite(nextActionAt) ? nextActionAt : 0; // [fnos-fork] 农牧轮流插队时间点
             nextCheckAt = Math.max(Date.now() + SCENE_REENTRY_MS, Math.min(nextCheckAt, nextActionAt, cycleChanged ? Date.now() + 30_000 : Infinity));
             resetCycle();
         });
+        reentryAtMs = Date.now(); // [fnos-fork] 2026-11-17 去掉 20 秒重进间隔：什么时候再进牧场由农牧轮流（每边至少 1 分钟）决定
         return 'done';
     } catch (error: any) {
         if (error.code === 'RANCH_PATROL_YIELD') {
             nextCheckAt = Date.now() + SCENE_REENTRY_MS;
+            reentryAtMs = Date.now() + YIELD_REENTRY_MS; // [fnos-fork] 让路后插队的事做完就接着做
             return 'yielded';
         }
         resetCycle();
+        reentryAtMs = Date.now() + (error.code === 'RANCH_AUTOMATION_DISABLED' ? SCENE_REENTRY_MS : ERROR_REENTRY_MS); // [fnos-fork]
         if (error.code === 'RANCH_AUTOMATION_DISABLED') return 'disabled';
         nextCheckAt = Date.now() + Math.max(auto.ranch_check_minutes, 10) * 60_000;
         log('牧场', `日常牧场巡查失败：${error.message}`, { module: 'ranch', event: 'ranch_automation', result: 'error' });
@@ -302,4 +390,12 @@ function timedWakeAt(): number {
     return getRoutineState().doneToday ? 0 : timedWakeAtMs;
 }
 
-module.exports = { run, getRoutineState, selectAnimal, timedWakeAt, resetSchedule: () => { nextCheckAt = 0; timedWakeAtMs = 0; resetCycle(); } };
+/** [fnos-fork] 2026-11-17 好友牧场互动（偷 / 抚摸 / 清理 / 放蚊子 / 帮生产 / 加牧草）有任一开着：好友牧场时间表才有意义 */
+function friendTimetableActive(): boolean {
+    try { return Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled(); } catch { return false; }
+}
+
+/** [fnos-fork] 2026-11-17 还有排队的到点好友牧场（让路后续跑） */
+function hasPendingDueFriends(): boolean { return fnosDueRanch.length > 0; }
+
+module.exports = { run, getRoutineState, selectAnimal, timedWakeAt, hasPendingDueFriends, friendTimetableActive, resetSchedule: () => { nextCheckAt = 0; timedWakeAtMs = 0; reentryAtMs = 0; fnosDueRanch.length = 0; fnosNextRegularFriendsAt = 0; fnosRanchProbeQueue.length = 0; resetCycle(); } };

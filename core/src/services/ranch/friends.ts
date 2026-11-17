@@ -371,6 +371,8 @@ async function automateFriend(hostGid: unknown, enabled: (action: string) => boo
             const fed = await require('./fnos-ranch').feedFriend(host, fnosEntry);
             if (fed) results.push(fed);
         }
+        // [fnos-fork] 2026-11-17 好友时间表：记下这位好友牧场下一次产出（可偷）的时间
+        try { require('../fnos-timetable').noteRanch(host, '', ranches); } catch { /* ignore */ }
         return { results, times };
     });
 }

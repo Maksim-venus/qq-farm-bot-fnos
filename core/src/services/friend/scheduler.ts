@@ -45,7 +45,10 @@ const {
     inFriendQuietHours,
     cacheFriendsListFromReply,
     clearFriendsListCache,
+    getFriendsListCacheOnly,
 } = require('./visit-strategy');
+// [fnos-fork] 2026-11-17 好友时间表：到点直接去、扫描时探成熟时间（见 services/fnos-timetable.ts）
+const fnosTimetable = require('../fnos-timetable');
 const { buildFriendVisitPlan } = require('./visit-plan');
 // [fnos-fork] 2026.10.21.3 大小号协作：不偷大号、只给大号放捣乱
 const { getAltCoopSettings, adjustVisitPlanForAltCoop, getVisitOptionsForAltCoop } = require('./fnos-alt-coop');
@@ -277,6 +280,10 @@ interface CheckFriendsOptions {
     onlySteal?: boolean;
     onlyBad?: boolean;
     ignoreExpLimit?: boolean;
+    /** [fnos-fork] 2026-11-17 只去好友时间表里到点的好友（不拉好友列表、不捣乱） */
+    fnosTimetable?: boolean;
+    /** [fnos-fork] 2026-11-17 好友农场状态轮巡：自家一轮做完后，用缓存的好友列表进好友家读成熟时间（能偷能帮的顺手做，不捣乱） */
+    fnosProbeRound?: boolean;
 }
 
 // 好友巡查与面板的好友天气扫描共用“进入好友农场”这一游戏状态，
@@ -330,18 +337,6 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
     }
 
     try {
-        const friendsReply: any = await runExclusiveAutomationTask('friend_list', () => (
-            canContinue() ? getAllFriends() : null
-        ), { detached: true });
-        if (!canContinue()) return false;
-        // 巡查结果同时刷新面板好友列表缓存，避免页面再次请求同一份列表。
-        cacheFriendsListFromReply(friendsReply);
-        const friends: any[] = extractReplyFriends(friendsReply);
-        if (friends.length === 0) {
-            log('好友', '没有好友', { module: 'friend', event: '好友扫描', result: 'empty' });
-            return false;
-        }
-
         const blacklist: Set<number> = new Set(getFriendBlacklist(accountId));
 
         // 经验满不帮时，本轮只帮当天缓存已确认是护主犬的好友；缓存没结论的交给每日宠物同步补齐。
@@ -349,8 +344,93 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
         const protectDogBypassEnabled: boolean = !!isAutomationOn('friend_help_protect_dog_ignore_exp_limit');
         const helpAllowedForAll: boolean = !stopWhenExpLimit || canGetHelpExp;
 
+        // [fnos-fork] 2026-11-17 好友时间表：取出到点的好友，套用同一套访问计划（偷 / 帮开关、经验上限、黑名单）与大小号规则；不捣乱
+        const timetableMode: boolean = !!options.fnosTimetable;
+        const buildTimetableVisits = (): any[] => {
+            if (onlyBad || (!effectiveStealEnabled && !effectiveHelpEnabled)) return [];
+            const due: any[] = fnosTimetable.takeDueFarm();
+            if (due.length === 0) return [];
+            const cached: any[] = (() => { try { return getFriendsListCacheOnly() || []; } catch { return []; } })();
+            const byGid: Map<number, any> = new Map(cached.map((f: any) => [toNum(f && f.gid), f]));
+            const rows: any[] = due.map((t: any) => {
+                const f: any = byGid.get(t.gid) || { gid: t.gid, name: t.name, level: 0 };
+                // 列表缓存可能是几分钟前的：按时间表认为可偷（成熟到点）/ 要帮（帮忙到点），进去后 visitFriend 以真实土地为准；
+                // 偷菜到点不额外算「要帮」，免得为帮忙多进一次
+                const plant: any = { steal_plant_num: 0, dry_num: 0, weed_num: 0, insect_num: 0 };
+                if (t.kind === 'steal') plant.steal_plant_num = 1;
+                else plant.dry_num = 1;
+                return { ...f, plant };
+            });
+            const ttPlan: any = buildFriendVisitPlan({
+                friends: rows, myGid: state.gid, blacklist,
+                stealEnabled: effectiveStealEnabled, helpEnabled: effectiveHelpEnabled, badEnabled: false,
+                helpAllowedForAll, protectDogBypassEnabled, getDogState: getFriendDogState,
+                badBudget: 0, maxBadOnlyVisits: 0,
+            });
+            adjustVisitPlanForAltCoop(ttPlan, {
+                coop: altCoop, friends: rows, blacklist, badActive: false, badBudget: 0,
+                log: (msg: string) => log('小号', msg, { module: 'friend', event: '大小号协作' }),
+            });
+            for (const v of ttPlan.visits) {
+                const d: any = due.find((x: any) => x.gid === v.gid);
+                v.fnosTimetable = d || true;
+                const when: string = d && d.kind === 'help' ? `预计需要帮忙 ${fnosTimetable.formatClock(d.at)}` : `预计成熟 ${fnosTimetable.formatClock(d ? d.at : 0)}`;
+                log('好友', `按时间表前往 ${v.name}（${when}）`, {
+                    module: 'friend', event: '按时间表前往', friendName: v.name, friendGid: v.gid, kind: d ? d.kind : 'steal', dueAt: d ? d.at : 0,
+                });
+            }
+            return ttPlan.visits;
+        };
+
+        let friends: any[] = [];
+        let plan: any;
+        let probeCount = 0;
+        const probeRound: boolean = !timetableMode && !!options.fnosProbeRound;
+        if (probeRound) {
+            if (!effectiveStealEnabled || onlyHelp || onlyBad) return false;
+            friends = (() => { try { return getFriendsListCacheOnly() || []; } catch { return []; } })();
+            if (friends.length === 0) return false; // 还没扫过好友列表：等常规扫描
+            plan = { visits: [], stealCount: 0, helpCount: 0, badOnlyCount: 0, skippedExpLimit: 0, skippedUnknownDog: 0 };
+            let unseen = 0;
+            const seen: Set<number> = new Set(fnosTimetable.snapshotForUi().filter((r: any) => r.farmSeenAt > 0).map((r: any) => r.gid));
+            for (const f of fnosTimetable.probeTargets(friends, blacklist)) {
+                const gid: number = toNum(f && f.gid);
+                if (gid <= 0 || gid === state.gid) continue;
+                if (!seen.has(gid)) unseen++;
+                plan.visits.push({ gid, name: (f.remark || f.name) || `GID:${gid}`, level: toNum(f.level), stealNum: 0, helpNum: 0, dryNum: 0, weedNum: 0, insectNum: 0, wantSteal: true, wantHelp: false, wantBad: false, fnosProbe: true });
+            }
+            adjustVisitPlanForAltCoop(plan, {
+                coop: altCoop, friends, blacklist, badActive: false, badBudget: 0,
+                log: (msg: string) => log('小号', msg, { module: 'friend', event: '大小号协作' }),
+            });
+            plan.visits = plan.visits.filter((v: any) => v.wantSteal || v.wantHelp);
+            probeCount = plan.visits.length;
+            plan.stealCount = probeCount;
+            if (probeCount === 0) return false;
+            log('好友', `好友农场状态轮巡：本轮 ${probeCount} 位（未扫描 ${Math.min(unseen, probeCount)} / 复查空地 ${Math.max(0, probeCount - unseen)}），已知成熟时间的跳过`, {
+                module: 'friend', event: '好友状态轮巡', count: probeCount,
+            });
+        } else if (timetableMode) {
+            const visits: any[] = buildTimetableVisits();
+            if (visits.length === 0) return false;
+            plan = { visits, stealCount: visits.filter((v: any) => v.wantSteal).length, helpCount: visits.filter((v: any) => v.wantHelp).length, badOnlyCount: 0, skippedExpLimit: 0, skippedUnknownDog: 0 };
+        } else {
+        const friendsReply: any = await runExclusiveAutomationTask('friend_list', () => (
+            canContinue() ? getAllFriends() : null
+        ), { detached: true });
+        if (!canContinue()) return false;
+        // 巡查结果同时刷新面板好友列表缓存，避免页面再次请求同一份列表。
+        cacheFriendsListFromReply(friendsReply);
+        friends = extractReplyFriends(friendsReply);
+        if (friends.length === 0) {
+            log('好友', '没有好友', { module: 'friend', event: '好友扫描', result: 'empty' });
+            return false;
+        }
+        // [fnos-fork] 2026-11-17 好友时间表：记下每位好友下次需要帮忙的时间
+        try { fnosTimetable.noteFarmList(friends); } catch { /* ignore */ }
+
         // 一次算清每位好友这轮要做哪几件事，然后每位好友只进一次农场把三件事一起做完。
-        const plan: any = buildFriendVisitPlan({
+        plan = buildFriendVisitPlan({
             friends,
             myGid: state.gid,
             blacklist,
@@ -363,6 +443,7 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
             badBudget: getRemainingBadOperationTimes(),
             maxBadOnlyVisits: MAX_BAD_ONLY_VISITS_PER_ROUND,
         });
+        // [fnos-fork] 2026-11-17 探成熟时间改为自家一轮做完后的「好友状态轮巡」（checkFriends({ fnosProbeRound: true })），常规扫描不再探
         // [fnos-fork] 大小号协作：调整对大号/其他好友的偷菜与捣乱
         adjustVisitPlanForAltCoop(plan, {
             coop: altCoop,
@@ -373,8 +454,10 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
             log: (msg: string) => log('小号', msg, { module: 'friend', event: '大小号协作' }),
         });
 
-        // [fnos-fork] 空闲时只保留心跳：记下本轮要访问几位好友（0 = 好友这边空闲）
-        try { require('../fnos-quiet-priority').recordFriendRound(plan.visits.length); } catch { /* ignore */ }
+        probeCount = plan.visits.filter((v: any) => v.fnosProbe).length;
+        // [fnos-fork] 空闲时只保留心跳：记下本轮要访问几位好友（0 = 好友这边空闲；探成熟时间的不算）
+        try { require('../fnos-quiet-priority').recordFriendRound(plan.visits.length - probeCount); } catch { /* ignore */ }
+        }
 
         const totalActions: any = { steal: 0, farming: 0, putBug: 0, putWeed: 0 };
 
@@ -390,7 +473,7 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
 
         if (plan.visits.length === 0) return false;
 
-        log('好友', `开始好友巡查，本轮 ${plan.visits.length} 位（可偷 ${plan.stealCount} / 需帮 ${plan.helpCount} / 纯捣乱 ${plan.badOnlyCount}）`, {
+        if (!timetableMode && !probeRound) log('好友', `开始好友巡查，本轮 ${plan.visits.length} 位（可偷 ${plan.stealCount - probeCount} / 需帮 ${plan.helpCount} / 纯捣乱 ${plan.badOnlyCount}${probeCount ? ` / 探成熟时间 ${probeCount}` : ''}）`, {
             module: 'friend',
             event: '开始好友巡查',
             count: plan.visits.length,
@@ -403,13 +486,19 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
         let midRoundExpSkipped: number = 0;
         let attemptedStealVisit = false;
 
-        for (const target of plan.visits) {
+        // [fnos-fork] 2026-11-17 用队列：常规巡查每访问一位前，先把时间表里到点的好友插到最前面（偷 > 帮 > 捣乱）
+        const queue: any[] = plan.visits.slice();
+        while (queue.length > 0) {
+            if (!timetableMode && fnosTimetable.isEnabled()) {
+                try { const urgent: any[] = buildTimetableVisits(); if (urgent.length) queue.unshift(...urgent); } catch { /* ignore */ }
+            }
+            const target: any = queue.shift();
             if (!canContinue()) return false;
             // [fnos-fork] 自己收菜优先：自家作物正在成熟时，访问下一位好友前先等自家收完（最多 30 秒）
             await require('../fnos-quiet-priority').waitForOwnHarvestBeforeFriendVisit(canContinue);
             if (!canContinue()) return false;
             if (getFriendBlacklist(accountId).includes(target.gid)) continue;
-            if (attemptedStealVisit && target.wantSteal && isAutomationOn('friend_steal')) {
+            if (attemptedStealVisit && target.wantSteal && !target.fnosProbe && isAutomationOn('friend_steal')) {
                 // 首位可偷好友立即访问，后续等待不持有自动化锁。
                 await waitStealGap(target);
             }
@@ -434,11 +523,12 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
                     if (!canContinue() || getFriendBlacklist(accountId).includes(target.gid)) return;
                     const altVisitOpts = getVisitOptionsForAltCoop(altCoop, target); // [fnos-fork] 大小号协作
                     const allowSteal = target.wantSteal && isAutomationOn('friend_steal');
-                    const allowHelp = target.wantHelp && isAutomationOn('friend_help');
+                    // [fnos-fork] 2026-11-17 按时间表去偷 / 探成熟时间时也顺手帮忙（经验上限、护主犬规则在 visitFriend 里照旧判断）
+                    const allowHelp = (target.wantHelp || !!target.fnosTimetable || !!target.fnosProbe) && isAutomationOn('friend_help');
                     // [fnos-fork] forceBad 时允许对大号捣乱，即使「自动捣乱」关着
                     const allowBad = target.wantBad && (!!isAutomationOn('friend_bad') || !!(altVisitOpts && altVisitOpts.forceBad));
                     if (!allowSteal && !allowHelp && !allowBad) return;
-                    if (allowSteal) attemptedStealVisit = true;
+                    if (allowSteal && !target.fnosProbe) attemptedStealVisit = true;
                     await visitFriend(target, totalActions, state.gid, state.accountId, {
                         allowSteal,
                         allowHelp,
@@ -455,7 +545,15 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
 
             // 普通访问快速让位，捣乱仍保留较慢间隔。
             if (target.wantBad) await randomDelay(2000, 3500);
-            else await randomDelay(200, 350);
+            else if (target.fnosProbe) {
+                // [fnos-fork] 2026-11-17 状态轮巡的翻阅节奏（参考空间版）：每位 500～1000 毫秒，每翻阅 300 位休息 15～25 秒
+                const pace: any = fnosTimetable.nextPageTurn();
+                await sleep(pace.gapMs);
+                if (pace.restMs > 0 && queue.length > 0) {
+                    log('好友', `已翻阅 ${pace.count} 位好友，休息 ${Math.round(pace.restMs / 1000)} 秒`, { module: 'friend', event: '好友状态轮巡', result: 'rest' });
+                    for (let left = pace.restMs; left > 0 && canContinue(); left -= 1000) await sleep(Math.min(1000, left));
+                }
+            } else await randomDelay(200, 350);
         }
 
         if (!canContinue()) return false;
@@ -516,6 +614,10 @@ interface StartOptions {
     externalScheduler?: boolean;
 }
 
+function onFnosFriendLandsChanged(payload: any): void {
+    try { fnosTimetable.notePushLands(payload && payload.hostGid, (payload && payload.lands) || []); } catch { /* ignore */ }
+}
+
 export function startFriendCheckLoop(options: StartOptions = {}): void {
     if (friendLoopRunning) return;
     externalSchedulerMode = !!options.externalScheduler;
@@ -526,6 +628,8 @@ export function startFriendCheckLoop(options: StartOptions = {}): void {
 
     // 监听好友申请推送 (微信同玩)
     networkEvents.on('friendApplicationReceived', onFriendApplicationReceived);
+    // [fnos-fork] 2026-11-17 好友农场土地推送 → 好友时间表（只更新成熟时间，不额外插队）
+    networkEvents.on('fnosFriendLandsChanged', onFnosFriendLandsChanged);
 
     if (!externalSchedulerMode) {
         // 延迟 5 秒后启动循环，等待登录和首次农场检查完成
@@ -550,6 +654,8 @@ export function stopFriendCheckLoop(): void {
     clearAllInvalidKnownFriendGidCooldowns();
     clearFriendsListCache();
     networkEvents.off('friendApplicationReceived', onFriendApplicationReceived);
+    networkEvents.off('fnosFriendLandsChanged', onFnosFriendLandsChanged);
+    try { fnosTimetable.flushNow(); } catch { /* ignore */ }
     friendScheduler.clearAll();
 }
 

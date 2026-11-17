@@ -633,6 +633,9 @@ function handleNotify(msg: any): void {
                     if (hostGid === userState.gid || hostGid === 0) {
                         invalidateLandForecast();
                         networkEvents.emit('landsChanged', lands);
+                    } else {
+                        // [fnos-fork] 2026-11-17 好友农场的土地推送（只在人在该好友农场时收到）：交给好友时间表更新成熟时间
+                        networkEvents.emit('fnosFriendLandsChanged', { hostGid, lands });
                     }
                 }
             } catch {}

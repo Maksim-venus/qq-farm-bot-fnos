@@ -125,6 +125,7 @@ const events = [
   { label: '土地解锁', value: 'unlock_land' },
   { label: '好友巡查', value: 'friend_cycle' },
   { label: '访问好友', value: 'visit_friend' },
+  { label: '按时间表前往', value: '按时间表前往' }, // [fnos-fork] 2026-11-17 好友时间表到点直接去
 ]
 
 const eventLabelMap: Record<string, string> = Object.fromEntries(

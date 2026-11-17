@@ -94,6 +94,10 @@ const ranchStrategies = [
             </div>
             <div class="automation-setting-item">
               <BaseInput v-model.number="settings.automation.ranch_check_minutes" class="w-full" label="巡查间隔（分钟）" type="number" min="1" max="60" step="1" />
+              <!-- [fnos-fork] 2026-11-17 农牧严格交替后此项不再决定何时进牧场 -->
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                [fnos-fork] 现在农场一轮做完就进牧场、牧场一轮做完就回农场，这一项不再决定何时进牧场（保留只为兼容旧配置）。
+              </p>
             </div>
           </div>
           <div v-if="panel === 'automation'" class="mt-4">
@@ -504,6 +508,20 @@ const ranchStrategies = [
           <p class="mt-2 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
             自己收菜优先：按自家作物的成熟时间准点巡田；成熟前后十几秒内好友巡查先暂停让路；收完后下一块几秒内（上面的秒数）也要成熟时，先不补种，等那块成熟一起收、一起种（最多连续合并 3 次）。
             大小号协作里开启「成熟作物先留给大号偷」的小号不受影响：仍然等大号偷过（或超时）才收，不抢点、不合并。
+          </p>
+          <!-- [fnos-fork] 2026-11-17 按时间表偷菜 / 好友扫描间隔 / 自家提前秒数 -->
+          <div class="grid grid-cols-1 mt-3 gap-2 sm:grid-cols-2" data-testid="fnos-timetable">
+            <div class="automation-setting-item">
+              <BaseSwitch v-model="settings.fnosQuietPriority.timetableSteal" class="automation-setting-item" label="按时间表偷菜" />
+            </div>
+            <!-- [fnos-fork] 2026-11-17 用户要求「扫描频率做成可填写的，默认 5 分钟」：直接填分钟数（1～60） -->
+            <BaseInput v-model.number="settings.fnosQuietPriority.friendScanMinutes" label="好友列表扫描间隔 (分钟，默认 5)" type="number" min="1" max="60" step="1" placeholder="5" data-testid="fnos-friend-scan-minutes" />
+            <BaseInput v-model.number="settings.fnosQuietPriority.ownLeadSec" label="自家到期前提前 (秒)" type="number" min="0" max="10" />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+            按时间表偷菜：每隔上面填的分钟数（默认 5）扫一次好友列表（关掉「按时间表偷菜」时好友巡查仍按原来的间隔），记下每位好友下次成熟 / 需要帮忙 / 牧场可偷的时间（进过的好友才知道成熟时间：每次自家巡田 / 自家牧场一轮做完，立刻把还不知道时间的好友农场、牧场轮一遍，已知时间的跳过，空地 / 暂无可偷的农场 15 分钟、牧场 10 分钟后再看；翻阅每位间隔 0.5～1 秒，每 300 位休息 15～25 秒），到点直接去，不等整轮；去的时候顺手帮忙。多位同时到点排队，偷菜、帮忙、捣乱的开关和次数上限、大小号规则都照旧。
+            自家作物、动物到期前上面的秒数先进去等着，到点立即收。优先级：自己收获 &gt; 偷好友 &gt; 帮忙 &gt; 任务 / 礼包 / 图鉴 / 神秘商店 / 每日福利 / 偷收比统计 / 宠物同步等杂项（30 秒内有前面的事要做或好友巡查在跑时杂项先不做）。
+            农场、牧场轮流：一边一轮做完且在这边已待满 1 分钟才切到另一边；切之前这边 30 秒内有自己的收获就先等收完（最多多等 2 分钟）。自家收获、好友时间表到点随时插队。好友页 / 牧场好友列表会显示「还多久可偷」。
           </p>
           <div v-if="settings.fnosQuietPriority.idleKeepaliveOnly" class="grid grid-cols-2 mt-3 gap-3">
             <BaseInput v-model.number="settings.fnosQuietPriority.idleMinMinutes" label="每次静默最短 (分钟)" type="number" min="1" max="180" />
