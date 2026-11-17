@@ -63,8 +63,8 @@ const due = (state: any) => !state.doneToday && Date.now() >= (state.nextCheckAt
 
 function getRoutineState(): any {
     const auto = getAutomation();
-    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_grass_buy'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
-    return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState())), nextCheckAt, reentryAt: reentryAtMs };
+    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_daily_benefit', 'ranch_grass_buy'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
+    return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState()) || auto.ranch_daily_benefit && due(daily.getBenefitRoutineState())), nextCheckAt, reentryAt: reentryAtMs };
 }
 
 function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: number): any {
@@ -357,11 +357,13 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
             });
 
             if (cycleChanged) daily.markTasksChanged();
-            // [fnos-fork] 2026-11-17 杂项（牧场任务 / 分享 / 图鉴）只在空闲时做：30 秒内有收获 / 偷菜 / 帮忙到点就留到下一轮
+            // [fnos-fork] 2026-11-17 杂项（牧场任务 / 分享 / 每日福利 / 图鉴）只在空闲时做：30 秒内有收获 / 偷菜 / 帮忙到点就留到下一轮
             const miscWait = fnosMiscWait();
-            if (miscWait) log('牧场', '有收获 / 偷菜 / 帮忙即将到点，牧场任务、分享、图鉴留到空闲时再做', { module: 'ranch', event: 'fnos牧场轮次', result: 'misc_deferred' });
+            if (miscWait) log('牧场', '有收获 / 偷菜 / 帮忙即将到点，牧场任务、分享、每日福利、图鉴留到空闲时再做', { module: 'ranch', event: 'fnos牧场轮次', result: 'misc_deferred' });
             if (!miscWait) await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); steps++; } });
             if (!miscWait) await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); steps++; } });
+            // [fnos-fork] 上游 #142 牧场每日福利同样算杂项，空闲时领
+            if (!miscWait) await phase('benefit', async () => { if (enabled('ranch_daily_benefit') && due(daily.getBenefitRoutineState())) { checkpoint(); await daily.claimBenefit(); steps++; } });
             if (!miscWait) await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
             if (fnosRanch.holdWakeAt() > 0) nextActionAt = Math.min(nextActionAt, fnosRanch.holdWakeAt()); // [fnos-fork] 等大号超时放行时提前回来
             timedWakeAtMs = Number.isFinite(nextActionAt) ? nextActionAt : 0; // [fnos-fork] 农牧轮流插队时间点

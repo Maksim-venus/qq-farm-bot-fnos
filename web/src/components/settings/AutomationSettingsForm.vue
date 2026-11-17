@@ -26,6 +26,8 @@ export type AutomationSettingsFormModel = Pick<
 withDefaults(defineProps<{
   inRanch?: boolean
   panel?: 'automation' | 'strategy'
+  /** 页面级统一保存时隐藏表单自带的底部按钮。 */
+  hideSave?: boolean
   ranchAnimalOptions?: Array<{ value: number, label: string, kind: string }>
   saving: boolean
   fertilizerLandTypeOptions: Array<{ label: string, value: string }>
@@ -51,6 +53,7 @@ const ranchSwitches = [
   ['ranch_feed_organic', '有机罐头喂养'],
   ['ranch_task', '自动领取任务奖励'],
   ['ranch_share', '每日分享礼包'],
+  ['ranch_daily_benefit', '每日商城福利'],
 ] as const
 // [fnos-fork] 2026-11-17 给好友加牧草的来源
 const fnosFriendFeedSources = [
@@ -120,7 +123,7 @@ const ranchStrategies = [
           </div>
         </section>
 
-        <!-- [fnos-fork] 2026-11-16 牧场增强：轮换值守、小号等大号、牧场图鉴、好友牧场（随「保存自动控制」保存到 fnosRanch） -->
+        <!-- [fnos-fork] 2026-11-16 牧场增强：轮换值守、小号等大号、牧场图鉴、好友牧场（2026-11-17 起随上游移到「牧场 → 策略」页，随「保存牧场策略」保存到 fnosRanch） -->
         <section v-if="panel === 'automation' && settings.fnosRanch" class="farm-card rounded-2xl p-4" data-testid="fnos-ranch">
           <div class="mb-4 flex items-start gap-3">
             <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 dark:bg-sky-900/25 dark:text-sky-400">
@@ -565,7 +568,7 @@ const ranchStrategies = [
       </div>
     </div>
 
-    <div class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
+    <div v-if="!hideSave" class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
       <BaseButton variant="primary" size="sm" :loading="saving" @click="emit('save')">
         保存自动控制
       </BaseButton>

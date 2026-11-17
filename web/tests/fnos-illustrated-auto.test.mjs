@@ -39,7 +39,7 @@ test('设置页：图鉴开关在「自动控制」里，随「保存自动控�
   assert.match(page, /fnosIllustratedAuto: fnosNormalizeIllustratedAuto\(/)
   assert.match(page, /key: 'fnos-alt', label: '活动设置'/)
   const fork = read('components/settings/FnosForkSettings.vue')
-  assert.match(fork, /当前没有进行中的活动/)
+  assert.match(fork, /牧歌初启/) // 2026-11-17 占位换成上游活动说明
   assert.doesNotMatch(fork, /illustrated/i)
   // 去掉注释后，界面与逻辑里不应再有任何奶茶 fork 选项
   const strip = text => text.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')

@@ -6,7 +6,7 @@
  *   图鉴奖励领取 / 自动完成图鉴移到「自动控制」（AutomationSettingsForm），随自动控制一起保存。
  * 所在栏目：
  * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱、偷收比、在线期间来偷菜自动删除）
- * - section="activity"：设置 → 活动设置（当前没有进行中的活动，只显示占位提示，等下次有活动再往里加）
+ * - section="activity"：设置 → 活动设置（2026-11-17 起说明上游「牧歌初启」活动和牧场每日福利的位置）
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -17,6 +17,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
 import { fnosNormalizeStealRatio } from '@/utils/fnos-steal-ratio' // [fnos-fork] 偷收比
+import { gatewayPath } from '@/utils/gateway' // [fnos-fork]
 
 const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
 const isCoop = computed(() => props.section === 'coop')
@@ -202,10 +203,14 @@ onMounted(() => {
       </h3>
     </div>
 
-    <!-- [fnos-fork] 2026-11-15 奶茶 fork 功能下架后，活动设置栏目保留作占位，等下次有活动再往里加 -->
-    <div v-if="!isCoop" class="farm-card rounded-2xl px-4 py-10 text-center text-gray-500 dark:text-gray-400" data-testid="fnos-activity-empty">
-      <div class="i-carbon-event mx-auto mb-2 text-3xl text-gray-400" />
-      <p>当前没有进行中的活动</p>
+    <!-- [fnos-fork] 2026-11-17 上游 PR #142 接入「牧歌初启」：活动本身在上游的「活动」页操作（没有自动项），这里只做说明，去掉原「当前没有进行中的活动」占位 -->
+    <div v-if="!isCoop" class="farm-card rounded-2xl p-4 space-y-2 text-sm text-gray-600 leading-relaxed dark:text-gray-300" data-testid="fnos-activity-current">
+      <div class="flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
+        <img :src="gatewayPath('/activity-assets/muge/icon.png')" alt="" width="24" height="24" class="h-6 w-6 rounded">
+        牧歌初启（牧场活动）
+      </div>
+      <p>庆典、好友、图鉴、牧场人格四个玩法都在「牧场 → 活动 → 牧歌初启」里手动操作，活动本身没有自动领取项。</p>
+      <p>同期上游新增的「每日商城福利」是牧场自动项，开关在「牧场 → 策略 → 日常牧场」；它和任务、分享、图鉴一样算杂项，只在没有收获 / 偷菜 / 帮忙到点时才做。</p>
     </div>
 
     <div v-else-if="!accountId" class="py-8 text-center text-gray-500">

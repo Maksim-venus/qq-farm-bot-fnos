@@ -175,6 +175,7 @@ const upstreamRanchEventLabels: Record<string, string> = {
   ranch_scene_restore: '恢复场景',
   ranch_task_claim: '牧场任务',
   ranch_daily_share: '牧场分享礼包',
+  ranch_daily_benefit: '牧场每日福利', // 上游 PR #142
 }
 
 /** 农场事件用农场标签；牧场事件先用 fork 分组标签，再用上游中文名，英文内部事件名不显示（同上游 PR #139）。 */
