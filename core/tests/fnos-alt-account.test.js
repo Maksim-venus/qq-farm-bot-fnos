@@ -45,7 +45,7 @@ require.cache[dist('models/store')] = {
 };
 const { EventEmitter } = require('node:events');
 require.cache[dist('utils/network')] = {
-    exports: { getUserState: () => ({ gid: 1001 }), networkEvents: new EventEmitter() },
+    exports: { getUserState: () => ({ gid: 1001 }), networkEvents: new EventEmitter(), getGatewayLoad: () => ({ heartbeatMisses: 0, oldestPendingAgeMs: 0 }) /* 上游 #148 好友巡查检查网关健康 */ },
 };
 require.cache[dist('services/farm/planting')] = {
     exports: { autoPlantEmptyLands: async () => ({ plantedLands: [] }), runFertilizerByConfig: async () => ({ normal: 0, organic: 0 }) },

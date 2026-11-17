@@ -32,7 +32,7 @@ const {
     openCharitySettlementGiftPacksSilently,
 } = require('../services/warehouse');
 const { checkAndClaimDogSkillGifts } = require('../services/dog-skill-gifts');
-const { isGatewayHealthyForBusiness, isGatewayIdleForLowPriority, nextBusinessBackoffMs } = require('../utils/low-priority-gate');
+const { isGatewayHealthyForBusiness, nextBusinessBackoffMs } = require('../utils/low-priority-gate');
 const { connect, cleanup, getWs, getUserState, networkEvents, getGatewayLoad } = require('../utils/network');
 const { loadProto } = require('../utils/proto');
 const { runWithRequestClass } = require('../utils/request-context');
@@ -128,9 +128,7 @@ let shutdownStarted: boolean = false;
 let runtimeGeneration: number = 0;
 let lastDailyRunDate: string = '';
 let ranchRoutineQueued = false;
-let initialFarmCheckDone = false;
-let initialFriendCheckDone = false;
-let ranchDeferredUntil = 0;
+// [fnos-fork] 上游 #148 的 initialFarmCheckDone / initialFriendCheckDone / ranchDeferredUntil（牧场等首轮农场、好友巡查和低优先级闸门）不引入：何时进牧场由农牧轮流 fnos-turns 决定
 let onRanchMarketStockReady: (() => void) | null = null;
 
 function ranchNextRunAt(): number {
@@ -475,7 +473,6 @@ async function runFarmTick(auto: any): Promise<void> {
     } finally {
         nextFarmRunAt = Date.now() + farmMs;
         farmTaskRunning = false;
-        initialFarmCheckDone = true;
     }
 }
 
@@ -492,7 +489,6 @@ async function runFriendTick(auto: any): Promise<void> {
     // friend 总开关仍控制好友任务总入口；关闭时也要推进到期时间，避免调度器每秒空转。
     if (!auto.friend) {
         nextFriendRunAt = Date.now() + friendMs;
-        initialFriendCheckDone = true;
         return;
     }
 
@@ -513,8 +509,7 @@ async function runFriendTick(auto: any): Promise<void> {
         if (generation === runtimeGeneration) {
             nextFriendRunAt = Date.now() + friendMs;
             friendTaskRunning = false;
-            initialFriendCheckDone = true;
-            fnosTurns.noteFriendDone(); // [fnos-fork] 农牧轮流：农场轮的好友巡查做完
+                fnosTurns.noteFriendDone(); // [fnos-fork] 农牧轮流：农场轮的好友巡查做完
             scheduleUnifiedNextTick();
         }
     }
@@ -668,9 +663,6 @@ function startUnifiedScheduler(): void {
             scheduleUnifiedNextTick();
         });
     } catch { /* ignore */ }
-    initialFarmCheckDone = false;
-    initialFriendCheckDone = false;
-    ranchDeferredUntil = 0;
     businessBackoffMs.ranch = 0;
     unifiedSchedulerRunning = true;
     // [fnos-fork] 2026-11-17 农牧轮流：登录 / 重连后从农场开始；切换时农场日志、牧场日志各记一条

@@ -25,7 +25,7 @@ require.cache[dist('utils/utils')] = { id: dist('utils/utils'), filename: dist('
     log: (t, m) => logs.push(`${t}|${m}`), logWarn: (t, m) => logs.push(`${t}|WARN|${m}`),
 } };
 require.cache[dist('utils/network')] = { id: dist('utils/network'), filename: dist('utils/network'), loaded: true,
-    exports: { getUserState: () => ({ gid: MY_GID, accountId: '5', exp: 0 }), networkEvents: new EventEmitter(), sendMsgAsync: async () => { throw new Error('不应直接发网络请求'); } } };
+    exports: { getUserState: () => ({ gid: MY_GID, accountId: '5', exp: 0 }), networkEvents: new EventEmitter(), getGatewayLoad: () => ({ heartbeatMisses: 0, oldestPendingAgeMs: 0 }) /* 上游 #148 好友巡查检查网关健康 */, sendMsgAsync: async () => { throw new Error('不应直接发网络请求'); } } };
 require.cache[dist('services/stats')] = { id: dist('services/stats'), filename: dist('services/stats'), loaded: true, exports: { recordOperation: () => {} } };
 require.cache[dist('services/warehouse')] = { id: dist('services/warehouse'), filename: dist('services/warehouse'), loaded: true, exports: { sellAllFruits: async () => {} } };
 require.cache[dist('services/career')] = { id: dist('services/career'), filename: dist('services/career'), loaded: true, exports: { getCareerInfo: async () => null, getCareerInfoOrNull: () => null } };
