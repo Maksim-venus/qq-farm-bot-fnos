@@ -61,11 +61,18 @@ test('查询参数规范化', () => {
 
 test('provider.getLogs 支持 fnosCategory / fnosLevel，clearLogs 同步清分类缓冲', () => {
     cats.clearFnosCategoryLogs('');
+    // [fnos-fork] 2026-11-17 指定账号的日志改从 fnos-log-store 取：这里用临时目录的独立实例，农场上限设成 1000 模拟被挤掉
+    const storeMod = require('../dist/runtime/fnos-log-store');
+    const logStore = storeMod.createFnosLogStore({ dir: require('node:fs').mkdtempSync(require('node:path').join(require('node:os').tmpdir(), 'fnos-cat-')), farmCap: 1000, flushMs: 0 });
+    storeMod.setFnosLogStoreForTest(logStore);
     const globalLogs = [];
+    let seqTs = Date.now();
     const push = (e) => {
+        e.ts = seqTs++;
         globalLogs.push(e);
         if (globalLogs.length > 1000) globalLogs.shift();
         cats.recordFnosLogCategories(e);
+        logStore.record(e);
     };
     push(entry('1', '好友', 'A: 偷2', { event: '照顾好友', actions: ['偷2'] }));
     push(entry('1', '好友', '巡查异常', {}, { isWarn: true }));
@@ -101,6 +108,7 @@ test('provider.getLogs 支持 fnosCategory / fnosLevel，clearLogs 同步清分�
     provider.clearLogs('1');
     assert.equal(provider.getLogs('1', { limit: 100, fnosCategory: 'error' }).length, 0);
     assert.equal(provider.getLogs('1', { limit: 100, fnosCategory: 'steal' }).length, 0);
+    storeMod.setFnosLogStoreForTest(null);
 });
 
 // [fnos-fork] 2026-11-17 农场 / 牧场日志分开

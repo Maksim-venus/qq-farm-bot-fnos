@@ -1,4 +1,4 @@
-// [fnos-fork] 2026-11-17 运行日志农场 / 牧场分开：农场概览只看农场日志、牧场概览只看牧场日志，各自一套筛选。
+// [fnos-fork] 2026-11-17 运行日志农场 / 牧场区分：一张卡片顶部「全部 / 农场 / 牧场」切换，农场、牧场各用自己的筛选。
 // 区分规则与 core/src/runtime/fnos-log-categories.ts 的 isFnosRanchLog 一致；/api/logs 带 space=farm|ranch 由服务端先按空间过滤。
 
 export type FnosLogSpace = 'farm' | 'ranch'
@@ -63,4 +63,119 @@ export function fnosRanchEventLabel(event: string): string {
 /** 范围与事件同时选时取事件（事件本身就在某个范围内）；返回给 /api/logs 的 event 参数。 */
 export function fnosRanchEventParam(scope: string, event: string): string | undefined {
   return event || scope || undefined
+}
+
+// ============ [fnos-fork] 2026-11-17 农场、牧场日志合并成一张卡片：顶部「全部 / 农场 / 牧场」切换 ============
+export type FnosLogSpaceView = 'all' | 'farm' | 'ranch'
+
+export const FNOS_LOG_SPACE_VIEWS: { value: FnosLogSpaceView, label: string, icon: string }[] = [
+  { value: 'all', label: '全部', icon: 'i-carbon-list' },
+  { value: 'farm', label: '农场', icon: 'i-carbon-sprout' },
+  { value: 'ranch', label: '牧场', icon: 'i-carbon-pedestrian-family' },
+]
+
+export const FNOS_LOG_SPACE_STORAGE_KEY = 'fnos-run-log-space'
+
+/** 每个空间在前端保留的条数（服务端快照也是农场、牧场各 300 条）。 */
+export const FNOS_LOG_PER_SPACE_CAP = 300
+
+export function fnosNormalizeLogSpaceView(value: unknown): FnosLogSpaceView {
+  return value === 'farm' || value === 'ranch' ? value : 'all'
+}
+
+/** 读上次的选择；没有或读不到时为「全部」。 */
+export function fnosLoadLogSpaceView(storage: Pick<Storage, 'getItem'> | null | undefined = globalThis.localStorage): FnosLogSpaceView {
+  try {
+    return fnosNormalizeLogSpaceView(storage?.getItem(FNOS_LOG_SPACE_STORAGE_KEY))
+  }
+  catch {
+    return 'all'
+  }
+}
+
+export function fnosSaveLogSpaceView(value: unknown, storage: Pick<Storage, 'setItem'> | null | undefined = globalThis.localStorage): void {
+  try {
+    storage?.setItem(FNOS_LOG_SPACE_STORAGE_KEY, fnosNormalizeLogSpaceView(value))
+  }
+  catch {
+    // 隐私模式等写不进去时只是不记住
+  }
+}
+
+/** 按当前切换筛选；「全部」不过滤。 */
+export function fnosFilterLogSpaceView<T>(list: T[], view: FnosLogSpaceView): T[] {
+  return view === 'all' ? (list || []).slice() : fnosFilterLogSpace(list, view)
+}
+
+/** 农场、牧场各保留最后 cap 条（保持原顺序），实时日志不会让农场把牧场挤掉。 */
+export function fnosTrimLogsPerSpace<T>(list: T[], cap = FNOS_LOG_PER_SPACE_CAP): T[] {
+  const source = list || []
+  let farm = 0
+  let ranch = 0
+  for (const entry of source) {
+    if (fnosIsRanchLog(entry))
+      ranch++
+    else farm++
+  }
+  if (farm <= cap && ranch <= cap)
+    return source
+  let dropFarm = Math.max(0, farm - cap)
+  let dropRanch = Math.max(0, ranch - cap)
+  return source.filter((entry) => {
+    if (fnosIsRanchLog(entry)) {
+      if (dropRanch > 0) {
+        dropRanch--
+        return false
+      }
+      return true
+    }
+    if (dropFarm > 0) {
+      dropFarm--
+      return false
+    }
+    return true
+  })
+}
+
+export interface FnosRanchDaySummary {
+  date: string
+  steal: { times: number, friends: string[], items: Record<string, number> }
+  harvest: number
+  produce: number
+  sell: number
+  addGrass: number
+  clean: number
+  buy: number
+  cleanFriend: number
+  putMosquito: number
+  stroke: number
+  helpProduce: number
+  feedFriend: number
+  errors: number
+}
+
+/** 牧场今日汇总的显示片段：偷取单独一段（含物品），其余非 0 的动作按次数列出。 */
+export function fnosRanchSummaryParts(summary: Partial<FnosRanchDaySummary> | null | undefined): { steal: string, actions: string[] } {
+  const s = summary || {}
+  const steal = s.steal && s.steal.times > 0
+    ? `偷取 ${s.steal.times} 次（${s.steal.friends?.length || 0} 位好友）：${Object.entries(s.steal.items || {}).sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name}×${count}`).join('、') || '物品未知'}`
+    : '偷取 0 次'
+  const labels: [keyof FnosRanchDaySummary, string][] = [
+    ['harvest', '收获'],
+    ['produce', '生产'],
+    ['sell', '出售'],
+    ['addGrass', '补牧草'],
+    ['clean', '清理自家'],
+    ['buy', '补栏'],
+    ['cleanFriend', '帮好友清理'],
+    ['helpProduce', '帮好友生产'],
+    ['feedFriend', '给好友加草'],
+    ['stroke', '抚摸'],
+    ['putMosquito', '放蚊子'],
+    ['errors', '出错'],
+  ]
+  const actions = labels
+    .filter(([key]) => Number((s as any)[key]) > 0)
+    .map(([key, label]) => `${label} ${Number((s as any)[key])}`)
+  return { steal, actions }
 }

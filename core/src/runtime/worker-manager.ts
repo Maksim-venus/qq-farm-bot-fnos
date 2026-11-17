@@ -343,6 +343,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
             globalLogs.push(logEntry);
             if (globalLogs.length > 1000) globalLogs.shift();
             require('./fnos-log-categories').recordFnosLogCategories(logEntry); // [fnos-fork] 偷菜/报错分类缓冲
+            require('./fnos-log-store').getFnosLogStore().record(logEntry); // [fnos-fork] 按账号、农场 / 牧场分开并持久化
             if (typeof onWorkerLog === 'function') {
                 onWorkerLog(logEntry, accountId, worker.name);
             }

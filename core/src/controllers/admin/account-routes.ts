@@ -210,6 +210,15 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         res.json({ ok: true, data: list });
     });
 
+    // [fnos-fork] 2026-11-17 牧场每日汇总：偷了几次、偷到什么、收获 / 出售 / 帮好友 / 放蚊子各几次（最近 7 天，持久化）
+    app.get('/api/fnos/ranch-log-summary', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        const days = Math.max(1, Math.min(7, Number.parseInt(String(req.query.days || '1'), 10) || 1));
+        const data = require('../../runtime/fnos-log-store').getFnosLogStore().getRanchSummary(id, days);
+        res.json({ ok: true, data });
+    });
+
     // API: 清空当前账号运行日志
     app.delete('/api/logs', (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
@@ -219,7 +228,7 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
             const data = ctx.provider.clearLogs(id);
 
             if (ctx.io && ctx.provider && typeof ctx.provider.getLogs === 'function') {
-                const accountLogs = ctx.provider.getLogs(id, { limit: 100 });
+                const accountLogs = ctx.provider.getLogs(id, { limit: 300, fnosSpace: 'all' }); // [fnos-fork]
                 ctx.io.to(`account:${id}`).emit('logs:snapshot', {
                     accountId: id,
                     logs: Array.isArray(accountLogs) ? accountLogs : [],

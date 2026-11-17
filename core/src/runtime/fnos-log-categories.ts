@@ -9,7 +9,7 @@
  * 分类规则（偷菜）：
  *   1. meta.event = 照顾好友 且 meta.actions 里有「偷N」；
  *   2. meta.event = 好友巡查循环 且 meta.summary 里有「偷N」；
- *   3. meta.event = 偷菜后出售 / 小号留菜（小号把菜留给大号偷，即「被偷」相关）；
+ *   3. meta.event = 偷菜后出售 / 小号留菜（小号把菜留给大号偷，即「被偷」相关）/ ranch_steal（牧场偷取）；
  *   4. 其他日志：msg 命中 偷N / 偷取 / 偷菜 / 被偷 / 偷大号。
  * 分类规则（报错）：
  *   - 错误级：tag = 错误，或 result（meta.result 或顶层 result）为 error / failed / fail；
@@ -21,7 +21,7 @@ export type FnosErrorLevel = 'error' | 'warn' | '';
 
 export const FNOS_LOG_CATEGORY_CAP = 1000;
 
-const STEAL_EVENTS = new Set(['偷菜后出售', '小号留菜']);
+const STEAL_EVENTS = new Set(['偷菜后出售', '小号留菜', 'ranch_steal']); // [fnos-fork] 2026-11-17 牧场偷取也进偷菜日志
 const STEAL_ACTION_RE = /^偷\d/;
 const STEAL_MSG_RE = /偷\d|偷取|偷菜|被偷|偷大号/;
 const ERROR_RESULTS = new Set(['error', 'failed', 'fail']);
@@ -110,7 +110,7 @@ export function clearFnosCategoryLogs(accountId = ''): void {
 }
 
 // ============ [fnos-fork] 2026-11-17 农场 / 牧场日志分开 ============
-export type FnosLogSpace = 'farm' | 'ranch' | '';
+export type FnosLogSpace = 'farm' | 'ranch' | 'all' | ''; // [fnos-fork] all = 农场、牧场各取一份再合并（运行日志「全部」）
 
 /**
  * 牧场日志：meta.module = ranch，或 meta.event 以 ranch_ / fnos牧场 / fnos好友牧场 开头（上游 PR #139 起牧场任务、分享礼包也改为 module=ranch；
@@ -125,16 +125,16 @@ export function isFnosRanchLog(entry: any): boolean {
 
 export function normalizeFnosLogSpace(value: unknown): FnosLogSpace {
     const v = String(value || '').trim().toLowerCase();
-    return v === 'farm' || v === 'ranch' ? v : '';
+    return v === 'farm' || v === 'ranch' || v === 'all' ? v : '';
 }
 
 export function filterFnosLogSpace(list: any[], space: unknown): any[] {
     const s = normalizeFnosLogSpace(space);
-    if (!s) return list;
+    if (!s || s === 'all') return list;
     return (list || []).filter(entry => isFnosRanchLog(entry) === (s === 'ranch'));
 }
 
-/** /api/logs 的查询参数：category=steal|error，level=error|warn（仅报错分类生效），space=farm|ranch。 */
+/** /api/logs 的查询参数：category=steal|error，level=error|warn（仅报错分类生效），space=farm|ranch|all。 */
 export function fnosLogQueryOptions(query: any): { fnosCategory: FnosLogCategory | '', fnosLevel: FnosErrorLevel, fnosSpace: FnosLogSpace } {
     const q = query && typeof query === 'object' ? query : {};
     return {

@@ -175,8 +175,10 @@ function facilityMeter(f: any) {
       </div>
 
       <div class="flex flex-1 flex-col items-stretch gap-6 md:flex-row">
-        <!-- 运行日志按账号记录，与农场概览共用 -->
-        <RunLogCard />
+        <!-- [fnos-fork] 2026-11-17 运行日志：农场、牧场合成一张卡片（全部 / 农场 / 牧场 切换，记住上次选择），与农场概览共用 -->
+        <div class="ranch-logs flex flex-1 flex-col md:w-3/4">
+          <RunLogCard class="ranch-logs__card flex-1" />
+        </div>
 
         <div class="min-w-0 flex flex-col gap-6 md:w-1/4">
           <!-- 待处理：对应农场的“今日统计” -->
@@ -333,5 +335,19 @@ function facilityMeter(f: any) {
 
 .ranch-facility.is-pending {
   opacity: 0.6;
+}
+
+/* [fnos-fork] 运行日志卡片：桌面端高度跟随右侧一列（至少 480px），日志在卡片内滚动，两列底部对齐 */
+@media (min-width: 768px) {
+  .ranch-logs {
+    position: relative;
+    min-height: 480px;
+  }
+
+  .ranch-logs__card {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
 }
 </style>

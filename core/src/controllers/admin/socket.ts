@@ -36,7 +36,8 @@ function applySocketSubscription(ctx: AdminContext, socket: any, accountRef: str
             socket.emit('status:update', { accountId: targetId, status: currentStatus });
         }
         if (ctx.provider && typeof ctx.provider.getLogs === 'function') {
-            let currentLogs: any[] = ctx.provider.getLogs(targetId, { limit: 100 });
+            // [fnos-fork] 指定账号时农场、牧场各推最后 300 条，牧场日志不会被农场刷屏挤掉
+            let currentLogs: any[] = ctx.provider.getLogs(targetId, targetId ? { limit: 300, fnosSpace: 'all' } : { limit: 100 });
             if (!Array.isArray(currentLogs)) currentLogs = [];
 
             socket.emit('logs:snapshot', {
