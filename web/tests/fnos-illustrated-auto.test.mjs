@@ -53,5 +53,5 @@ test('[fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴领取默认开；农场
   assert.match(read('utils/fnos-ranch.ts'), /illustratedAutoClaim: true/)
   assert.match(read('stores/setting.ts'), /illustratedAutoClaim: true/)
   assert.match(read('components/settings/AutomationSettingsForm.vue'), /牧场图鉴 \/ 巨大图鉴奖励自动领取/)
-  assert.match(read('views/Dashboard.vue'), /value: 'illustrated_rewards,图鉴奖励领取,图鉴奖励'/)
+  assert.match(read('components/RunLogCard.vue'), /value: 'illustrated_rewards,图鉴奖励领取,图鉴奖励'/)
 })

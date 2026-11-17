@@ -163,3 +163,9 @@ test('[2026-11-17] nextWakeAt：农场轮也按自家提前蹲点时间唤醒；
     assert.equal(turns.currentTurn(), 'ranch');
     assert.equal(turns.nextWakeAt({ ...base, nowMs: D, friendTimedAt: 200 }), 200, '牧场轮里好友时间表到点');
 });
+
+test('[fnos-fork] 2026-11-17 上游牧场每日福利按杂项（空闲时）领取', () => {
+    const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/services/ranch/automation.ts'), 'utf8');
+    assert.match(src, /if \(!miscWait\) await phase\('benefit'/);
+    assert.match(src, /'ranch_daily_benefit', 'ranch_grass_buy'\]\.includes\(key\) && auto\[key\]\) \|\| fnosRanch\.hasForkWork\(\)/);
+});

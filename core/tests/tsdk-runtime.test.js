@@ -91,7 +91,7 @@ test('QQ host inputs reproduce the complete audited credential byte vector', asy
 
 test('WeChat loads its audited WASM and reports unsupported host calls without user data', async () => {
     const build = TSDK_BUILDS.wx;
-    assert.equal(build.version, 'v3.9.0.1794737041');
+    assert.equal(build.version, 'v3.9.0.1794837963');
     assert.equal(crypto.createHash('sha256').update(fs.readFileSync(path.join(__dirname, '../src/utils', build.file))).digest('hex'), build.sha256);
     const originalGet = https.get;
     const originalRequest = https.request;

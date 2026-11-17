@@ -204,7 +204,7 @@ onMounted(() => {
     </div>
 
     <!-- [fnos-fork] 2026-11-17 上游 PR #142 接入「牧歌初启」：活动本身在上游的「活动」页操作（没有自动项），这里只做说明，去掉原「当前没有进行中的活动」占位 -->
-    <div v-if="!isCoop" class="farm-card rounded-2xl p-4 space-y-2 text-sm text-gray-600 leading-relaxed dark:text-gray-300" data-testid="fnos-activity-current">
+    <div v-if="!isCoop" class="farm-card rounded-2xl p-4 text-sm text-gray-600 leading-relaxed space-y-2 dark:text-gray-300" data-testid="fnos-activity-current">
       <div class="flex items-center gap-2 text-base text-gray-900 font-bold dark:text-gray-100">
         <img :src="gatewayPath('/activity-assets/muge/icon.png')" alt="" width="24" height="24" class="h-6 w-6 rounded">
         牧歌初启（牧场活动）

@@ -91,7 +91,7 @@ test('牧场好友列表按牧场等级从高到低排序，未读取的按 Lv1'
 
 test('[fnos-fork] 2026-11-17 农牧轮流：农场日志可筛「农牧轮次」，牧场「牧场巡查」含轮次切换', () => {
   const read = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
-  assert.match(read('views/Dashboard.vue'), /value: 'fnos轮次切换,fnos轮次插队'/)
+  assert.match(read('components/RunLogCard.vue'), /value: 'fnos轮次切换,fnos轮次插队'/)
   assert.match(read('utils/fnos-log-space.ts'), /ranch_automation,ranch_scene_restore,fnos牧场轮次'/)
 })
 
@@ -102,4 +102,13 @@ test('[fnos-fork] 2026-11-17 给好友加牧草来源：默认仓库牧草，旧
   const form = readFileSync(new URL('../src/components/settings/AutomationSettingsForm.vue', import.meta.url), 'utf8')
   assert.match(form, /settings\.fnosRanch\.friendFeedSource/)
   assert.match(form, /仓库牧草（默认）/)
+})
+
+test('[fnos-fork] 2026-11-17 上游牧场策略独立页：fork 牧场增强 fnosRanch 跟着移过去并一起保存；牧场设置页保留 fork 栏目', () => {
+  const read = rel => readFileSync(new URL(`../src/${rel}`, import.meta.url), 'utf8')
+  const strategy = read('views/RanchStrategy.vue')
+  assert.match(strategy, /next\.fnosRanch = fnosNormalizeRanch\(next\.fnosRanch\)/)
+  assert.match(strategy, /fnosRanch: fnosNormalizeRanch\(model\.value\.fnosRanch\)/)
+  assert.match(read('views/Settings.vue'), /ranchTabKeys: SettingsTab\[\] = \['account', 'fnos-coop', 'fnos-alt', 'system'\]/)
+  assert.match(read('utils/fnos-log-space.ts'), /ranch_task_claim,ranch_daily_share,ranch_daily_benefit/)
 })
