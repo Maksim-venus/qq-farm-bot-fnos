@@ -32,7 +32,7 @@ const {
     openCharitySettlementGiftPacksSilently,
 } = require('../services/warehouse');
 const { checkAndClaimDogSkillGifts } = require('../services/dog-skill-gifts');
-const { isGatewayHealthyForBusiness, nextBusinessBackoffMs } = require('../utils/low-priority-gate');
+const { isGatewayHealthyForBusiness, isGatewayIdleForLowPriority, nextBusinessBackoffMs } = require('../utils/low-priority-gate');
 const { connect, cleanup, getWs, getUserState, networkEvents, getGatewayLoad } = require('../utils/network');
 const { loadProto } = require('../utils/proto');
 const { runWithRequestClass } = require('../utils/request-context');
@@ -113,8 +113,8 @@ let farmTaskRunning: boolean = false;
 let nextFarmRunAt: number = 0;
 let friendTaskRunning: boolean = false;
 let nextFriendRunAt: number = 0;
-// 网关卡住时两条定时任务各自的退避时长（毫秒），0 表示按正常间隔跑
-const businessBackoffMs: Record<string, number> = { farm: 0, friend: 0 };
+// 网关卡住时各定时任务的退避时长（毫秒），0 表示按正常间隔跑
+const businessBackoffMs: Record<string, number> = { farm: 0, friend: 0, ranch: 0 };
 let lastStatusHash: string = '';
 let lastStatusSentAt: number = 0;
 let onSellGain: ((deltaGold: any) => void) | null = null;
@@ -128,6 +128,10 @@ let shutdownStarted: boolean = false;
 let runtimeGeneration: number = 0;
 let lastDailyRunDate: string = '';
 let ranchRoutineQueued = false;
+let initialFarmCheckDone = false;
+let initialFriendCheckDone = false;
+let ranchDeferredUntil = 0;
+let onRanchMarketStockReady: (() => void) | null = null;
 
 function ranchNextRunAt(): number {
     if (ranchRoutineQueued) return Infinity;
@@ -231,6 +235,13 @@ function fnosLogInsert(key: string, msg: string, space: 'farm' | 'ranch'): void 
     else log('牧场', msg, { module: 'ranch', event: 'fnos牧场轮次', result: 'insert' });
 }
 
+// 上游 #147：便便到账唤醒牧场有机化肥兑换（[fnos-fork] 何时进牧场仍由农牧轮流决定）
+function wakeRanchMarketExchange(): void {
+    if (!loginReady || !getAutomation().ranch_market_organic) return;
+    ranchAutomation.resetMarketSchedule();
+    scheduleUnifiedNextTick();
+}
+
 function runRanchRoutine(detached = false): Promise<void> {
     // 牧场今天无事 / 例程排队中 / 空闲静默：不跑
     if (!loginReady || !Number.isFinite(ranchNextRunAt())) return Promise.resolve();
@@ -265,9 +276,11 @@ function runRanchRoutine(detached = false): Promise<void> {
         // [fnos-fork] 牧场轮：一轮做完，只为插队（自家作物将熟 / 好友时间表到点）让路；
         // 农场轮里插队进来的牧场最多连续做 60 秒，同样为自家作物 / 好友时间表让路
         const deadline = () => Math.min(fnosFarmTimedAt(Date.now()) || Infinity, friendTaskRunning ? Infinity : (fnosFriendTimedAt() || Infinity));
-        const status = await ranchAutomation.run(ranchTurn
-            ? { sliceMs: Number.POSITIVE_INFINITY, farmDeadline: deadline }
-            : { sliceMs: 60_000, farmDeadline: deadline });
+        // 上游 #148：牧场请求按 friend 类排队，网关不健康时让路（canContinue）
+        const canContinue = () => loginReady && generation === runtimeGeneration && isGatewayHealthyForBusiness(getGatewayLoad());
+        const status = await runWithRequestClass('friend', () => ranchAutomation.run(ranchTurn
+            ? { sliceMs: Number.POSITIVE_INFINITY, farmDeadline: deadline, canContinue }
+            : { sliceMs: 60_000, farmDeadline: deadline, canContinue }));
         if (ranchTurn && !roundDone) fnosTurns.noteRanchRun(String(status || 'done')); // [fnos-fork]
     }, { detached }).finally(() => {
         ranchRoutineQueued = false;
@@ -299,7 +312,6 @@ async function runDailyRoutines(force: boolean = false): Promise<void> {
         await performDailyMonthCardGift(force);
         await buyFreeGifts(force);
         await performDailyVipGift(force);
-        await runRanchRoutine();
     } catch (e: any) {
         log('系统', `每日任务调度失败: ${e.message}`, { module: 'system', event: '每日任务', result: 'error' });
     }
@@ -387,7 +399,7 @@ function resetUnifiedSchedule(): void {
     businessBackoffMs.friend = 0;
 }
 
-const BUSINESS_TICK_LABEL: Record<string, string> = { farm: '农场定时任务', friend: '好友定时任务' };
+const BUSINESS_TICK_LABEL: Record<string, string> = { farm: '农场定时任务', friend: '好友定时任务', ranch: '牧场定时任务' };
 
 function describeGatewayStall(load: any): string {
     const parts: string[] = [];
@@ -463,6 +475,7 @@ async function runFarmTick(auto: any): Promise<void> {
     } finally {
         nextFarmRunAt = Date.now() + farmMs;
         farmTaskRunning = false;
+        initialFarmCheckDone = true;
     }
 }
 
@@ -479,6 +492,7 @@ async function runFriendTick(auto: any): Promise<void> {
     // friend 总开关仍控制好友任务总入口；关闭时也要推进到期时间，避免调度器每秒空转。
     if (!auto.friend) {
         nextFriendRunAt = Date.now() + friendMs;
+        initialFriendCheckDone = true;
         return;
     }
 
@@ -499,6 +513,7 @@ async function runFriendTick(auto: any): Promise<void> {
         if (generation === runtimeGeneration) {
             nextFriendRunAt = Date.now() + friendMs;
             friendTaskRunning = false;
+            initialFriendCheckDone = true;
             fnosTurns.noteFriendDone(); // [fnos-fork] 农牧轮流：农场轮的好友巡查做完
             scheduleUnifiedNextTick();
         }
@@ -653,6 +668,10 @@ function startUnifiedScheduler(): void {
             scheduleUnifiedNextTick();
         });
     } catch { /* ignore */ }
+    initialFarmCheckDone = false;
+    initialFriendCheckDone = false;
+    ranchDeferredUntil = 0;
+    businessBackoffMs.ranch = 0;
     unifiedSchedulerRunning = true;
     // [fnos-fork] 2026-11-17 农牧轮流：登录 / 重连后从农场开始；切换时农场日志、牧场日志各记一条
     fnosTurns.resetTurns();
@@ -999,6 +1018,10 @@ async function startBot(config: any): Promise<void> {
         };
         networkEvents.on('farmHarvested', onFarmHarvested);
 
+        if (onRanchMarketStockReady) networkEvents.off('ranchMarketStockReady', onRanchMarketStockReady);
+        onRanchMarketStockReady = wakeRanchMarketExchange;
+        networkEvents.on('ranchMarketStockReady', onRanchMarketStockReady);
+
         if (onDogSkillGiftPending) {
             networkEvents.off('dogSkillGiftPending', onDogSkillGiftPending);
         }
@@ -1080,6 +1103,10 @@ function detachRuntimeListeners(): void {
     if (onFarmHarvested) {
         networkEvents.off('farmHarvested', onFarmHarvested);
         onFarmHarvested = null;
+    }
+    if (onRanchMarketStockReady) {
+        networkEvents.off('ranchMarketStockReady', onRanchMarketStockReady);
+        onRanchMarketStockReady = null;
     }
     if (onDogSkillGiftPending) {
         networkEvents.off('dogSkillGiftPending', onDogSkillGiftPending);

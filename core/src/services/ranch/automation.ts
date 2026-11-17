@@ -4,7 +4,7 @@ export {};
 const { RANCH_SWITCH_KEYS } = require('../../config/ranch-automation');
 const { getAutomation } = require('../../models/store');
 const { inScene, isUnlocked } = require('./transport');
-const { loadRaw, snapshot, inventory, catalog, balance } = require('./state');
+const { loadRaw, snapshot, inventory, catalog, market, balance } = require('./state');
 const { cubMap, quantity } = require('./model');
 const { prepareAction, operate } = require('./actions');
 const { getServerTimeSec, log } = require('../../utils/utils');
@@ -48,6 +48,11 @@ const completedPhases = new Set<string>();
 const completedSteps = new Set<string>();
 const PATROL_SLICE_MS = 5000;
 const SCENE_REENTRY_MS = 20_000;
+const MARKET_CHECK_MS = 6 * 60 * 60 * 1000;
+const MARKET_GOODS_PRIORITY = [80012, 80011];
+let nextMarketCheckAt = 0;
+let marketRunId = 0;
+let lastMarketPoop: bigint | null = null;
 
 function resetCycle(): void {
     completedPhases.clear();
@@ -59,12 +64,20 @@ function resetCycle(): void {
 }
 const FRIEND_CONTROLS: Record<string, string> = { stroke: 'ranch_stroke', steal: 'ranch_friend_steal', cleanFriend: 'ranch_friend_clean', putMosquito: 'ranch_friend_mosquito' };
 const enabled = (key: string) => getAutomation()[key] === true;
+function marketDue(): boolean {
+    return getAutomation().ranch_market_organic === true && Date.now() >= nextMarketCheckAt;
+}
 const due = (state: any) => !state.doneToday && Date.now() >= (state.nextCheckAt || 0);
 
 function getRoutineState(): any {
     const auto = getAutomation();
-    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_daily_benefit', 'ranch_grass_buy'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
-    return { doneToday: !isUnlocked() || !(work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState()) || auto.ranch_daily_benefit && due(daily.getBenefitRoutineState())), nextCheckAt, reentryAt: reentryAtMs };
+    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_daily_benefit', 'ranch_grass_buy', 'ranch_market_organic'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
+    const routineDue = work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState()) || auto.ranch_daily_benefit && due(daily.getBenefitRoutineState());
+    return {
+        doneToday: !isUnlocked() || !(routineDue || auto.ranch_market_organic),
+        nextCheckAt: routineDue ? nextCheckAt : Math.max(nextCheckAt, nextMarketCheckAt),
+        reentryAt: reentryAtMs, // [fnos-fork]
+    };
 }
 
 function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: number): any {
@@ -82,7 +95,7 @@ function selectAnimal(goods: any[], settings: RanchAutomationConfig, kind: numbe
 
 // [fnos-fork] 2026-11-17 农牧轮流：sliceMs = 每次进场最多连续做多久（默认 5 秒切片给农场让路；轮流模式传 Infinity，一轮做完，只为插队的农场定时事件让路）。
 // 返回本次结果：done 一整轮做完 / yielded 让路未完 / skipped 无事可做 / disabled / error。
-async function run(options: { farmDeadline?: () => number; sliceMs?: number } = {}): Promise<string> {
+async function run(options: { farmDeadline?: () => number; sliceMs?: number; canContinue?: () => boolean } = {}): Promise<string> {
     if (getRoutineState().doneToday) return 'skipped';
     const sliceMs = options.sliceMs ?? PATROL_SLICE_MS;
     const auto: RanchAutomationConfig = getAutomation();
@@ -98,18 +111,33 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
     if (fnosDueRanch.length) completedPhases.delete('friends');
     const fnosMiscWait = () => { try { return require('../fnos-timetable').miscShouldWait(); } catch { return false; } };
     try {
+        // 名单只用作拜访索引，实际资格由进好友牧场后的回包确认；复用农场已同步的名单。
+        let friends: any[] = [];
+        if (!completedPhases.has('friends') && Object.values(FRIEND_CONTROLS).some(enabled)) {
+            const friendService = require('../friend');
+            friends = friendService.getFriendsListCacheOnly();
+            if (!friends.length) friends = await friendService.getFriendsList(false, 'normal', true);
+        }
+        // 首次名单读取可能较久，仍留在农场，等下一次空档再切换。
+        if (options.canContinue?.() === false || Date.now() >= (options.farmDeadline?.() ?? Infinity)) {
+            nextCheckAt = Date.now() + SCENE_REENTRY_MS;
+            reentryAtMs = Date.now() + YIELD_REENTRY_MS; // [fnos-fork]
+            return 'yielded';
+        }
         await inScene(async (cells: any) => {
             const startedAt = Date.now();
             let steps = 0;
-            const shouldYield = () => Date.now() >= Math.min(startedAt + sliceMs, options.farmDeadline?.() ?? Infinity);
+            const shouldYield = () => options.canContinue?.() === false
+                || Date.now() >= Math.min(startedAt + sliceMs, options.farmDeadline?.() ?? Infinity);
             const checkpoint = () => {
-                if (steps > 0 && shouldYield()) throw Object.assign(new Error('牧场巡查让路'), { code: 'RANCH_PATROL_YIELD' });
+                if (options.canContinue?.() === false || steps > 0 && shouldYield()) throw Object.assign(new Error('牧场巡查让路'), { code: 'RANCH_PATROL_YIELD' });
             };
             async function phase(name: string, work: () => Promise<any>): Promise<void> {
                 if (completedPhases.has(name)) return;
                 await work();
                 completedPhases.add(name);
             }
+            checkpoint();
             let raw = await loadRaw(cells);
             let nextActionAt = Infinity;
             const updateDeadline = () => {
@@ -151,7 +179,8 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
                 try {
                     const quote = await prepareAction(action, input);
                     label = quote.label;
-                    if (quote.skipped || currency && quote.costItems.some((cost: any) => cost.id !== currency)) {
+                    if (quote.skipped || currency && quote.costItems.some((cost: any) => cost.id !== currency)
+                        || key === 'ranch_market_organic' && (quote.rewards.length !== 1 || !MARKET_GOODS_PRIORITY.includes(Number(quote.rewards[0].id)))) {
                         completedSteps.add(step);
                         steps++;
                         return false;
@@ -194,6 +223,35 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
             await phase('produce', () => act('ranch_produce', 'produce', { all: true }));
             await phase('clean', () => act('ranch_clean', 'clean'));
             await phase('sell', () => act('ranch_sell', 'sell', { all: true }));
+
+            await phase('market-organic', async () => {
+                if (!enabled('ranch_market_organic')) return;
+                const poop = available(7002);
+                const stockReady = poop >= 3n && (lastMarketPoop === null || poop > lastMarketPoop);
+                if (!marketDue() && !stockReady) return;
+                checkpoint();
+                const runId = marketRunId;
+                const current = await market(raw);
+                // 先兑尽 4 小时，再兑 1 小时；只使用便便，不碰松果或其它货币的同名商品。
+                if (current.opened && current.present) {
+                    for (const rewardId of MARKET_GOODS_PRIORITY) {
+                        for (const good of current.goods.filter((entry: any) => entry.available && Number(entry.reward.id) === rewardId && Number(entry.price.id) === 7002 && BigInt(entry.price.count) > 0n)) {
+                            while (good.available) {
+                                const stock = available(7002);
+                                const count = affordable(good, Math.min(good.remaining ?? 2147483647, 2147483647));
+                                if (count < 1) break;
+                                const exchanged = await act('ranch_market_organic', 'exchange', { goodsId: good.id, count }, 7002, `${runId}:${good.id}:${stock}`);
+                                if (!exchanged) break;
+                                if (good.remaining !== null) good.remaining = Math.max(0, good.remaining - count);
+                                if (good.remaining === 0) good.available = false;
+                            }
+                        }
+                    }
+                }
+                // 完成后才推迟检查；让路时保留到期状态，到账通知也不能被旧一轮覆盖。
+                lastMarketPoop = available(7002);
+                if (runId === marketRunId) nextMarketCheckAt = Date.now() + MARKET_CHECK_MS;
+            });
 
             await phase('upgrade', async () => {
                 if (enabled('ranch_upgrade')) {
@@ -284,7 +342,7 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
                     const wanted = (action: string) => enabled(FRIEND_CONTROLS[action])
                         && (!['stroke', 'putMosquito'].includes(action) || times[action] > 0);
                     if (Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork]
-                        const friends = await require('../friend').getFriendsList();
+                        if (!friends.length) friends = await require('../friend').getFriendsList(); // 上游 #148 已先读缓存名单
                         const anyWanted = () => Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled();
                         const visitOne = async (friend: any): Promise<void> => {
                             try {
@@ -394,6 +452,16 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number } = 
     }
 }
 
+// 上游 #147：便便到账后重新判断有机化肥兑换
+function resetMarketSchedule(): void {
+    nextMarketCheckAt = 0;
+    lastMarketPoop = null;
+    marketRunId++;
+    completedPhases.delete('market-organic');
+    nextCheckAt = Math.min(nextCheckAt, Date.now() + SCENE_REENTRY_MS);
+    reentryAtMs = Math.min(reentryAtMs, Date.now() + YIELD_REENTRY_MS); // [fnos-fork]
+}
+
 /** [fnos-fork] 2026-11-17 农牧轮流：牧场定时事件（动物成熟 / 升级完成 / 等大号到点）的时间，今天无事或没有时返回 0 */
 function timedWakeAt(): number {
     return getRoutineState().doneToday ? 0 : timedWakeAtMs;
@@ -407,4 +475,4 @@ function friendTimetableActive(): boolean {
 /** [fnos-fork] 2026-11-17 还有排队的到点好友牧场（让路后续跑） */
 function hasPendingDueFriends(): boolean { return fnosDueRanch.length > 0; }
 
-module.exports = { run, getRoutineState, selectAnimal, timedWakeAt, hasPendingDueFriends, friendTimetableActive, resetSchedule: () => { nextCheckAt = 0; timedWakeAtMs = 0; reentryAtMs = 0; fnosDueRanch.length = 0; fnosNextRegularFriendsAt = 0; fnosRanchProbeQueue.length = 0; resetCycle(); } };
+module.exports = { run, getRoutineState, selectAnimal, timedWakeAt, hasPendingDueFriends, friendTimetableActive, resetMarketSchedule, resetSchedule: () => { marketRunId++; nextMarketCheckAt = 0; lastMarketPoop = null; nextCheckAt = 0; timedWakeAtMs = 0; reentryAtMs = 0; fnosDueRanch.length = 0; fnosNextRegularFriendsAt = 0; fnosRanchProbeQueue.length = 0; resetCycle(); } };
