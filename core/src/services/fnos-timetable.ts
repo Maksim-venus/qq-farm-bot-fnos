@@ -20,7 +20,7 @@ export {};
  *
  * 设计：
  *   - 每 friendScanMinutes 分钟扫一次好友列表（好友巡查本身），顺手：列表里可偷 / 要帮的照常去；
- *     记下每位好友下次需要帮忙的时间；每次最多「探一探」PROBE_PER_SCAN 位还没有成熟时间（或记录太旧）的好友，进去读成熟时间。
+ *     记下每位好友下次需要帮忙的时间；2026-11-17 起每次自家一轮做完立刻「好友状态轮巡」（见 PROBE_MAX_PER_ROUND 的说明），进去读成熟时间。
  *   - 到点（成熟后 FRIEND_ARRIVE_AFTER_MS / 需要帮忙时间）直接去该好友，多位同时到点排队，每批最多 MAX_DUE_PER_BATCH 位，
  *     同一好友 REVISIT_GAP_MS 内不重复去。偷 / 帮 / 捣乱规则、次数上限、大小号规则全部沿用好友巡查（visit-plan + fnos-alt-coop）。
  *   - 好友牧场同理：牧场轮里先去到点的好友牧场，大小号规则沿用 fnos-ranch.wrapFriendWanted。
@@ -37,8 +37,26 @@ const FRIEND_ARRIVE_AFTER_MS = 800;
 const REVISIT_GAP_MS = 30_000;
 /** 进过的好友，成熟时间记录多久后算「太旧」需要重新探 */
 const PROBE_STALE_MS = 2 * 60 * 60 * 1000;
-/** 每次扫列表最多探几位好友 */
+/** 每次扫列表最多探几位好友（旧规则；2026-11-17 起改为每轮自家工作做完后的「好友状态轮巡」，见 PROBE_MAX_PER_ROUND） */
 const PROBE_PER_SCAN = 5;
+/**
+ * [fnos-fork] 2026-11-17 用户：「轮完自己的工作，立刻轮好友农牧场状态」。
+ * 每次自家一轮（巡田 / 自家牧场）做完，立刻进好友家把成熟 / 可偷时间读一遍；为了不刷请求：
+ *   - 已知未来成熟 / 可偷时间的好友跳过（到点按时间表直接去）；已过点的交给时间表到点处理；
+ *   - 上次进去是空地 / 暂无可偷的，农场 15 分钟、牧场 10 分钟后才再看（参考空间版「每 15 分钟刷新我的农场」「每 10 分钟刷新可偷列表」）；
+ *   - 进不去 / 失败的同一好友 15 分钟内不再试；
+ *   - 每轮最多 PROBE_MAX_PER_ROUND 位，其余下一轮接着看；
+ *   - 翻阅节奏参考空间版：每位之间 500～1000 毫秒，每翻阅 300 位休息 15～25 秒（农场、牧场共用计数）。
+ */
+const PROBE_MAX_PER_ROUND = 100;
+const FARM_EMPTY_RECHECK_MS = 15 * 60 * 1000;
+const RANCH_EMPTY_RECHECK_MS = 10 * 60 * 1000;
+const PROBE_RETRY_MS = 15 * 60 * 1000;
+const PAGE_GAP_MIN_MS = 500;
+const PAGE_GAP_MAX_MS = 1000;
+const REST_EVERY_PAGES = 300;
+const REST_MIN_MS = 15_000;
+const REST_MAX_MS = 25_000;
 /** 一批最多去几位到点的好友（其余下一批） */
 const MAX_DUE_PER_BATCH = 5;
 /** 杂项让路窗口：这么久内有到点事项就先不做杂项 */
@@ -257,18 +275,44 @@ function markRanchVisiting(state: TimetableState, gid: number, nowMs: number): v
     e.readyAt = 0;
 }
 
-/** 要「探一探」的好友：没进去读过成熟时间、或记录超过 PROBE_STALE_MS 且现在没有已知的未来成熟时间；等级高的先探。 */
-function pickProbes(state: TimetableState, friends: any[], nowMs: number, limit: number = PROBE_PER_SCAN, exclude: Set<number> = new Set()): any[] {
-    const rows = (Array.isArray(friends) ? friends : []).filter((friend: any) => {
+/**
+ * 要「探一探」的好友（纯函数）：
+ *   没进去读过 → 探（等级高的先）；已知成熟 / 可偷时间（未来或刚过点）→ 跳过；
+ *   上次是空地 / 暂无可偷 → 过了 emptyRecheckMs 再探（最久没看的先）；tried 里 PROBE_RETRY_MS 内试过的跳过。
+ */
+function pickSideProbes(side: 'farm' | 'ranch', state: TimetableState, friends: any[], nowMs: number, limit: number, exclude: Set<number> = new Set(), tried: Map<number, number> = new Map()): any[] {
+    const recheck = side === 'farm' ? FARM_EMPTY_RECHECK_MS : RANCH_EMPTY_RECHECK_MS;
+    const unseen: any[] = [];
+    const stale: Array<{ f: any; seenAt: number }> = [];
+    for (const friend of Array.isArray(friends) ? friends : []) {
         const gid = num(friend && friend.gid);
-        if (gid <= 0 || exclude.has(gid)) return false;
-        const e = state.farm[String(gid)];
-        if (!e || !e.seenAt) return true;
-        if (e.ripeAt > nowMs) return false;
-        return nowMs - e.seenAt > PROBE_STALE_MS;
-    });
-    rows.sort((a: any, b: any) => num(b && b.level) - num(a && a.level));
-    return rows.slice(0, Math.max(0, limit));
+        if (gid <= 0 || exclude.has(gid)) continue;
+        const t = tried.get(gid) || 0;
+        if (t > 0 && nowMs - t < PROBE_RETRY_MS) continue;
+        const e: any = side === 'farm' ? state.farm[String(gid)] : state.ranch[String(gid)];
+        if (!e || !e.seenAt) { unseen.push(friend); continue; }
+        const at = side === 'farm' ? e.ripeAt : e.readyAt;
+        if (at > 0) continue;
+        if (nowMs - e.seenAt >= recheck) stale.push({ f: friend, seenAt: e.seenAt });
+    }
+    unseen.sort((a: any, b: any) => num(b && b.level) - num(a && a.level));
+    stale.sort((a, b) => a.seenAt - b.seenAt);
+    return [...unseen, ...stale.map(x => x.f)].slice(0, Math.max(0, limit));
+}
+
+function pickProbes(state: TimetableState, friends: any[], nowMs: number, limit: number = PROBE_MAX_PER_ROUND, exclude: Set<number> = new Set(), tried?: Map<number, number>): any[] {
+    return pickSideProbes('farm', state, friends, nowMs, limit, exclude, tried);
+}
+
+function pickRanchProbes(state: TimetableState, friends: any[], nowMs: number, limit: number = PROBE_MAX_PER_ROUND, exclude: Set<number> = new Set(), tried?: Map<number, number>): any[] {
+    return pickSideProbes('ranch', state, friends, nowMs, limit, exclude, tried);
+}
+
+/** 翻阅节奏（纯函数）：第 count 位翻完后等多久；每 REST_EVERY_PAGES 位额外休息。rand 返回 [0,1)。 */
+function pageTurnDelay(count: number, rand: () => number = Math.random): { gapMs: number; restMs: number } {
+    const gapMs = Math.round(PAGE_GAP_MIN_MS + (PAGE_GAP_MAX_MS - PAGE_GAP_MIN_MS) * rand());
+    const restMs = count > 0 && count % REST_EVERY_PAGES === 0 ? Math.round(REST_MIN_MS + (REST_MAX_MS - REST_MIN_MS) * rand()) : 0;
+    return { gapMs, restMs };
 }
 
 /** 杂项是否先让路：windowMs 内有任何到点事项（时间点 > 0 且 <= now + window）或有正在进行的高优先级任务。 */
@@ -439,10 +483,55 @@ function takeDueRanch(nowMs: number = Date.now(), limit: number = MAX_DUE_PER_BA
 function farmDueTime(): number { return isEnabled() ? nextFarmDueAt(current(), blacklistSet()) : 0; }
 function ranchDueTime(): number { return isEnabled() ? nextRanchDueAt(current(), blacklistSet()) : 0; }
 
-function probeTargets(friends: any[], exclude: Set<number>): any[] {
+const farmTried: Map<number, number> = new Map();
+const ranchTried: Map<number, number> = new Map();
+let pagesTurned = 0;
+
+function probeExclude(exclude?: Set<number>): Set<number> {
+    const ex = new Set<number>([...blacklistSet(), ...(exclude || [])]);
+    const me = selfGid();
+    if (me > 0) ex.add(me);
+    return ex;
+}
+
+/** 本轮要探的好友农场（最多 PROBE_MAX_PER_ROUND 位），取出即记为「试过」 */
+function probeTargets(friends: any[], exclude?: Set<number>, nowMs: number = Date.now()): any[] {
     if (!isEnabled()) return [];
-    const ex = new Set<number>([...blacklistSet(), ...exclude]);
-    return pickProbes(current(), friends, Date.now(), PROBE_PER_SCAN, ex);
+    const rows = pickProbes(current(), friends, nowMs, PROBE_MAX_PER_ROUND, probeExclude(exclude), farmTried);
+    for (const f of rows) farmTried.set(num(f.gid), nowMs);
+    return rows;
+}
+
+/** 本轮要探的好友牧场 */
+function ranchProbeTargets(friends: any[], exclude?: Set<number>, nowMs: number = Date.now()): any[] {
+    if (!isEnabled()) return [];
+    const rows = pickRanchProbes(current(), friends, nowMs, PROBE_MAX_PER_ROUND, probeExclude(exclude), ranchTried);
+    for (const f of rows) ranchTried.set(num(f.gid), nowMs);
+    return rows;
+}
+
+/** 还有没有要探的好友农场（不取出） */
+function hasFarmProbeWork(friends: any[], nowMs: number = Date.now()): boolean {
+    if (!isEnabled()) return false;
+    return pickProbes(current(), friends, nowMs, 1, probeExclude(), farmTried).length > 0;
+}
+
+/** 还有没有要探的好友牧场（不取出） */
+function hasRanchProbeWork(friends: any[], nowMs: number = Date.now()): boolean {
+    if (!isEnabled()) return false;
+    return pickRanchProbes(current(), friends, nowMs, 1, probeExclude(), ranchTried).length > 0;
+}
+
+/** 好友牧场进不去（没开牧场 / 拒绝拜访）：1 小时内不再探，免得每轮都试 */
+function noteRanchProbeFailed(gid: any, nowMs: number = Date.now()): void {
+    const g = num(gid);
+    if (g > 0) ranchTried.set(g, nowMs + 60 * 60 * 1000 - PROBE_RETRY_MS);
+}
+
+/** 翻阅一位好友后的等待（农场 / 牧场共用计数） */
+function nextPageTurn(): { gapMs: number; restMs: number; count: number } {
+    pagesTurned += 1;
+    return { ...pageTurnDelay(pagesTurned), count: pagesTurned };
 }
 
 /** worker 注册：自家收获 / 自家牧场定时 / 好友巡查是否在跑 */
@@ -496,6 +585,9 @@ function readSnapshotForAccount(id: string): TimetableUiRow[] {
 }
 
 function resetTimetableRuntime(): void {
+    farmTried.clear();
+    ranchTried.clear();
+    pagesTurned = 0;
     flushNow();
     loadedFor = null;
     state = emptyState();
@@ -541,6 +633,18 @@ module.exports = {
     setBusyProbe,
     miscShouldWait,
     snapshotForUi,
+    pickRanchProbes,
+    pageTurnDelay,
+    ranchProbeTargets,
+    hasFarmProbeWork,
+    hasRanchProbeWork,
+    nextPageTurn,
+    noteRanchProbeFailed,
+    PROBE_MAX_PER_ROUND,
+    FARM_EMPTY_RECHECK_MS,
+    RANCH_EMPTY_RECHECK_MS,
+    PROBE_RETRY_MS,
+    REST_EVERY_PAGES,
     buildSnapshot,
     readSnapshotForAccount,
     flushNow,

@@ -95,14 +95,33 @@ test('好友牧场时间表：进去记可偷时间，到点排队，出发后�
     assert.deepEqual(tt.listDueRanch(s, at + 999_999), []);
 });
 
-test('探成熟时间：没进过 / 记录太旧且没有未来成熟时间的好友，等级高的先探，最多 N 位', () => {
+test('[2026-11-17] 好友状态轮巡选人：没进过的先（等级高的先）；已知成熟时间跳过；空地过 15 分钟再看（最久没看的先）；试过的 15 分钟内不再试；最多 N 位', () => {
     const s = tt.emptyState();
-    s.farm['2'] = { name: '', ripeAt: NOW_MS + 1000, helpAt: 0, seenAt: NOW_MS - tt.PROBE_STALE_MS - 1, visitedAt: 0 };
-    s.farm['3'] = { name: '', ripeAt: 0, helpAt: 0, seenAt: NOW_MS - tt.PROBE_STALE_MS - 1, visitedAt: 0 };
+    s.farm['2'] = { name: '', ripeAt: NOW_MS + 1000, helpAt: 0, seenAt: NOW_MS - 99 * 3600_000, visitedAt: 0 };
+    s.farm['3'] = { name: '', ripeAt: 0, helpAt: 0, seenAt: NOW_MS - tt.FARM_EMPTY_RECHECK_MS, visitedAt: 0 };
     s.farm['4'] = { name: '', ripeAt: 0, helpAt: 0, seenAt: NOW_MS - 1000, visitedAt: 0 };
-    const friends = [{ gid: 1, level: 50 }, { gid: 2, level: 60 }, { gid: 3, level: 10 }, { gid: 4, level: 99 }, { gid: 5, level: 70 }];
-    assert.deepEqual(tt.pickProbes(s, friends, NOW_MS, 5, new Set([1])).map(f => f.gid), [5, 3]);
-    assert.deepEqual(tt.pickProbes(s, friends, NOW_MS, 1).map(f => f.gid), [5]);
+    s.farm['6'] = { name: '', ripeAt: 0, helpAt: 0, seenAt: NOW_MS - tt.FARM_EMPTY_RECHECK_MS - 5000, visitedAt: 0 };
+    s.farm['7'] = { name: '', ripeAt: NOW_MS - 5000, helpAt: 0, seenAt: NOW_MS - 99 * 3600_000, visitedAt: 0 };
+    const friends = [{ gid: 1, level: 50 }, { gid: 2, level: 60 }, { gid: 3, level: 10 }, { gid: 4, level: 99 }, { gid: 5, level: 70 }, { gid: 6, level: 1 }, { gid: 7 }, { gid: 8, level: 80 }];
+    assert.deepEqual(tt.pickProbes(s, friends, NOW_MS, 100, new Set([1])).map(f => f.gid), [8, 5, 6, 3], '2 已知未来成熟、7 已过点交给时间表、4 空地刚看过');
+    assert.deepEqual(tt.pickProbes(s, friends, NOW_MS, 1).map(f => f.gid), [8]);
+    assert.deepEqual(tt.pickProbes(s, friends, NOW_MS, 100, new Set(), new Map([[8, NOW_MS - 1000], [5, NOW_MS - tt.PROBE_RETRY_MS]])).map(f => f.gid), [5, 1, 6, 3], '8 刚试过');
+    assert.equal(tt.PROBE_MAX_PER_ROUND, 100);
+});
+
+test('[2026-11-17] 好友牧场状态轮巡选人：同规则，暂无可偷 10 分钟后再看', () => {
+    const s = tt.emptyState();
+    s.ranch['1'] = { name: '', readyAt: NOW_MS + 60_000, seenAt: NOW_MS - 1, visitedAt: 0 };
+    s.ranch['2'] = { name: '', readyAt: 0, seenAt: NOW_MS - tt.RANCH_EMPTY_RECHECK_MS, visitedAt: 0 };
+    s.ranch['3'] = { name: '', readyAt: 0, seenAt: NOW_MS - 60_000, visitedAt: 0 };
+    assert.deepEqual(tt.pickRanchProbes(s, [{ gid: 1 }, { gid: 2 }, { gid: 3 }, { gid: 4 }], NOW_MS).map(f => f.gid), [4, 2]);
+});
+
+test('[2026-11-17] 翻阅节奏：每位 500～1000 毫秒，每 300 位休息 15～25 秒', () => {
+    assert.deepEqual(tt.pageTurnDelay(1, () => 0), { gapMs: 500, restMs: 0 });
+    assert.deepEqual(tt.pageTurnDelay(299, () => 0.999999), { gapMs: 1000, restMs: 0 });
+    assert.deepEqual(tt.pageTurnDelay(300, () => 0), { gapMs: 500, restMs: 15_000 });
+    assert.deepEqual(tt.pageTurnDelay(600, () => 0.5), { gapMs: 750, restMs: 20_000 });
 });
 
 test('杂项让路：30 秒内有到点事项或高优先级任务在跑就先不做', () => {

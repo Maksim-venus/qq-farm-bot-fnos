@@ -14,7 +14,7 @@ export interface FnosTimetableRow {
 }
 
 export interface FnosCountdownCell {
-  /** 列里显示的文字：hh:mm:ss 倒计时，或「可偷」「已偷过」「未扫描」 */
+  /** 列里显示的文字：hh:mm:ss 倒计时，或「可偷」「未扫描」，农场「空地」/ 牧场「暂无可偷」 */
   text: string
   /** 现在可偷（整行高亮） */
   ready: boolean
@@ -60,7 +60,7 @@ export function fnosFormatClock(ms: number): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
 }
 
-function cell(row: { at: number, seenAt: number, visitedAt: number } | null, nowMs: number, liveCanSteal: boolean, what: { ripe: string, unseen: string }): FnosCountdownCell {
+function cell(row: { at: number, seenAt: number, visitedAt: number } | null, nowMs: number, liveCanSteal: boolean, what: { ripe: string, unseen: string, empty: string }): FnosCountdownCell {
   if (liveCanSteal)
     return { text: '可偷', ready: true, counting: false, title: '好友列表显示现在有可偷的' }
   if (!row || !(row.seenAt > 0))
@@ -69,13 +69,14 @@ function cell(row: { at: number, seenAt: number, visitedAt: number } | null, now
     return { text: fnosFormatCountdown(row.at - nowMs), ready: false, counting: true, title: `预计 ${fnosFormatClock(row.at)} ${what.ripe}` }
   if (row.at > 0)
     return { text: '可偷', ready: true, counting: false, title: `${fnosFormatClock(row.at)} 已${what.ripe}，按时间表会马上去` }
-  return { text: '已偷过', ready: false, counting: false, title: row.visitedAt > 0 ? `${fnosFormatClock(row.visitedAt)} 去过，暂时没有在长的` : '暂时没有在长的' }
+  return { text: what.empty, ready: false, counting: false, title: row.visitedAt > 0 ? `${fnosFormatClock(row.visitedAt)} 去过，暂时没有在长的` : '暂时没有在长的' }
 }
 
 /** 农场好友「还多久可偷」：nowMs 用服务器时钟（浏览器时间 + 偏差） */
 export function fnosFarmCountdown(row: FnosTimetableRow | undefined, nowMs: number, liveCanSteal = false): FnosCountdownCell {
   const c = cell(row ? { at: row.farmRipeAt, seenAt: row.farmSeenAt, visitedAt: row.farmVisitedAt } : null, nowMs, liveCanSteal, {
     ripe: '成熟',
+    empty: '空地',
     unseen: '还没进过这位好友的农场，好友列表每次扫描会顺手探几位',
   })
   if (row && row.farmHelpAt > 0)
@@ -87,6 +88,7 @@ export function fnosFarmCountdown(row: FnosTimetableRow | undefined, nowMs: numb
 export function fnosRanchCountdown(row: FnosTimetableRow | undefined, nowMs: number, liveCanSteal = false): FnosCountdownCell {
   return cell(row ? { at: row.ranchReadyAt, seenAt: row.ranchSeenAt, visitedAt: row.ranchVisitedAt } : null, nowMs, liveCanSteal, {
     ripe: '可偷',
+    empty: '暂无可偷',
     unseen: '还没进过这位好友的牧场，牧场轮次每轮会顺手看几位',
   })
 }

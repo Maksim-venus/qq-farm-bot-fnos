@@ -171,7 +171,7 @@ test('adjustVisitPlanForAltCoop：大号不在好友列表时写日志，不影�
     assert.ok(logs.some(l => l.includes('好友列表里没有大号')));
 });
 
-test('[fnos-fork] 2026-11-17 按时间表偷菜：扫描时顺手进去探成熟时间（只进不捣乱）；「不偷大号」时不为偷去探大号；到点直接去且仍守大小号规则', async () => {
+test('[fnos-fork] 2026-11-17 按时间表偷菜：自家一轮做完后好友状态轮巡进去探成熟时间（只进不捣乱）；「不偷大号」时不为偷去探大号；到点直接去且仍守大小号规则', async () => {
     reset(); setupFarms();
     setAutomation({ friend: true, friend_steal: true, friend_help: true, friend_bad: false });
     apply({ fnosAltAccount: { enabled: true, masterGid: MASTER, masterName: 'Maksim', skipStealMaster: true, badOnlyMaster: true } });
@@ -185,7 +185,11 @@ test('[fnos-fork] 2026-11-17 按时间表偷菜：扫描时顺手进去探成熟
     farms[4300000777] = [growing(1)];
     coop.resetFnosAltCoopRuntime();
     await scheduler.checkFriends();
+    assert.ok(!calls.includes('enter:4300000777'), '常规扫描不再探（列表里不可偷不要帮）：' + calls.join('\n'));
+    // 自家一轮做完后的「好友农场状态轮巡」：用缓存的好友列表进去读成熟时间
+    await scheduler.checkFriends({ fnosProbeRound: true });
     assert.ok(calls.includes('enter:4300000777') && calls.includes('leave:4300000777'), calls.join('\n'));
+    assert.ok(logs.some(l => l.includes('好友农场状态轮巡：本轮 1 位')), logs.join('\n'));
     assert.ok(!calls.some(c => c.startsWith('weed:4300000777') || c.startsWith('bug:4300000777') || c.startsWith('steal:4300000777')), calls.join('\n'));
     // 进去读到了成熟时间（growing 的成熟阶段 NOW + 50000 秒）
     const row = tt.snapshotForUi().find(r => r.gid === 4300000777);

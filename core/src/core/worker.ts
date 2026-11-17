@@ -150,8 +150,16 @@ let fnosOwnWaitedFor = 0;
 let fnosRanchLastEndAt = 0;
 /** 好友时间表到点但这次没去成（好友静默时段 / 都被规则过滤）时，1 分钟内不再插队，避免空转和牧场反复让路 */
 let fnosFriendTimedHoldUntil = 0;
+/** [fnos-fork] 2026-11-17 自家巡田一轮做完后，有要探的好友农场（未扫描 / 空地到复查时间）→ 立刻做一次好友农场状态轮巡 */
+let fnosProbeWanted = false;
+function fnosHasFarmProbeWork(): boolean {
+    const auto = getAutomation();
+    if (!auto.friend || !auto.friend_steal) return false;
+    try { if (require('../services/friend/visit-strategy').inFriendQuietHours()) return false; } catch { /* ignore */ }
+    try { return !!fnosTimetable().hasFarmProbeWork(getFriendsListCacheOnly()); } catch { return false; }
+}
 const FNOS_TT_NOOP = {
-    isEnabled: () => false, farmDueTime: () => 0, ranchDueTime: () => 0, ownLeadMs: () => 2000, scanIntervalMs: () => 0,
+    isEnabled: () => false, hasFarmProbeWork: () => false, farmDueTime: () => 0, ranchDueTime: () => 0, ownLeadMs: () => 2000, scanIntervalMs: () => 0,
     miscShouldWait: () => false, setBusyProbe: () => {}, formatClock: () => '', flushNow: () => {}, resetTimetableRuntime: () => {},
 };
 function fnosTimetable(): any {
@@ -203,7 +211,7 @@ function fnosRanchHasWork(): boolean {
 }
 
 function fnosFriendPending(nowMs: number): boolean {
-    return !!getAutomation().friend && (friendTaskRunning || nowMs >= nextFriendRunAt);
+    return !!getAutomation().friend && (friendTaskRunning || nowMs >= nextFriendRunAt || fnosProbeWanted);
 }
 
 function fnosEvaluateTurn(nowMs: number): void {
@@ -517,6 +525,25 @@ async function runFriendTimetableTick(auto: any): Promise<void> {
     }
 }
 
+// [fnos-fork] 2026-11-17 好友农场状态轮巡：自家巡田一轮做完后立刻进好友家读成熟时间（跳过已知时间的，翻阅节奏见 fnos-timetable）
+async function runFriendProbeTick(auto: any): Promise<void> {
+    if (friendTaskRunning || !auto.friend) { fnosProbeWanted = false; return; }
+    const generation = runtimeGeneration;
+    friendTaskRunning = true;
+    try {
+        await runWithRequestClass('friend', () => checkFriends({ fnosProbeRound: true }));
+    } catch (e: any) {
+        log('系统', `好友状态轮巡失败: ${e.message}`, { module: 'system', event: '好友统一任务', result: 'error' });
+    } finally {
+        fnosProbeWanted = false;
+        if (generation === runtimeGeneration) {
+            friendTaskRunning = false;
+            fnosTurns.noteFriendDone();
+            scheduleUnifiedNextTick();
+        }
+    }
+}
+
 async function runUnifiedTick(): Promise<void> {
     if (!unifiedSchedulerRunning || !loginReady) return;
     // [fnos-fork] 空闲时只保留心跳：静默期间巡田、好友巡查都不跑（心跳在 network 里独立维持）
@@ -554,11 +581,15 @@ async function runUnifiedTick(): Promise<void> {
             if (ownMatureAt > Date.now()) await fnosSleep(ownMatureAt - Date.now() + 200);
             return runFarmTick(auto);
         });
-        if (fnosFarmTickRan && !allow.farmInsert) fnosTurns.noteFarmTickDone(); // [fnos-fork] 农场轮的常规巡田做完
+        if (fnosFarmTickRan && !allow.farmInsert) {
+            fnosTurns.noteFarmTickDone(); // [fnos-fork] 农场轮的常规巡田做完
+            if (!fnosProbeWanted) fnosProbeWanted = fnosHasFarmProbeWork(); // [fnos-fork] 2026-11-17 轮完自己的，立刻轮好友农场状态
+        }
     }
     if (!unifiedSchedulerRunning || !loginReady || generation !== runtimeGeneration) return;
     if (dueFriend && !friendTaskRunning) void runFriendTick(auto);
     else if (dueFriendTimed && !friendTaskRunning) void runFriendTimetableTick(auto); // [fnos-fork] 好友时间表到点（任何轮次都插队）
+    else if (fnosProbeWanted && allow.friend && !friendTaskRunning) void runFriendProbeTick(auto); // [fnos-fork] 2026-11-17 好友农场状态轮巡
     fnosEvaluateTurn(Date.now()); // [fnos-fork] 农场一轮做完可能马上轮到牧场
     void runRanchRoutine(true).catch((error: any) => logWarn('牧场', `牧场例程失败：${error.message}`));
 }
@@ -582,7 +613,7 @@ function scheduleUnifiedNextTick(): void {
     const nextAt = fnosTurns.nextWakeAt({
         nowMs: now,
         nextFarmRunAt: Number(nextFarmRunAt) || (now + 1000),
-        nextFriendRunAt: Number(nextFriendRunAt) || (now + 1000),
+        nextFriendRunAt: fnosProbeWanted && !friendTaskRunning ? now : (Number(nextFriendRunAt) || (now + 1000)), // [fnos-fork] 状态轮巡待做：马上唤醒
         ranchNextRunAt: ranchNextRunAt(),
         farmTimedAt: fnosFarmTimedAt(now),
         ranchTimedAt: fnosRanchTimedAt(),
@@ -629,6 +660,7 @@ function startUnifiedScheduler(): void {
     fnosOwnWaitedFor = 0;
     fnosRanchLastEndAt = 0;
     fnosFriendTimedHoldUntil = 0;
+    fnosProbeWanted = false;
     // [fnos-fork] 2026-11-17 杂项让路判断：自家作物 / 自家牧场定时 / 好友巡查进行中
     try {
         fnosTimetable().setBusyProbe(() => ({
