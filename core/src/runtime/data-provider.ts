@@ -84,7 +84,17 @@ function createDataProvider(options: DataProviderOptions) {
             const fnosCategory = fnosLogs.normalizeFnosLogCategory(opts.fnosCategory);
             if (fnosCategory) {
                 if (rawRef && rawRef !== 'all' && !accountId) return [];
-                const scoped = fnosLogs.getFnosCategoryLogs(fnosCategory, (!rawRef || rawRef === 'all') ? '' : String(accountId), fnosLogs.normalizeFnosErrorLevel(opts.fnosLevel));
+                const level = fnosLogs.normalizeFnosErrorLevel(opts.fnosLevel);
+                // [fnos-fork] 指定账号时：分类环形缓冲 + 持久化日志里同类的（重启前的也能看到），按 ts+msg 去重；全部账号仍只用分类环形缓冲
+                let scoped = fnosLogs.getFnosCategoryLogs(fnosCategory, (!rawRef || rawRef === 'all') ? '' : String(accountId), level);
+                if (rawRef && rawRef !== 'all') {
+                    const seen = new Set(scoped.map((entry: any) => `${entry.ts}|${entry.msg}`));
+                    const persisted = require('./fnos-log-store').getFnosLogStore().getLogs(String(accountId), '').filter((entry: any) =>
+                        !seen.has(`${entry.ts}|${entry.msg}`)
+                        && fnosLogs.classifyFnosLog(entry).includes(fnosCategory)
+                        && (fnosCategory !== 'error' || !level || fnosLogs.getFnosErrorLevel(entry) === level));
+                    if (persisted.length) scoped = scoped.concat(persisted).sort((a: any, b: any) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
+                }
                 return filterLogs(fnosLogs.filterFnosLogSpace(scoped, opts.fnosSpace), opts).slice(-max);
             }
             if (!rawRef || rawRef === 'all') {
@@ -92,7 +102,16 @@ function createDataProvider(options: DataProviderOptions) {
             }
             if (!accountId) return [];
             const accId = String(accountId || '');
-            return filterLogs(fnosLogs.filterFnosLogSpace(globalLogs.filter(l => String(l.accountId || '') === accId), opts.fnosSpace), opts).slice(-max); // [fnos-fork] space
+            // [fnos-fork] 2026-11-17 指定账号：从按账号、按农场 / 牧场分开且持久化的日志里取（fnos-log-store），不再受全局 1000 条挤占
+            const store = require('./fnos-log-store').getFnosLogStore();
+            const space = fnosLogs.normalizeFnosLogSpace(opts.fnosSpace);
+            if (space === 'all') {
+                return store.getBalanced({
+                    farm: filterLogs(store.getLogs(accId, 'farm'), opts),
+                    ranch: filterLogs(store.getLogs(accId, 'ranch'), opts),
+                }, max);
+            }
+            return filterLogs(store.getLogs(accId, space), opts).slice(-max);
         },
 
         getAccountLogs: (limit: number) => accountLogs.slice(-limit).reverse(),
@@ -105,6 +124,7 @@ function createDataProvider(options: DataProviderOptions) {
             if (!rawRef || rawRef === 'all') {
                 globalLogs.length = 0;
                 require('./fnos-log-categories').clearFnosCategoryLogs(''); // [fnos-fork]
+                require('./fnos-log-store').getFnosLogStore().clear(''); // [fnos-fork] 持久化日志一起清
                 return { cleared: 'all' };
             }
 
@@ -112,6 +132,7 @@ function createDataProvider(options: DataProviderOptions) {
 
             const accId = String(accountId || '');
             require('./fnos-log-categories').clearFnosCategoryLogs(accId); // [fnos-fork]
+            require('./fnos-log-store').getFnosLogStore().clear(accId); // [fnos-fork] 持久化日志一起清（牧场每日汇总保留）
             const before = globalLogs.length;
             for (let i = globalLogs.length - 1; i >= 0; i--) {
                 if (String(globalLogs[i].accountId || '') === accId) {

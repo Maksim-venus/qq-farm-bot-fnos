@@ -4,6 +4,7 @@ import { io } from 'socket.io-client'
 import { computed, ref } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
 import { useAccountStore } from '@/stores/account'
+import { FNOS_LOG_PER_SPACE_CAP, fnosTrimLogsPerSpace } from '@/utils/fnos-log-space'
 import { gatewayPath } from '@/utils/gateway'
 
 // Define interfaces for better type checking
@@ -81,8 +82,9 @@ export const useStatusStore = defineStore('status', () => {
   function pushRealtimeLog(entry: any) {
     const next = normalizeLogEntry(entry)
     logs.value.push(next)
-    if (logs.value.length > 300)
-      logs.value = logs.value.slice(-300)
+    // [fnos-fork] 农场、牧场各留 300 条，农场刷屏不会把牧场日志挤掉
+    if (logs.value.length > FNOS_LOG_PER_SPACE_CAP)
+      logs.value = fnosTrimLogsPerSpace(logs.value, FNOS_LOG_PER_SPACE_CAP)
   }
 
   function handleRealtimeStatus(payload: any) {

@@ -1,30 +1,73 @@
 <script setup lang="ts">
+import type { FnosErrorLevelFilter, FnosLogView } from '@/utils/fnos-log-categories'
+import type { FnosLogSpaceView, FnosRanchDaySummary } from '@/utils/fnos-log-space'
 import { useIntervalFn } from '@vueuse/core'
+import { NTab, NTabs } from 'naive-ui/es/tabs'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import api from '@/api'
+import api, { getApiErrorMessage } from '@/api'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
-import { FNOS_RANCH_EVENT_OPTIONS, FNOS_RANCH_SCOPE_OPTIONS, fnosFilterLogSpace, fnosIsRanchLog, fnosRanchEventLabel, fnosRanchEventParam } from '@/utils/fnos-log-space'
+import { FNOS_ERROR_LEVEL_OPTIONS, FNOS_LOG_VIEWS, fnosBuildLogCategoryParams, fnosEmptyLogText, fnosIsCategoryLogView } from '@/utils/fnos-log-categories'
+import {
+  FNOS_LOG_PER_SPACE_CAP,
+  FNOS_LOG_SPACE_VIEWS,
+  FNOS_RANCH_EVENT_OPTIONS,
+  FNOS_RANCH_SCOPE_OPTIONS,
+  fnosFilterLogSpaceView,
+  fnosIsRanchLog,
+  fnosLoadLogSpaceView,
+  fnosRanchEventLabel,
+  fnosRanchEventParam,
+  fnosRanchSummaryParts,
+  fnosSaveLogSpaceView,
+} from '@/utils/fnos-log-space'
 
+/**
+ * [fnos-fork] 2026-11-17 运行日志：农场、牧场合成一张卡片。
+ * 顶部「全部 / 农场 / 牧场」切换（默认全部，记住上次选择）：
+ *   - 农场：沿用农场原来的「模块 / 事件 / 等级 / 关键词」与「全部 / 偷菜日志 / 报错日志」分栏；
+ *   - 牧场：沿用牧场原来的「范围 / 事件 / 等级 / 关键词」，并显示今日牧场汇总（偷了什么、做了几次）；
+ *   - 全部：两边按时间合并，每行标出农场 / 牧场。
+ * 日志按账号持久化在 NAS 的 data/fnos-run-logs/ 里，重启或换页面后仍能看到。
+ */
 const statusStore = useStatusStore()
 const toastStore = useToastStore()
-const { logs: statusLogs, realtimeConnected, realtimeLogsEnabled } = storeToRefs(statusStore)
+const { logs: statusLogs, realtimeConnected } = storeToRefs(statusStore)
 const { currentAccountId } = storeToRefs(useAccountStore())
 const logContainer = ref<HTMLElement | null>(null)
 const autoScroll = ref(true)
 const clearingLogs = ref(false)
-const filter = reactive({ module: '', event: '', keyword: '', isWarn: '' })
 
-// [fnos-fork] 此卡片只在牧场概览使用：只显示牧场日志，用牧场自己的筛选（范围 / 事件），与农场概览的筛选互不影响
+const space = ref<FnosLogSpaceView>(fnosLoadLogSpaceView())
+const farmFilter = reactive({ module: '', event: '' })
+const ranchFilter = reactive({ scope: '', event: '' })
+const common = reactive({ keyword: '', isWarn: '' })
+const logView = ref<FnosLogView>('all')
+const fnosErrorLevel = ref<FnosErrorLevelFilter>('')
+
+// 偷菜 / 报错分栏在「全部」「农场」可用（偷菜日志也包含牧场偷取）；牧场用自己的范围 / 事件
+const categoryEnabled = computed(() => space.value !== 'ranch')
+const effectiveLogView = computed<FnosLogView>(() => categoryEnabled.value ? logView.value : 'all')
+
+const hasActiveLogFilter = computed(() => {
+  if (common.keyword || common.isWarn || fnosIsCategoryLogView(effectiveLogView.value))
+    return true
+  if (space.value === 'farm')
+    return !!(farmFilter.module || farmFilter.event)
+  if (space.value === 'ranch')
+    return !!(ranchFilter.scope || ranchFilter.event)
+  return false
+})
+
 const allLogs = computed(() => {
-  return fnosFilterLogSpace([...(statusLogs.value || [])], 'ranch')
-    .slice(-200)
-    .sort((a: any, b: any) => a.ts - b.ts)
+  return fnosFilterLogSpaceView([...(statusLogs.value || [])], space.value)
+    .sort((a: any, b: any) => (Number(a.ts) || 0) - (Number(b.ts) || 0))
+    .slice(space.value === 'all' ? -FNOS_LOG_PER_SPACE_CAP * 2 : -FNOS_LOG_PER_SPACE_CAP)
 })
 
 type LogLevel = 'error' | 'warn' | 'success' | 'info'
@@ -40,32 +83,64 @@ function getLogLevel(log: any): LogLevel {
   return 'info'
 }
 
-/**
- * 连续出现、仅数字不同的同类日志合并为一行（×N + 时间范围），保留最新一条的内容，
- * 避免巡查类日志刷屏。
- */
+/** 连续出现、仅数字不同的同类日志合并为一行（×N + 时间范围），保留最新一条的内容，避免巡查类日志刷屏。 */
 const logGroups = computed(() => {
-  const groups: Array<{ key: string, log: any, level: LogLevel, count: number, firstTime: string }> = []
+  const groups: Array<{ key: string, log: any, level: LogLevel, ranch: boolean, count: number, firstTime: string }> = []
   for (const log of allLogs.value) {
-    const signature = `${getLogLevel(log)}|${log.tag}|${log.meta?.event || ''}|${String(log.msg || '').replace(/\d+/g, '#')}`
+    const ranch = fnosIsRanchLog(log)
+    const level = getLogLevel(log)
+    const signature = `${ranch ? 'r' : 'f'}|${level}|${log.tag}|${log.meta?.event || ''}|${String(log.msg || '').replace(/\d+/g, '#')}`
     const last = groups[groups.length - 1]
     if (last && last.key === signature) {
       last.count += 1
       last.log = log
       continue
     }
-    groups.push({ key: signature, log, level: getLogLevel(log), count: 1, firstTime: log.time })
+    groups.push({ key: signature, log, level, ranch, count: 1, firstTime: log.time })
   }
   return groups
 })
 
-const hasActiveLogFilter = computed(() =>
-  !!(filter.module || filter.event || filter.keyword || filter.isWarn),
-)
+// 农场原有筛选
+const farmModules = [
+  { label: '所有模块', value: '' },
+  { label: '农场', value: 'farm' },
+  { label: '好友', value: 'friend' },
+  { label: '仓库', value: 'warehouse' },
+  { label: '任务', value: 'task' },
+  { label: '系统', value: 'system' },
+]
 
-// [fnos-fork] 牧场筛选：filter.module 存「范围」、filter.event 存「事件」（均为逗号分隔的 meta.event 列表）
-const modules = FNOS_RANCH_SCOPE_OPTIONS
-const events = FNOS_RANCH_EVENT_OPTIONS
+const farmEvents = [
+  { label: '所有事件', value: '' },
+  { label: '农场巡查', value: 'farm_cycle' },
+  { label: '收获作物', value: 'harvest_crop' },
+  { label: '清理枯株', value: 'remove_plant' },
+  { label: '种植种子', value: 'plant_seed' },
+  { label: '施加化肥', value: 'fertilize' },
+  { label: '土地推送', value: 'lands_notify' },
+  { label: '选择种子', value: 'seed_pick' },
+  { label: '购买种子', value: 'seed_buy' },
+  { label: '购买化肥', value: 'fertilizer_buy' },
+  { label: '开启礼包', value: 'fertilizer_gift_open' },
+  { label: '获取任务', value: 'task_scan' },
+  { label: '完成任务', value: 'task_claim' },
+  { label: '免费礼包', value: 'mall_free_gifts' },
+  { label: '分享奖励', value: 'daily_share' },
+  { label: '会员礼包', value: 'vip_daily_gift' },
+  { label: '月卡礼包', value: 'month_card_gift' },
+  { label: '图鉴奖励', value: 'illustrated_rewards' },
+  { label: '邮箱领取', value: 'email_rewards' },
+  { label: '出售成功', value: 'sell_success' },
+  { label: '土地升级', value: 'upgrade_land' },
+  { label: '土地解锁', value: 'unlock_land' },
+  { label: '好友巡查', value: 'friend_cycle' },
+  { label: '访问好友', value: 'visit_friend' },
+]
+
+const farmEventLabelMap: Record<string, string> = Object.fromEntries(
+  farmEvents.filter(e => e.value).map(e => [e.value, e.label]),
+)
 
 // 上游 PR #139 的牧场事件中文名，fork 分组筛选没覆盖到的事件按这里显示
 const upstreamRanchEventLabels: Record<string, string> = {
@@ -99,32 +174,36 @@ const upstreamRanchEventLabels: Record<string, string> = {
   ranch_daily_share: '牧场分享礼包',
 }
 
-// [fnos-fork] 先用 fork 分组标签，再用上游中文名；都没有时只显示中文事件名，英文内部事件名不显示（同上游 PR #139）
-function getEventLabel(event?: string) {
-  const key = String(event || '')
+/** 农场事件用农场标签；牧场事件先用 fork 分组标签，再用上游中文名，英文内部事件名不显示（同上游 PR #139）。 */
+function getEventLabel(log: any) {
+  const key = String(log?.meta?.event || '')
   if (!key)
     return ''
+  if (!fnosIsRanchLog(log))
+    return farmEventLabelMap[key] || key
   const label = fnosRanchEventLabel(key)
   if (label && label !== key)
     return label
   return upstreamRanchEventLabels[key] || (/[\u3400-\u9FFF]/u.test(key) ? key : '')
 }
 
-// 上游 PR #139：牧场日志成功行用紫色左边框（本卡片只显示牧场日志，判断规则同 fnos-log-space）
-function isRanchLog(log: any) {
-  return fnosIsRanchLog(log)
-}
-
-// [fnos-fork] 保留日志原 tag（如「好友牧场」），没有 tag 时显示「牧场」
+// 保留日志原 tag（如「好友牧场」），牧场日志没有 tag 时显示「牧场」
 function getModuleLabel(log: any) {
-  return log?.tag || (isRanchLog(log) ? '牧场' : '')
+  return log?.tag || (fnosIsRanchLog(log) ? '牧场' : '')
 }
 
-const logs = [
+const levelOptions = [
   { label: '所有等级', value: '' },
   { label: '普通', value: 'info' },
   { label: '警告', value: 'warn' },
 ]
+
+const emptyText = computed(() => {
+  const view = effectiveLogView.value
+  if (fnosIsCategoryLogView(view))
+    return fnosEmptyLogText(view)
+  return space.value === 'ranch' ? '暂无牧场日志' : space.value === 'farm' ? '暂无农场日志' : '暂无日志'
+})
 
 function formatLogTime(timeStr: string) {
   // 2024/5/20 12:34:56 -> 12:34:56
@@ -134,17 +213,47 @@ function formatLogTime(timeStr: string) {
   return parts.length > 1 ? parts[1] : timeStr
 }
 
-/** 首次加载、断线兜底或启用筛选时走 HTTP；连接正常时由 WS 实时推送。 */
+function buildParams() {
+  const params: Record<string, any> = {
+    limit: FNOS_LOG_PER_SPACE_CAP,
+    space: space.value,
+    keyword: common.keyword || undefined,
+    isWarn: common.isWarn === 'warn' ? true : common.isWarn === 'info' ? false : undefined,
+  }
+  if (space.value === 'farm') {
+    params.module = farmFilter.module || undefined
+    params.event = farmFilter.event || undefined
+  }
+  else if (space.value === 'ranch') {
+    params.event = fnosRanchEventParam(ranchFilter.scope, ranchFilter.event)
+  }
+  return { ...params, ...fnosBuildLogCategoryParams(effectiveLogView.value, fnosErrorLevel.value) }
+}
+
+/** 切换、筛选、首次打开时走 HTTP；没有筛选且实时连接正常时由 WS 实时追加。 */
 async function loadLogs(force = false) {
   if (!currentAccountId.value)
     return
-  if (force || hasActiveLogFilter.value || !realtimeConnected.value) {
-    await statusStore.fetchLogs(currentAccountId.value, {
-      space: 'ranch', // [fnos-fork]
-      event: fnosRanchEventParam(filter.module, filter.event),
-      keyword: filter.keyword || undefined,
-      isWarn: filter.isWarn === 'warn' ? true : filter.isWarn === 'info' ? false : undefined,
-    })
+  if (force || hasActiveLogFilter.value || !realtimeConnected.value)
+    await statusStore.fetchLogs(currentAccountId.value, buildParams())
+}
+
+// 今日牧场汇总（服务端按天持久化，不受日志条数上限影响）
+const ranchSummary = ref<FnosRanchDaySummary | null>(null)
+const showRanchSummary = computed(() => space.value !== 'farm' && !!ranchSummary.value)
+const ranchSummaryParts = computed(() => fnosRanchSummaryParts(ranchSummary.value))
+
+async function loadRanchSummary() {
+  const id = currentAccountId.value
+  if (!id || space.value === 'farm')
+    return
+  try {
+    const { data } = await api.get('/api/fnos/ranch-log-summary', { headers: { 'x-account-id': id }, skipErrorToast: true } as any)
+    if (id === currentAccountId.value)
+      ranchSummary.value = data?.ok && Array.isArray(data.data) ? data.data[0] || null : null
+  }
+  catch {
+    // 汇总是补充信息，读不到不影响日志
   }
 }
 
@@ -152,26 +261,29 @@ function onLogFilterChange() {
   loadLogs(true)
 }
 
-function onLogSearchTrigger() {
-  loadLogs(true)
-}
+watch([space, logView, fnosErrorLevel], async () => {
+  fnosSaveLogSpaceView(space.value)
+  await loadLogs(true)
+  scrollToBottom()
+  loadRanchSummary()
+})
 
 watch(currentAccountId, async () => {
-  await loadLogs()
+  ranchSummary.value = null
+  await loadLogs(true)
   scrollToBottom()
+  loadRanchSummary()
 })
 
 watch(hasActiveLogFilter, (enabled) => {
   statusStore.setRealtimeLogsEnabled(!enabled)
-  loadLogs()
 })
 
 function onLogScroll(e: Event) {
   const el = e.target as HTMLElement
   if (!el)
     return
-  const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 50
-  autoScroll.value = isNearBottom
+  autoScroll.value = el.scrollHeight - el.scrollTop - el.clientHeight < 50
 }
 
 async function clearLogs() {
@@ -185,12 +297,11 @@ async function clearLogs() {
       await loadLogs(true)
     }
     else {
-      toastStore.error(`清空失败: ${data?.error || '未知错误'}`)
+      toastStore.error(`清空失败: ${getApiErrorMessage(data, '未知错误')}`)
     }
   }
   catch (e: any) {
-    const msg = e?.response?.data?.error || e?.message || '请求失败'
-    toastStore.error(`清空失败: ${msg}`)
+    toastStore.error(`清空失败: ${getApiErrorMessage(e, '请求失败')}`)
   }
   finally {
     clearingLogs.value = false
@@ -220,11 +331,11 @@ function scrollToBottom() {
 }
 
 onMounted(async () => {
-  // 上一个页面若因筛选暂停了实时日志，列表里还是筛选结果，这里重新读取完整日志。
-  const filteredBefore = !realtimeLogsEnabled.value
   statusStore.setRealtimeLogsEnabled(!hasActiveLogFilter.value)
-  await loadLogs(filteredBefore)
+  // 每次打开都重新读一次：别的页面可能留下了筛选结果
+  await loadLogs(true)
   scrollToBottom()
+  loadRanchSummary()
 })
 
 onBeforeUnmount(() => {
@@ -232,111 +343,185 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(logScrollFrame)
 })
 
-// Auto refresh fallback every 10s (WS 断开或筛选条件启用时会回退 HTTP)
+// WS 断开或筛选启用时每 10 秒回退 HTTP；牧场汇总每分钟刷新
 useIntervalFn(loadLogs, 10000)
+useIntervalFn(loadRanchSummary, 60000)
 </script>
 
 <template>
-  <div class="dash-logs flex flex-1 flex-col gap-6 md:w-3/4">
-    <!-- 桌面端高度跟随右侧一列（至少 480px），日志在卡片内部滚动，两列底部对齐 -->
-    <div class="dash-logs__card flex flex-1 flex-col farm-card rounded-2xl bg-white p-5 shadow-md md:overflow-hidden dark:bg-gray-800">
-      <div class="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <h3 class="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold">
-          <span class="i-carbon-document" /> <span>运行日志</span><span class="text-sm text-gray-400 font-normal" title="农场日志在「农场 → 概览」，筛选各自独立">· 牧场</span>
-        </h3>
+  <div class="run-log-card farm-card rounded-2xl bg-white p-5 shadow-md dark:bg-gray-800">
+    <div class="mb-3 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+      <h3 class="flex shrink-0 items-center gap-2 whitespace-nowrap text-lg font-bold">
+        <span class="i-carbon-document" /> <span>运行日志</span>
+      </h3>
 
-        <div class="log-filters">
-          <BaseSelect
-            v-model="filter.module"
-            :options="modules"
-            @change="onLogFilterChange"
-          />
+      <div class="log-filters">
+        <template v-if="space === 'farm'">
+          <BaseSelect v-model="farmFilter.module" :options="farmModules" @change="onLogFilterChange" />
+          <BaseSelect v-model="farmFilter.event" :options="farmEvents" @change="onLogFilterChange" />
+        </template>
+        <template v-else-if="space === 'ranch'">
+          <BaseSelect v-model="ranchFilter.scope" :options="FNOS_RANCH_SCOPE_OPTIONS" title="范围：自己牧场 / 好友牧场 / 任务与礼包" @change="onLogFilterChange" />
+          <BaseSelect v-model="ranchFilter.event" :options="FNOS_RANCH_EVENT_OPTIONS" @change="onLogFilterChange" />
+        </template>
 
-          <BaseSelect
-            v-model="filter.event"
-            :options="events"
-            @change="onLogFilterChange"
-          />
+        <BaseSelect v-model="common.isWarn" :options="levelOptions" @change="onLogFilterChange" />
 
-          <BaseSelect
-            v-model="filter.isWarn"
-            :options="logs"
-            @change="onLogFilterChange"
-          />
+        <BaseInput
+          v-model="common.keyword"
+          placeholder="关键词"
+          clearable
+          @keyup.enter="onLogFilterChange"
+          @clear="onLogFilterChange"
+        />
 
-          <BaseInput
-            v-model="filter.keyword"
-            placeholder="关键词"
-            clearable
-            @keyup.enter="onLogSearchTrigger"
-            @clear="onLogSearchTrigger"
-          />
+        <div class="log-filters__buttons">
+          <BaseButton variant="primary" class="log-filters__icon" title="搜索日志" aria-label="搜索日志" @click="onLogFilterChange">
+            <span class="i-carbon-search" />
+          </BaseButton>
 
-          <div class="log-filters__buttons">
-            <BaseButton
-              variant="primary"
-              class="log-filters__icon"
-              title="搜索日志"
-              aria-label="搜索日志"
-              @click="onLogSearchTrigger"
-            >
-              <span class="i-carbon-search" />
-            </BaseButton>
-
-            <BaseButton
-              variant="secondary"
-              class="log-filters__icon"
-              title="清空日志"
-              aria-label="清空日志"
-              :loading="clearingLogs"
-              @click="clearLogs"
-            >
-              <template #icon>
-                <span class="i-carbon-trash-can" />
-              </template>
-            </BaseButton>
-          </div>
+          <BaseButton
+            variant="secondary"
+            class="log-filters__icon"
+            title="清空日志（农场、牧场一起清，牧场每日汇总保留）"
+            aria-label="清空日志"
+            :loading="clearingLogs"
+            @click="clearLogs"
+          >
+            <template #icon>
+              <span class="i-carbon-trash-can" />
+            </template>
+          </BaseButton>
         </div>
       </div>
+    </div>
 
-      <div ref="logContainer" class="log-list max-h-[60vh] min-h-0 flex-1 overflow-y-auto md:max-h-none" @scroll="onLogScroll">
-        <div v-if="!allLogs.length" class="py-8 text-center text-gray-400">
-          暂无牧场日志
-        </div>
-        <div
-          v-for="group in logGroups"
-          :key="group.log.ts + group.key"
-          class="log-row"
-          :class="[`log-row--${group.level}`, { 'log-row--ranch': isRanchLog(group.log) }]"
-        >
-          <span class="log-row__time">
-            {{ formatLogTime(group.log.time) }}
+    <div class="fnos-log-views mb-3">
+      <NTabs v-model:value="space" type="segment" size="small" class="fnos-log-views__space">
+        <NTab v-for="view in FNOS_LOG_SPACE_VIEWS" :key="view.value" :name="view.value">
+          <span class="inline-flex items-center gap-1 whitespace-nowrap"><span :class="view.icon" />{{ view.label }}</span>
+        </NTab>
+      </NTabs>
+      <template v-if="categoryEnabled">
+        <NTabs v-model:value="logView" type="segment" size="small" class="fnos-log-views__tabs">
+          <NTab v-for="view in FNOS_LOG_VIEWS" :key="view.value" :name="view.value">
+            <span class="inline-flex items-center gap-1 whitespace-nowrap"><span :class="view.icon" />{{ view.label }}</span>
+          </NTab>
+        </NTabs>
+        <BaseSelect
+          v-if="logView === 'error'"
+          v-model="fnosErrorLevel"
+          class="fnos-log-views__level"
+          :options="FNOS_ERROR_LEVEL_OPTIONS"
+        />
+      </template>
+    </div>
+
+    <div v-if="showRanchSummary" class="fnos-ranch-summary mb-3" title="从升级到这一版开始按天累计，重启不丢；清空日志不会清掉汇总">
+      <span class="fnos-ranch-summary__title">今日牧场</span>
+      <span class="fnos-ranch-summary__steal">{{ ranchSummaryParts.steal }}</span>
+      <span v-for="part in ranchSummaryParts.actions" :key="part">{{ part }}</span>
+    </div>
+
+    <div ref="logContainer" class="log-list" :class="{ 'log-list--single': space !== 'all' }" @scroll="onLogScroll">
+      <div v-if="!allLogs.length" class="py-8 text-center text-gray-400">
+        {{ emptyText }}
+      </div>
+      <div
+        v-for="group in logGroups"
+        :key="group.log.ts + group.key"
+        class="log-row"
+        :class="[`log-row--${group.level}`, { 'log-row--ranch': group.ranch }]"
+      >
+        <span class="log-row__time">
+          {{ formatLogTime(group.log.time) }}
+        </span>
+        <span v-if="space === 'all'" class="log-row__space" :class="{ 'log-row__space--ranch': group.ranch }">{{ group.ranch ? '牧场' : '农场' }}</span>
+        <span class="log-row__tag">{{ getModuleLabel(group.log) }}</span>
+        <span class="log-row__body">
+          <span v-if="getEventLabel(group.log)" class="log-row__event">{{ getEventLabel(group.log) }}</span>
+          <span class="log-row__msg">{{ group.log.msg }}</span>
+          <span v-if="group.count > 1" class="log-row__repeat" :title="`${formatLogTime(group.firstTime)} 起重复 ${group.count} 次`">
+            ×{{ group.count }} · {{ formatLogTime(group.firstTime) }} 起
           </span>
-          <span class="log-row__tag">{{ getModuleLabel(group.log) }}</span>
-          <span class="log-row__body">
-            <span v-if="getEventLabel(group.log.meta?.event)" class="log-row__event">{{ getEventLabel(group.log.meta.event) }}</span>
-            <span class="log-row__msg">{{ group.log.msg }}</span>
-            <span v-if="group.count > 1" class="log-row__repeat" :title="`${formatLogTime(group.firstTime)} 起重复 ${group.count} 次`">
-              ×{{ group.count }} · {{ formatLogTime(group.firstTime) }} 起
-            </span>
-          </span>
-        </div>
+        </span>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-@media (min-width: 768px) {
-  .dash-logs {
-    position: relative;
-    min-height: 480px;
-  }
+/* [fnos-fork] 卡片本身是纵向 flex：头部、切换、汇总固定，日志列表在卡片内滚动；高度由使用它的页面决定。 */
+.run-log-card {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+}
 
-  .dash-logs__card {
-    position: absolute;
-    inset: 0;
-  }
+.run-log-card > :not(.log-list) {
+  flex-shrink: 0;
+}
+
+.fnos-log-views {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.fnos-log-views__space {
+  width: auto;
+  min-width: 13rem;
+  max-width: 16rem;
+}
+
+.fnos-log-views__tabs {
+  width: auto;
+  min-width: 18rem;
+  max-width: 24rem;
+}
+
+.fnos-log-views__level {
+  width: 8.5rem;
+}
+
+.fnos-ranch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 6px 10px;
+  border-radius: var(--ui-radius-control);
+  background: color-mix(in srgb, var(--ui-violet) 8%, transparent);
+  color: var(--ui-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fnos-ranch-summary__title {
+  color: var(--ui-violet);
+  font-weight: var(--fw-600);
+  white-space: nowrap;
+}
+
+.fnos-ranch-summary__steal {
+  color: var(--ui-ink);
+}
+
+.log-row__space {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ui-primary) 12%, transparent);
+  color: var(--ui-primary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.log-row__space--ranch {
+  background: color-mix(in srgb, var(--ui-violet) 12%, transparent);
+  color: var(--ui-violet);
 }
 
 .log-filters {
@@ -372,6 +557,9 @@ useIntervalFn(loadLogs, 10000)
 }
 
 .log-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
   padding: 6px;
   border-radius: var(--ui-radius-control);
   background: var(--ui-surface-soft);
@@ -381,7 +569,7 @@ useIntervalFn(loadLogs, 10000)
 
 .log-row {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
+  grid-template-columns: auto auto auto minmax(0, 1fr);
   align-items: baseline;
   gap: 10px;
   padding: 5px 8px 5px 10px;
@@ -467,10 +655,25 @@ useIntervalFn(loadLogs, 10000)
   color: var(--ui-danger);
 }
 
+/* 只有「全部」显示空间标签；农场 / 牧场视图少一列 */
+.log-list--single .log-row {
+  grid-template-columns: auto auto minmax(0, 1fr);
+}
+
+@media (max-width: 767px) {
+  .log-list {
+    max-height: min(50vh, 28rem);
+  }
+}
+
 @media (max-width: 640px) {
   .log-row {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto auto minmax(0, 1fr);
     gap: 2px 8px;
+  }
+
+  .log-list--single .log-row {
+    grid-template-columns: auto minmax(0, 1fr);
   }
 
   .log-row__body {
