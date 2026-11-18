@@ -840,7 +840,9 @@ function applyRuntimeConfig(snapshot: any, syncNow: boolean = false): number {
     const appliedSnapshot = applyConfigSnapshot(snapshot || {}, { persist: false, accountId });
     configureEmailClaim({ hour: appliedSnapshot.emailClaimHour, accountId });
     const nextRanchAuto = getAutomation();
-    if (Object.keys(nextRanchAuto).some(key => key.startsWith('ranch_') && nextRanchAuto[key] !== prevAuto[key])) ranchAutomation.resetSchedule();
+    const ranchChanged = Object.keys(nextRanchAuto).some(key => key.startsWith('ranch_')
+        && JSON.stringify(nextRanchAuto[key]) !== JSON.stringify(prevAuto[key]));
+    if (ranchChanged) ranchAutomation.resetSchedule();
     if (rev > appliedConfigRevision) appliedConfigRevision = rev;
     // [fnos-fork] 大号/小号、图鉴、偷收比：设置有变化时在日志里打印当前状态
     try { require('../services/fnos-fork-config').onWorkerConfigApplied(); } catch { /* ignore */ }
@@ -1212,6 +1214,9 @@ async function handleApiCall(msg: any): Promise<void> {
                     break;
                 case 'claimIllustratedRewards':
                     result = await require('../services/illustrated').claimIllustratedRewards(args[0]);
+                    break;
+                case 'clearIllustratedNew':
+                    result = await require('../services/illustrated').clearIllustratedNew(args[0]);
                     break;
                 case 'getSolarCalendar':
                     result = await require('../services/solar-calendar').getSolarCalendar();
