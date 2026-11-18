@@ -340,6 +340,7 @@ function startDailyRoutineTimer(runImmediately: boolean = true): void {
             return;
         }
         lastDailyRunDate = today;
+        try { require('../services/friend/scheduler').checkDailyReset(); } catch { /* ignore */ } // [fnos-fork] 北京时间 0 点清空农场帮忙/捣乱次数缓存，下次从服务端重读当日余额
         runExclusiveAutomationTask('daily_routines', () => runDailyRoutines(true)).catch(() => null);
     });
 }

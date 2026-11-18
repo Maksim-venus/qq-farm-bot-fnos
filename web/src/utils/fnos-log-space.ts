@@ -155,12 +155,60 @@ export interface FnosRanchDaySummary {
   errors: number
 }
 
+export interface FnosFarmDaySummary {
+  date: string
+  steal: { times: number, friends: string[], items: Record<string, number> }
+  harvest: number
+  fertilize: number
+  plant: number
+  shovel: number
+  helpWeed: number
+  helpBug: number
+  helpWater: number
+  putWeed: number
+  putBug: number
+  errors: number
+}
+
+export const FNOS_SUMMARY_TIME_ZONE = 'Asia/Shanghai'
+
+/** 北京时间的日期 YYYY-MM-DD（与服务端今日农场 / 牧场切日一致）。 */
+export function fnosBeijingDate(ms: number): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: FNOS_SUMMARY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(ms))
+  const rec: Record<string, string> = {}
+  for (const part of parts) {
+    if (part.type !== 'literal')
+      rec[part.type] = part.value
+  }
+  return `${rec.year}-${rec.month}-${rec.day}`
+}
+
+/** 距下一北京时间 0 点的毫秒数；刚好落在 0 点时返回一整天。 */
+export function fnosMsUntilNextBeijingMidnight(nowMs: number): number {
+  const today = fnosBeijingDate(nowMs)
+  const todayStart = Date.parse(`${today}T00:00:00+08:00`)
+  const next = Number.isFinite(todayStart) ? todayStart + 24 * 3600 * 1000 : nowMs + 24 * 3600 * 1000
+  const remain = next - nowMs
+  return remain > 0 ? remain : 24 * 3600 * 1000
+}
+
+function summaryStealText(steal: { times?: number, friends?: string[], items?: Record<string, number> } | null | undefined): string {
+  if (steal && steal.times && steal.times > 0) {
+    const items = Object.entries(steal.items || {}).sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name}×${count}`).join('、')
+    return `偷取 ${steal.times} 次（${steal.friends?.length || 0} 位好友）：${items || '物品未知'}`
+  }
+  return '偷取 0 次'
+}
+
 /** 牧场今日汇总的显示片段：偷取单独一段（含物品），其余非 0 的动作按次数列出。 */
 export function fnosRanchSummaryParts(summary: Partial<FnosRanchDaySummary> | null | undefined): { steal: string, actions: string[] } {
   const s = summary || {}
-  const steal = s.steal && s.steal.times > 0
-    ? `偷取 ${s.steal.times} 次（${s.steal.friends?.length || 0} 位好友）：${Object.entries(s.steal.items || {}).sort((a, b) => b[1] - a[1]).map(([name, count]) => `${name}×${count}`).join('、') || '物品未知'}`
-    : '偷取 0 次'
+  const steal = summaryStealText(s.steal)
   const labels: [keyof FnosRanchDaySummary, string][] = [
     ['harvest', '收获'],
     ['produce', '生产'],
@@ -173,6 +221,28 @@ export function fnosRanchSummaryParts(summary: Partial<FnosRanchDaySummary> | nu
     ['feedFriend', '给好友加草'],
     ['stroke', '抚摸'],
     ['putMosquito', '放蚊子'],
+    ['errors', '出错'],
+  ]
+  const actions = labels
+    .filter(([key]) => Number((s as any)[key]) > 0)
+    .map(([key, label]) => `${label} ${Number((s as any)[key])}`)
+  return { steal, actions }
+}
+
+/** 农场今日汇总的显示片段：偷取单独一段（含作物），其余非 0 的动作按次数列出。 */
+export function fnosFarmSummaryParts(summary: Partial<FnosFarmDaySummary> | null | undefined): { steal: string, actions: string[] } {
+  const s = summary || {}
+  const steal = summaryStealText(s.steal)
+  const labels: [keyof FnosFarmDaySummary, string][] = [
+    ['harvest', '收获'],
+    ['fertilize', '施肥'],
+    ['plant', '种植'],
+    ['shovel', '铲除'],
+    ['helpWeed', '除草'],
+    ['helpBug', '除虫'],
+    ['helpWater', '浇水'],
+    ['putWeed', '放草'],
+    ['putBug', '放虫'],
     ['errors', '出错'],
   ]
   const actions = labels

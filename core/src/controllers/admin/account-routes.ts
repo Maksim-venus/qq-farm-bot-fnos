@@ -219,6 +219,15 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         res.json({ ok: true, data });
     });
 
+    // [fnos-fork] 2026-11-18 农场每日汇总：自己收获 / 施肥 / 种植，偷好友、帮忙除草除虫浇水（最近 7 天，按北京时间 0 点切日）
+    app.get('/api/fnos/farm-log-summary', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        const days = Math.max(1, Math.min(7, Number.parseInt(String(req.query.days || '1'), 10) || 1));
+        const data = require('../../runtime/fnos-log-store').getFnosLogStore().getFarmSummary(id, days);
+        res.json({ ok: true, data });
+    });
+
     // API: 清空当前账号运行日志
     app.delete('/api/logs', (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
