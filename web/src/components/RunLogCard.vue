@@ -157,6 +157,7 @@ const upstreamRanchEventLabels: Record<string, string> = {
   ranch_harvest: '牧场收获',
   ranch_sell: '出售牧场产物',
   ranch_clean: '清理牧场',
+  ranch_activateShed: '解锁牧场棚',
   ranch_upgrade: '升级牧场建筑',
   ranch_completeUpgrade: '完成建筑升级',
   ranch_claimTasks: '领取牧场任务',

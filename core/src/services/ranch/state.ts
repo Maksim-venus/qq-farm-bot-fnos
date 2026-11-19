@@ -1,3 +1,5 @@
+import { getRanchFriendList } from './friend-roster';
+
 export {};
 
 const { rpc, inScene, isUnlocked } = require('./transport');
@@ -7,6 +9,12 @@ const { types } = require('../../utils/proto');
 
 function bagItems(bag: any): any[] {
     return [...bag.physical_items, ...bag.virtual_items];
+}
+
+function salePrices(item: any): any[] {
+    if (item.is_locked || !item.show || item.show.sell_cond.length || BigInt(quantity(item.count)) <= 0n) return [];
+    const prices = item.show.sells;
+    return prices.every((price: any) => BigInt(quantity(price.id)) > 0n && BigInt(quantity(price.count)) > 0n) ? prices : [];
 }
 
 function balance(bag: any, id: number): any {
@@ -81,6 +89,12 @@ async function loadRaw(cells?: any): Promise<any> {
     return { cells: currentCells, bag };
 }
 
+function shedAwaitingActivation(raw: any): any {
+    // 达到开放条件后，服务器下发待激活的一级棚和正式实例 ID。
+    return raw.cells.facilities.find((facility: any) =>
+        facility.module_type === 7 && facility.facility_id === 6002001 && facility.state === 3);
+}
+
 function snapshot(raw: any): any {
     const info = levelInfo(Number(balance(raw.bag, 1102).total));
     return {
@@ -99,7 +113,7 @@ function inventory(raw: any): any[] {
         return {
             ...itemDto(item), uid: quantity(item.uid), locked: item.is_locked, tabId: Number(item.tab_id) || Number(metadata?.show_tab_ids) || 0,
             type: metadata?.type || 0, sellPrices: item.show?.sells?.map(itemDto) || [],
-            canSell: !item.is_locked && !!item.show?.sells?.length && !item.show.sell_cond.length && [106, 107].includes(metadata?.type),
+            canSell: salePrices(item).length > 0,
             can: canMap.get(Number(item.id)) || null, animalId: animal?.id || null, giantCub: !!animal?.giantCubItemId,
             husbandryType: animal?.husbandry_type ?? null,
             product: item.item_detail?.ranch_product ? {
@@ -224,11 +238,27 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
         if (view === 'friends') {
             if (hostGid !== undefined) state.friendRanch = await require('./friends').getFriend(hostGid);
             else {
-                // [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有）、大小号置灰原因与今日剩余次数
+                // [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有，列表字段 25 或缓存）、大小号置灰原因与今日剩余次数
+                // 上游 #160：按牧场场景同步名单并优先显示昵称
                 const fnosRanch = require('./fnos-ranch');
-                // [fnos-fork] 2026-11-17 牧场等级：列表字段 25 → 缓存 → 默认 Lv1，按牧场等级从高到低排序（同级保持原顺序）
-                state.friends = require('./fnos-friend-levels').decorateFriends((await require('../friend').getFriendsList()).map((friend: any) => ({ gid: String(friend.gid), name: friend.name, avatarUrl: friend.avatarUrl,
-                    level: Number(friend.level) || 0, ranchLevel: Number(friend.ranchLevel) || 0, fnosRules: fnosRanch.manualFriendRules(friend.gid) })));
+                const ranchFriends = await getRanchFriendList();
+                const farmByGid = new Map();
+                try {
+                    for (const row of require('../friend').getFriendsListCacheOnly() || []) {
+                        farmByGid.set(String(row.gid), row);
+                    }
+                } catch { /* ignore */ }
+                state.friends = require('./fnos-friend-levels').decorateFriends(ranchFriends.map((friend: any) => {
+                    const farm = farmByGid.get(String(friend.gid));
+                    return {
+                        gid: String(friend.gid),
+                        name: friend.name,
+                        avatarUrl: friend.avatarUrl,
+                        level: Number(farm?.level) || 0,
+                        ranchLevel: Number(farm?.ranchLevel) || 0,
+                        fnosRules: fnosRanch.manualFriendRules(friend.gid),
+                    };
+                }));
                 try { state.friendTimes = await require('./friends').getInteractionTimes(); } catch { state.friendTimes = null; }
             }
         }
@@ -248,4 +278,4 @@ async function resourceBalances(keys: string[]): Promise<any[]> {
     });
 }
 
-module.exports = { getState, loadRaw, snapshot, balance, bagItems, inventory, taskList, catalog, market, readMarketRotation, canCatalog, resourceBalance, isRanchResource, resourceBalances, animalDto };
+module.exports = { getState, loadRaw, shedAwaitingActivation, snapshot, balance, bagItems, inventory, salePrices, taskList, catalog, market, readMarketRotation, canCatalog, resourceBalance, isRanchResource, resourceBalances, animalDto };
