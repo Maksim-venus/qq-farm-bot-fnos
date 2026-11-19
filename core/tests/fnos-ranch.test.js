@@ -175,7 +175,7 @@ test('好友额外动作纯函数：可帮生产、加牧草按金币保留值�
     assert.deepEqual(ranch.friendFeedMachine(entry), { id: '10002', capacity: 100, feedCount: 97 });
 });
 
-test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清只放蚊子；其他好友偷+清不放；帮生产在偷之前、加牧草扣金币', async () => {
+test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清只放蚊子；其他好友先偷再清、再帮生产；加牧草扣金币', async () => {
     ranch.resetFnosRanchRuntime();
     apply({ fnosAltAccount: { enabled: true, masterGid: 3, masterName: '大号', holdForMaster: false, skipStealMaster: true, badOnlyMaster: true },
         fnosRanch: { friendHelpProduce: true, friendFeed: true, friendFeedSource: 'gold', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 } });
@@ -221,13 +221,13 @@ test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清
     assert.deepEqual(sent.find(([x]) => x === 'addGrass')[1], { instance_id: '10002', add_count: 3, use_gold: true, host_gid: '3' });
     assert.ok(r.results.some(o => o.action === 'fnosHelpProduce') && r.results.some(o => o.action === 'fnosFeedFriend'));
     assert.equal(fr._rt.wallet.gold, 48929 - 180);
-    // 2）普通好友 9：清理、帮生产、偷，不放蚊子
+    // 2）普通好友 9：上游 #157 先偷再清理，然后帮生产，不放蚊子
     sent.length = 0;
     world = fresh();
     r = await friends.automateFriend(9, fr.wrapFriendWanted(9, all));
     writes = sent.filter(([x]) => ['clean', 'produce', 'steal', 'putMosquito', 'addGrass'].includes(x)).map(([x]) => x);
-    assert.deepEqual(writes, ['clean', 'produce', 'steal', 'addGrass']);
-    assert.ok(sent.findIndex(([x]) => x === 'produce') < sent.findIndex(([x]) => x === 'steal'));
+    assert.deepEqual(writes, ['steal', 'clean', 'produce', 'addGrass']);
+    assert.ok(sent.findIndex(([x]) => x === 'steal') < sent.findIndex(([x]) => x === 'produce'));
     // 3）额外动作开关关着 → 不发
     apply({ fnosRanch: { friendHelpProduce: false, friendFeed: false } });
     sent.length = 0;

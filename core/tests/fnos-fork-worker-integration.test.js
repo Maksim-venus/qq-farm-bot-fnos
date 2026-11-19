@@ -47,6 +47,12 @@ require.cache[dist('services/farm/planting')] = {
         runFertilizerByConfig: async () => ({ normal: 0, organic: organicResult }),
     },
 };
+require.cache[dist('services/farm/ripening')] = {
+    exports: {
+        isRipeningOnlyMode: (mode) => mode === 'normal_ripen' || mode === 'organic_ripen',
+        runRipeningFertilizer: async () => organicResult, // 上游 55df467 起巡田催熟走这个入口
+    },
+};
 require.cache[dist('services/mall')] = { exports: { checkAndBuyFertilizerBoth: async () => {} } };
 require.cache[dist('services/stats')] = { exports: { recordOperation: () => {} } };
 const realUtils = require('../dist/utils/utils');
