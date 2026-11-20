@@ -157,7 +157,8 @@ test('源码约束：时间表访问走同一套访问计划 + 大小号规则�
     assert.match(sched, /badEnabled: false/);
     assert.match(sched, /按时间表前往 \$\{v\.name\}/);
     const ranch = read('services/ranch/automation.ts');
-    assert.match(ranch, /automateFriend\(friend\.gid, fnosRanch\.wrapFriendWanted\(friend\.gid, wanted\), shouldYield/);
+    // 上游 #167：拜访过程中再次核对黑名单（canVisit）；大小号规则仍走 wrapFriendWanted
+    assert.match(ranch, /automateFriend\(friend\.gid, fnosRanch\.wrapFriendWanted\(friend\.gid, action => wanted\(action\) && canVisit\(\)\), shouldYield/);
     assert.match(ranch, /按时间表前往 \$\{friend\.name \|\| dueItem\.name\}（预计可偷/);
     assert.match(read('services/friend/visit-strategy.ts'), /noteFarmLands\(gid, name, lands\)/);
     assert.match(read('services/ranch/friends.ts'), /noteRanch\(host, '', ranches\)/);

@@ -53,6 +53,14 @@ function animalDto(animal: any): any {
     };
 }
 
+function isPendingShed(facility: any): boolean {
+    return facility.module_type === 7 && facility.facility_id === 6002001 && facility.state === 3;
+}
+
+function canActivateShed(facility: any, level: number): boolean {
+    return level >= 21 && isPendingShed(facility);
+}
+
 function facilityDto(facility: any, level: number): any {
     const metadata = facilityMap.get(Number(facility.facility_id));
     const next = facilityMap.get(metadata?.next_facility_id);
@@ -64,7 +72,7 @@ function facilityDto(facility: any, level: number): any {
     return {
         id: quantity(facility.instance_id), facilityId: facility.facility_id,
         name: metadata?.name || `设施${facility.facility_id}`, moduleType: facility.module_type,
-        state: facility.state, active: facility.state === 1,
+        state: facility.state, active: facility.state === 1, canActivate: canActivateShed(facility, level),
         level: facility.level, capacity: facility.capacity, upgradeState: facility.upgrade_state,
         upgradeEndTime: Number(facility.upgrade_end_time),
         next: next ? { level: next.level, capacity: next.capacity, durationSec: next.upgrade_secs, requiredLevel: requirement ? Number(requirement[1]) : null, costs,
@@ -92,8 +100,8 @@ async function loadRaw(cells?: any): Promise<any> {
 
 function shedAwaitingActivation(raw: any): any {
     // 达到开放条件后，服务器下发待激活的一级棚和正式实例 ID。
-    return raw.cells.facilities.find((facility: any) =>
-        facility.module_type === 7 && facility.facility_id === 6002001 && facility.state === 3);
+    const { level } = levelInfo(Number(balance(raw.bag, 1102).total));
+    return raw.cells.facilities.find((facility: any) => canActivateShed(facility, level));
 }
 
 function snapshot(raw: any): any {
@@ -282,4 +290,4 @@ async function resourceBalances(keys: string[]): Promise<any[]> {
     });
 }
 
-module.exports = { getState, loadRaw, shedAwaitingActivation, snapshot, balance, bagItems, inventory, salePrices, taskList, catalog, market, readMarketRotation, canCatalog, resourceBalance, isRanchResource, resourceBalances, animalDto };
+module.exports = { getState, loadRaw, isPendingShed, shedAwaitingActivation, snapshot, balance, bagItems, inventory, salePrices, taskList, catalog, market, readMarketRotation, canCatalog, resourceBalance, isRanchResource, resourceBalances, animalDto };
