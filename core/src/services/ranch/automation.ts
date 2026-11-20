@@ -474,9 +474,9 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                     const anyWanted = () => Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled();
                     if (anyWanted()) {
                         const visitOne = async (friend: any): Promise<void> => {
+                            const gid = String(friend.gid);
+                            if (pendingFriend?.gid !== gid) pendingFriend = { gid, progress: {} };
                             try {
-                                const gid = String(friend.gid);
-                                if (pendingFriend?.gid !== gid) pendingFriend = { gid, progress: {} };
                                 // [fnos-fork] 大小号规则：不偷大号 / 不帮大号清 / 放蚊子只给大号或不给大小号
                                 const result = await interactions.automateFriend(friend.gid, fnosRanch.wrapFriendWanted(friend.gid, wanted), shouldYield, (outcome: any, nickname: string) => {
                                     const confirmed = outcome.status === 'confirmed';
