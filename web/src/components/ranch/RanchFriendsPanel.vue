@@ -193,7 +193,7 @@ async function reloadList() {
         </label>
         <NButton secondary size="small" :title="showBlacklist ? '返回好友列表' : '牧场黑名单'" :aria-label="showBlacklist ? '返回好友列表' : '牧场黑名单'" @click="showBlacklist = !showBlacklist">
           <template #icon>
-            <span class="i-carbon-list-blocked" />
+            <span class="i-carbon-rule-cancelled" />
           </template>
           {{ showBlacklist ? '返回好友' : '牧场黑名单' }}
         </NButton>
@@ -211,7 +211,7 @@ async function reloadList() {
           <p class="blacklist__hint">
             加入黑名单的好友不会被自动巡查、偷取或清理；「不是好友」被服务端拒绝的对象也会自动进来。
           </p>
-          <EmptyState v-if="!blacklistItems.length" title="黑名单为空" description="在好友列表里点击「拉黑」即可加入" icon="i-carbon-list-blocked" />
+          <EmptyState v-if="!blacklistItems.length" title="黑名单为空" description="在好友列表里点击「拉黑」即可加入" icon="i-carbon-rule-cancelled" />
           <div v-else class="blacklist__list">
             <div v-for="item in blacklistItems" :key="item.gid" class="blacklist__item">
               <div class="friend-avatar">
