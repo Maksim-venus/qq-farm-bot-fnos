@@ -65,6 +65,22 @@ test('牧场今日汇总文字', () => {
   assert.equal(m.fnosRanchSummaryParts(null).steal, '偷取 0 次')
 })
 
+test('农场今日汇总文字', () => {
+  const parts = m.fnosFarmSummaryParts({ steal: { times: 5, friends: ['琳琳', '小果'], items: { 白萝卜: 4, 胡萝卜: 1 } }, harvest: 6, fertilize: 5, plant: 3, helpWeed: 1, helpWater: 2, putWeed: 1 })
+  assert.equal(parts.steal, '偷取 5 次（2 位好友）：白萝卜×4、胡萝卜×1')
+  assert.deepEqual(parts.actions, ['收获 6', '施肥 5', '种植 3', '除草 1', '浇水 2', '放草 1'])
+  assert.equal(m.fnosFarmSummaryParts(null).steal, '偷取 0 次')
+})
+
+test('北京时间 0 点切日边界：23:59 与 00:00 分属两天', () => {
+  const before = Date.parse('2026-11-17T23:59:59.500+08:00')
+  const after = Date.parse('2026-11-18T00:00:00.000+08:00')
+  assert.equal(m.fnosBeijingDate(before), '2026-11-17')
+  assert.equal(m.fnosBeijingDate(after), '2026-11-18')
+  assert.equal(m.fnosMsUntilNextBeijingMidnight(before), 500)
+  assert.equal(m.fnosMsUntilNextBeijingMidnight(after), 24 * 3600 * 1000)
+})
+
 test('一张卡片：农场概览、牧场概览都用 RunLogCard，农场概览不再内嵌单独的农场日志', () => {
   const dash = readFileSync(new URL('../src/views/Dashboard.vue', import.meta.url), 'utf8')
   const ranchView = readFileSync(new URL('../src/views/RanchOverview.vue', import.meta.url), 'utf8')
@@ -76,4 +92,6 @@ test('一张卡片：农场概览、牧场概览都用 RunLogCard，农场概览
   assert.match(card, /FNOS_RANCH_SCOPE_OPTIONS/)
   assert.match(card, /log-row--ranch/)
   assert.match(card, /ranch-log-summary/)
+  assert.match(card, /farm-log-summary/)
+  assert.match(card, /今日农场/)
 })

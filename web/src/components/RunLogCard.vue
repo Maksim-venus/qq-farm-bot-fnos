@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { FnosErrorLevelFilter, FnosLogView } from '@/utils/fnos-log-categories'
-import type { FnosLogSpaceView, FnosRanchDaySummary } from '@/utils/fnos-log-space'
+import type { FnosFarmDaySummary, FnosLogSpaceView, FnosRanchDaySummary } from '@/utils/fnos-log-space'
 import { useIntervalFn } from '@vueuse/core'
 import { NTab, NTabs } from 'naive-ui/es/tabs'
 import { storeToRefs } from 'pinia'
@@ -18,9 +18,11 @@ import {
   FNOS_LOG_SPACE_VIEWS,
   FNOS_RANCH_EVENT_OPTIONS,
   FNOS_RANCH_SCOPE_OPTIONS,
+  fnosFarmSummaryParts,
   fnosFilterLogSpaceView,
   fnosIsRanchLog,
   fnosLoadLogSpaceView,
+  fnosMsUntilNextBeijingMidnight,
   fnosRanchEventLabel,
   fnosRanchEventParam,
   fnosRanchSummaryParts,
@@ -30,9 +32,10 @@ import {
 /**
  * [fnos-fork] 2026-11-17 运行日志：农场、牧场合成一张卡片。
  * 顶部「全部 / 农场 / 牧场」切换（默认全部，记住上次选择）：
- *   - 农场：沿用农场原来的「模块 / 事件 / 等级 / 关键词」与「全部 / 偷菜日志 / 报错日志」分栏；
+ *   - 农场：沿用农场原来的「模块 / 事件 / 等级 / 关键词」与「全部 / 偷菜日志 / 报错日志」分栏，并显示今日农场汇总；
  *   - 牧场：沿用牧场原来的「范围 / 事件 / 等级 / 关键词」，并显示今日牧场汇总（偷了什么、做了几次）；
- *   - 全部：两边按时间合并，每行标出农场 / 牧场。
+ *   - 全部：两边按时间合并，每行标出农场 / 牧场，同时显示今日农场与今日牧场。
+ * 今日统计按北京时间 0 点切日，页面在切日时自动刷新。
  * 日志按账号持久化在 NAS 的 data/fnos-run-logs/ 里，重启或换页面后仍能看到。
  */
 const statusStore = useStatusStore()
@@ -243,23 +246,52 @@ async function loadLogs(force = false) {
     await statusStore.fetchLogs(currentAccountId.value, buildParams())
 }
 
-// 今日牧场汇总（服务端按天持久化，不受日志条数上限影响）
+// 今日农场 / 牧场汇总（服务端按北京时间分天持久化，不受日志条数上限影响）
+const farmSummary = ref<FnosFarmDaySummary | null>(null)
 const ranchSummary = ref<FnosRanchDaySummary | null>(null)
+const showFarmSummary = computed(() => space.value !== 'ranch' && !!farmSummary.value)
 const showRanchSummary = computed(() => space.value !== 'farm' && !!ranchSummary.value)
+const farmSummaryParts = computed(() => fnosFarmSummaryParts(farmSummary.value))
 const ranchSummaryParts = computed(() => fnosRanchSummaryParts(ranchSummary.value))
 
-async function loadRanchSummary() {
+async function loadSpaceSummary(kind: 'farm' | 'ranch') {
   const id = currentAccountId.value
-  if (!id || space.value === 'farm')
+  if (!id)
+    return
+  if (kind === 'farm' && space.value === 'ranch')
+    return
+  if (kind === 'ranch' && space.value === 'farm')
     return
   try {
-    const { data } = await api.get('/api/fnos/ranch-log-summary', { headers: { 'x-account-id': id }, skipErrorToast: true } as any)
-    if (id === currentAccountId.value)
-      ranchSummary.value = data?.ok && Array.isArray(data.data) ? data.data[0] || null : null
+    const { data } = await api.get(kind === 'farm' ? '/api/fnos/farm-log-summary' : '/api/fnos/ranch-log-summary', { headers: { 'x-account-id': id }, skipErrorToast: true } as any)
+    if (id !== currentAccountId.value)
+      return
+    const value = data?.ok && Array.isArray(data.data) ? data.data[0] || null : null
+    if (kind === 'farm')
+      farmSummary.value = value
+    else ranchSummary.value = value
   }
   catch {
     // 汇总是补充信息，读不到不影响日志
   }
+}
+
+function loadSummaries() {
+  loadSpaceSummary('farm')
+  loadSpaceSummary('ranch')
+}
+
+let midnightTimer: ReturnType<typeof setTimeout> | undefined
+
+function scheduleMidnightRefresh() {
+  if (midnightTimer !== undefined)
+    clearTimeout(midnightTimer)
+  const wait = Math.min(fnosMsUntilNextBeijingMidnight(Date.now()) + 200, 24 * 3600 * 1000)
+  midnightTimer = setTimeout(() => {
+    midnightTimer = undefined
+    loadSummaries()
+    scheduleMidnightRefresh()
+  }, wait)
 }
 
 function onLogFilterChange() {
@@ -270,14 +302,15 @@ watch([space, logView, fnosErrorLevel], async () => {
   fnosSaveLogSpaceView(space.value)
   await loadLogs(true)
   scrollToBottom()
-  loadRanchSummary()
+  loadSummaries()
 })
 
 watch(currentAccountId, async () => {
+  farmSummary.value = null
   ranchSummary.value = null
   await loadLogs(true)
   scrollToBottom()
-  loadRanchSummary()
+  loadSummaries()
 })
 
 watch(hasActiveLogFilter, (enabled) => {
@@ -340,17 +373,20 @@ onMounted(async () => {
   // 每次打开都重新读一次：别的页面可能留下了筛选结果
   await loadLogs(true)
   scrollToBottom()
-  loadRanchSummary()
+  loadSummaries()
+  scheduleMidnightRefresh()
 })
 
 onBeforeUnmount(() => {
   if (logScrollFrame !== undefined)
     window.cancelAnimationFrame(logScrollFrame)
+  if (midnightTimer !== undefined)
+    clearTimeout(midnightTimer)
 })
 
 // WS 断开或筛选启用时每 10 秒回退 HTTP；牧场汇总每分钟刷新
 useIntervalFn(loadLogs, 10000)
-useIntervalFn(loadRanchSummary, 60000)
+useIntervalFn(loadSummaries, 60000)
 </script>
 
 <template>
@@ -422,9 +458,15 @@ useIntervalFn(loadRanchSummary, 60000)
       </template>
     </div>
 
-    <div v-if="showRanchSummary" class="fnos-ranch-summary mb-3" title="从升级到这一版开始按天累计，重启不丢；清空日志不会清掉汇总">
-      <span class="fnos-ranch-summary__title">今日牧场</span>
-      <span class="fnos-ranch-summary__steal">{{ ranchSummaryParts.steal }}</span>
+    <div v-if="showFarmSummary" class="fnos-day-summary fnos-day-summary--farm mb-3" title="从升级到这一版开始按天累计，按北京时间 0 点切日，重启不丢；清空日志不会清掉汇总">
+      <span class="fnos-day-summary__title">今日农场</span>
+      <span class="fnos-day-summary__steal">{{ farmSummaryParts.steal }}</span>
+      <span v-for="part in farmSummaryParts.actions" :key="part">{{ part }}</span>
+    </div>
+
+    <div v-if="showRanchSummary" class="fnos-day-summary fnos-day-summary--ranch mb-3" title="从升级到这一版开始按天累计，按北京时间 0 点切日，重启不丢；清空日志不会清掉汇总">
+      <span class="fnos-day-summary__title">今日牧场</span>
+      <span class="fnos-day-summary__steal">{{ ranchSummaryParts.steal }}</span>
       <span v-for="part in ranchSummaryParts.actions" :key="part">{{ part }}</span>
     </div>
 
@@ -492,26 +534,40 @@ useIntervalFn(loadRanchSummary, 60000)
   width: 8.5rem;
 }
 
-.fnos-ranch-summary {
+.fnos-day-summary {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 10px;
   padding: 6px 10px;
   border-radius: var(--ui-radius-control);
-  background: color-mix(in srgb, var(--ui-violet) 8%, transparent);
   color: var(--ui-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
-.fnos-ranch-summary__title {
-  color: var(--ui-violet);
+.fnos-day-summary--farm {
+  background: color-mix(in srgb, var(--ui-primary) 8%, transparent);
+}
+
+.fnos-day-summary--ranch {
+  background: color-mix(in srgb, var(--ui-violet) 8%, transparent);
+}
+
+.fnos-day-summary__title {
   font-weight: var(--fw-600);
   white-space: nowrap;
 }
 
-.fnos-ranch-summary__steal {
+.fnos-day-summary--farm .fnos-day-summary__title {
+  color: var(--ui-primary);
+}
+
+.fnos-day-summary--ranch .fnos-day-summary__title {
+  color: var(--ui-violet);
+}
+
+.fnos-day-summary__steal {
   color: var(--ui-ink);
 }
 

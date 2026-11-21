@@ -11,6 +11,9 @@
  *   - 启动后第一次用到某账号时从文件读回，重启后日志还在；
  *   - 牧场另记每日汇总 data/fnos-run-logs/<账号>/ranch-summary.json（最近 7 天）：
  *     偷了几次、偷到什么、收获 / 出售 / 帮好友 / 放蚊子各几次——不受条数上限影响。
+ *   - 农场同样记每日汇总 data/fnos-run-logs/<账号>/farm-summary.json（最近 7 天）：
+ *     自己收获 / 施肥 / 种植 / 铲除，以及偷好友、帮忙除草除虫浇水、放草放虫。
+ *   两边的「今日」都按北京时间（Asia/Shanghai，游戏日切）分桶，过 0 点即算新的一天。
  * 「清空日志」同时清空该账号的内存与文件（每日汇总保留）。
  */
 const fs = require('node:fs');
@@ -47,6 +50,22 @@ export interface FnosRanchDaySummary {
     updatedAt: number;
 }
 
+export interface FnosFarmDaySummary {
+    date: string;
+    steal: { times: number, friends: string[], items: Record<string, number> };
+    harvest: number;
+    fertilize: number;
+    plant: number;
+    shovel: number;
+    helpWeed: number;
+    helpBug: number;
+    helpWater: number;
+    putWeed: number;
+    putBug: number;
+    errors: number;
+    updatedAt: number;
+}
+
 export const FNOS_LOG_STORE_DEFAULTS = {
     farmCap: 20000,
     ranchCap: 3000,
@@ -71,21 +90,60 @@ const SUMMARY_COUNTERS: Record<string, keyof FnosRanchDaySummary> = {
     ranch_fnosFeedFriend: 'feedFriend',
 };
 
+/** 农场计数：只统计成功的（result=ok），数量优先用 meta.count（块数 / 次数）。 */
+const FARM_SUMMARY_COUNTERS: Record<string, keyof FnosFarmDaySummary> = {
+    收获作物: 'harvest',
+    施肥后收获作物: 'harvest',
+    施肥: 'fertilize',
+    常规施肥: 'fertilize',
+    多季节施肥: 'fertilize',
+    一键施肥: 'fertilize',
+    手动施肥: 'fertilize',
+    种植种子: 'plant',
+    铲除植物: 'shovel',
+};
+
 function safeAccountId(accountId: unknown): string {
     return String(accountId || '').replace(/[^\w-]/g, '_').slice(0, 64);
 }
 
-function pad(n: number): string {
-    return n < 10 ? `0${n}` : String(n);
+/** 「今日农场 / 今日牧场」与游戏日切使用的时区：北京时间。 */
+export const FNOS_SUMMARY_TIME_ZONE = 'Asia/Shanghai';
+
+let beijingDateFormatter: Intl.DateTimeFormat | null = null;
+
+function beijingDateParts(ms: number): Record<string, string> {
+    if (!beijingDateFormatter) {
+        beijingDateFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: FNOS_SUMMARY_TIME_ZONE,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        });
+    }
+    const out: Record<string, string> = {};
+    for (const part of beijingDateFormatter.formatToParts(new Date(ms))) {
+        if (part.type !== 'literal') out[part.type] = part.value;
+    }
+    return out;
 }
 
-/** 本机时区的日期 YYYY-MM-DD（飞牛上即北京时间）。 */
+/** 北京时间的日期 YYYY-MM-DD（不依赖进程时区）。 */
 export function fnosLocalDate(ms: number): string {
-    const d = new Date(ms);
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const p = beijingDateParts(ms);
+    return `${p.year}-${p.month}-${p.day}`;
 }
 
-function emptySummary(date: string): FnosRanchDaySummary {
+/** 距下一北京时间 0 点的毫秒数；刚好落在 0 点时返回一整天。 */
+export function fnosMsUntilNextBeijingMidnight(nowMs: number): number {
+    const today = fnosLocalDate(nowMs);
+    const todayStart = Date.parse(`${today}T00:00:00+08:00`);
+    const next = Number.isFinite(todayStart) ? todayStart + 24 * 3600 * 1000 : nowMs + 24 * 3600 * 1000;
+    const remain = next - nowMs;
+    return remain > 0 ? remain : 24 * 3600 * 1000;
+}
+
+function emptyRanchSummary(date: string): FnosRanchDaySummary {
     return {
         date,
         steal: { times: 0, friends: [], items: {} },
@@ -100,6 +158,24 @@ function emptySummary(date: string): FnosRanchDaySummary {
         stroke: 0,
         helpProduce: 0,
         feedFriend: 0,
+        errors: 0,
+        updatedAt: 0,
+    };
+}
+
+function emptyFarmSummary(date: string): FnosFarmDaySummary {
+    return {
+        date,
+        steal: { times: 0, friends: [], items: {} },
+        harvest: 0,
+        fertilize: 0,
+        plant: 0,
+        shovel: 0,
+        helpWeed: 0,
+        helpBug: 0,
+        helpWater: 0,
+        putWeed: 0,
+        putBug: 0,
         errors: 0,
         updatedAt: 0,
     };
@@ -123,6 +199,83 @@ export function parseFnosRanchStealMessage(msg: unknown): { friend: string, item
     return { friend, items };
 }
 
+export interface FnosFarmCareParse {
+    friend: string;
+    stealTimes: number;
+    items: Record<string, number>;
+    helpWeed: number;
+    helpBug: number;
+    helpWater: number;
+    putWeed: number;
+    putBug: number;
+}
+
+function addItemGuess(items: Record<string, number>, names: string[], times: number): void {
+    const clean = names.map(n => n.trim()).filter(Boolean);
+    if (!clean.length || times <= 0) return;
+    if (clean.length === 1) {
+        items[clean[0]] = (items[clean[0]] || 0) + times;
+        return;
+    }
+    // 日志里多种作物只保留去重后的名字，份数均分（除不尽时前面的多种 1）
+    const base = Math.floor(times / clean.length);
+    let rest = times - base * clean.length;
+    for (const name of clean) {
+        const n = base + (rest > 0 ? 1 : 0);
+        if (rest > 0) rest -= 1;
+        if (n > 0) items[name] = (items[name] || 0) + n;
+    }
+}
+
+function applyFarmCareAction(out: FnosFarmCareParse, action: string): void {
+    const text = String(action || '').trim();
+    if (!text) return;
+    const steal = text.match(/^偷(\d+)(?:\(([^)]*)\))?$/);
+    if (steal) {
+        const times = Number(steal[1]) || 0;
+        out.stealTimes += times;
+        addItemGuess(out.items, steal[2] ? steal[2].split('/') : [], times);
+        return;
+    }
+    const help = text.match(/^一键务农\d+块\/\d+项\(([^)]*)\)$/);
+    if (help) {
+        for (const part of help[1].split('/')) {
+            const m = part.trim().match(/^(草|虫|水)(\d+)$/);
+            if (!m) continue;
+            const n = Number(m[2]) || 0;
+            if (m[1] === '草') out.helpWeed += n;
+            else if (m[1] === '虫') out.helpBug += n;
+            else out.helpWater += n;
+        }
+        return;
+    }
+    const weed = text.match(/^放草(\d+)$/);
+    if (weed) { out.putWeed += Number(weed[1]) || 0; return; }
+    const bug = text.match(/^放虫(\d+)$/);
+    if (bug) { out.putBug += Number(bug[1]) || 0; }
+}
+
+/** 「张三: 偷3(白萝卜/胡萝卜)/一键务农2块/3项(草1/水2)/放草1」或 meta.actions。 */
+export function parseFnosFarmCareMessage(msg: unknown, meta: any = null): FnosFarmCareParse {
+    const out: FnosFarmCareParse = {
+        friend: '', stealTimes: 0, items: {}, helpWeed: 0, helpBug: 0, helpWater: 0, putWeed: 0, putBug: 0,
+    };
+    const info = meta && typeof meta === 'object' ? meta : {};
+    if (typeof info.friendName === 'string' && info.friendName.trim()) out.friend = info.friendName.trim();
+    const actions = Array.isArray(info.actions) ? info.actions.map((a: any) => String(a || '')) : [];
+    const text = String(msg || '');
+    if (!actions.length && text) {
+        const idx = text.indexOf(': ');
+        if (idx > 0 && !out.friend) out.friend = text.slice(0, idx).trim();
+        const body = idx >= 0 ? text.slice(idx + 2) : text;
+        // 一键务农片段本身含「/」，按已知动作切开
+        const parts = body.split(/(?=\/?(?:偷\d+|一键务农\d+块|放草\d+|放虫\d+|同气连枝))/).map(s => s.replace(/^\//, '').trim()).filter(Boolean);
+        actions.push(...parts);
+    }
+    for (const action of actions) applyFarmCareAction(out, action);
+    return out;
+}
+
 function cleanEntry(entry: any): any {
     if (!entry || typeof entry !== 'object') return null;
     const { _searchText, ...rest } = entry;
@@ -143,7 +296,9 @@ interface AccountState {
     pending: Record<FnosStoreSpace, string[]>;
     fileLines: Record<FnosStoreSpace, number>;
     summary: Record<string, FnosRanchDaySummary>;
+    farmSummary: Record<string, FnosFarmDaySummary>;
     summaryDirty: boolean;
+    farmSummaryDirty: boolean;
 }
 
 export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
@@ -173,8 +328,8 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
         return path.join(accountDir(accId), `${space}.jsonl`);
     }
 
-    function summaryFile(accId: string): string {
-        return path.join(accountDir(accId), 'ranch-summary.json');
+    function summaryFile(accId: string, space: FnosStoreSpace = 'ranch'): string {
+        return path.join(accountDir(accId), space === 'farm' ? 'farm-summary.json' : 'ranch-summary.json');
     }
 
     function readJsonl(file: string): any[] {
@@ -216,9 +371,37 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
         }
     }
 
-    function pruneSummary(summary: Record<string, FnosRanchDaySummary>): void {
+    function pruneSummary(summary: Record<string, { date?: string }>): void {
         const dates = Object.keys(summary).sort();
         while (dates.length > summaryDays) delete summary[dates.shift() as string];
+    }
+
+    function addCount(day: Record<string, any>, key: string, raw: unknown): void {
+        const n = Number(raw);
+        day[key] = (Number(day[key]) || 0) + (Number.isFinite(n) && n > 0 ? n : 1);
+    }
+
+    function loadSummaryFile(accId: string, space: FnosStoreSpace): Record<string, any> {
+        try {
+            const file = summaryFile(accId, space);
+            if (!fs.existsSync(file)) return {};
+            const parsed = JSON.parse(String(fs.readFileSync(file, 'utf8')));
+            if (parsed && typeof parsed === 'object' && parsed.days && typeof parsed.days === 'object') return parsed.days;
+        } catch {
+            // 坏文件当空汇总
+        }
+        return {};
+    }
+
+    function writeSummaryFile(accId: string, space: FnosStoreSpace, days: Record<string, any>): void {
+        try {
+            fs.mkdirSync(accountDir(accId), { recursive: true });
+            const file = summaryFile(accId, space);
+            fs.writeFileSync(`${file}.tmp`, JSON.stringify({ days }, null, 2));
+            fs.renameSync(`${file}.tmp`, file);
+        } catch {
+            // ignore
+        }
     }
 
     function ensure(accountId: unknown): AccountState | null {
@@ -233,7 +416,9 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
             pending: { farm: [], ranch: [] },
             fileLines: { farm: 0, ranch: 0 },
             summary: {},
+            farmSummary: {},
             summaryDirty: false,
+            farmSummaryDirty: false,
         };
         for (const space of ['farm', 'ranch'] as FnosStoreSpace[]) {
             const raw = readJsonl(spaceFile(accId, space));
@@ -246,25 +431,18 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
                 state.fileLines[space] = kept.length;
             }
         }
-        try {
-            const file = summaryFile(accId);
-            if (fs.existsSync(file)) {
-                const parsed = JSON.parse(String(fs.readFileSync(file, 'utf8')));
-                if (parsed && typeof parsed === 'object' && parsed.days && typeof parsed.days === 'object') state.summary = parsed.days;
-            }
-        } catch {
-            state.summary = {};
-        }
+        state.summary = loadSummaryFile(accId, 'ranch');
+        state.farmSummary = loadSummaryFile(accId, 'farm');
         accounts.set(accId, state);
         return state;
     }
 
-    function updateSummary(state: AccountState, entry: any): void {
+    function updateRanchSummary(state: AccountState, entry: any): void {
         const meta = entry.meta && typeof entry.meta === 'object' ? entry.meta : {};
         const event = String(meta.event || '');
         const result = String(meta.result || entry.result || '').toLowerCase();
         const date = fnosLocalDate(Number(entry.ts) || now());
-        const day = state.summary[date] || emptySummary(date);
+        const day = state.summary[date] || emptyRanchSummary(date);
         let touched = false;
         if (entry.tag === '错误' || result === 'error' || result === 'failed') {
             day.errors += 1;
@@ -289,6 +467,45 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
         state.summary[date] = day;
         pruneSummary(state.summary);
         state.summaryDirty = true;
+    }
+
+    function updateFarmSummary(state: AccountState, entry: any): void {
+        const meta = entry.meta && typeof entry.meta === 'object' ? entry.meta : {};
+        const event = String(meta.event || '');
+        const result = String(meta.result || entry.result || '').toLowerCase();
+        const date = fnosLocalDate(Number(entry.ts) || now());
+        const day = state.farmSummary[date] || emptyFarmSummary(date);
+        let touched = false;
+        if (entry.tag === '错误' || result === 'error' || result === 'failed') {
+            day.errors += 1;
+            touched = true;
+        }
+        else if (result === 'ok' || result === 'success') {
+            if (event === '照顾好友') {
+                const care = parseFnosFarmCareMessage(entry.msg, meta);
+                if (care.stealTimes > 0) {
+                    day.steal.times += care.stealTimes;
+                    if (care.friend && !day.steal.friends.includes(care.friend)) day.steal.friends.push(care.friend);
+                    for (const [name, count] of Object.entries(care.items)) day.steal.items[name] = (day.steal.items[name] || 0) + count;
+                    touched = true;
+                }
+                for (const key of ['helpWeed', 'helpBug', 'helpWater', 'putWeed', 'putBug'] as const) {
+                    if (care[key] > 0) {
+                        day[key] += care[key];
+                        touched = true;
+                    }
+                }
+            }
+            else if (FARM_SUMMARY_COUNTERS[event]) {
+                addCount(day as any, FARM_SUMMARY_COUNTERS[event] as string, meta.count);
+                touched = true;
+            }
+        }
+        if (!touched) return;
+        day.updatedAt = now();
+        state.farmSummary[date] = day;
+        pruneSummary(state.farmSummary);
+        state.farmSummaryDirty = true;
     }
 
     function flush(): void {
@@ -316,14 +533,11 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
             }
             if (state.summaryDirty) {
                 state.summaryDirty = false;
-                try {
-                    fs.mkdirSync(accountDir(accId), { recursive: true });
-                    const file = summaryFile(accId);
-                    fs.writeFileSync(`${file}.tmp`, JSON.stringify({ days: state.summary }, null, 2));
-                    fs.renameSync(`${file}.tmp`, file);
-                } catch {
-                    // ignore
-                }
+                writeSummaryFile(accId, 'ranch', state.summary);
+            }
+            if (state.farmSummaryDirty) {
+                state.farmSummaryDirty = false;
+                writeSummaryFile(accId, 'farm', state.farmSummary);
             }
         }
     }
@@ -352,7 +566,8 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
         list.push(withSearchText(entry));
         if (list.length > caps[space]) list.splice(0, list.length - caps[space]);
         state.pending[space].push(JSON.stringify(cleanEntry(entry)));
-        if (space === 'ranch') updateSummary(state, entry);
+        if (space === 'ranch') updateRanchSummary(state, entry);
+        else updateFarmSummary(state, entry);
         scheduleFlush();
     }
 
@@ -371,16 +586,30 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
         return list.farm.slice(-n).concat(list.ranch.slice(-n)).sort((a, b) => (Number(a.ts) || 0) - (Number(b.ts) || 0));
     }
 
+    function daysForQuery(days: unknown): number {
+        return Math.max(1, Math.min(summaryDays, Number(days) || 1));
+    }
+
+    function collectDays<T>(map: Record<string, T>, empty: (date: string) => T, days = 1): T[] {
+        const out: T[] = [];
+        const today = now();
+        for (let i = 0; i < daysForQuery(days); i++) {
+            const date = fnosLocalDate(today - i * 24 * 3600 * 1000);
+            out.push(map[date] ? JSON.parse(JSON.stringify(map[date])) : empty(date));
+        }
+        return out;
+    }
+
     function getRanchSummary(accountId: unknown, days = 1): FnosRanchDaySummary[] {
         const state = ensure(accountId);
         if (!state) return [];
-        const out: FnosRanchDaySummary[] = [];
-        const today = now();
-        for (let i = 0; i < Math.max(1, Math.min(summaryDays, Number(days) || 1)); i++) {
-            const date = fnosLocalDate(today - i * 24 * 3600 * 1000);
-            out.push(state.summary[date] ? JSON.parse(JSON.stringify(state.summary[date])) : emptySummary(date));
-        }
-        return out;
+        return collectDays(state.summary, emptyRanchSummary, days);
+    }
+
+    function getFarmSummary(accountId: unknown, days = 1): FnosFarmDaySummary[] {
+        const state = ensure(accountId);
+        if (!state) return [];
+        return collectDays(state.farmSummary, emptyFarmSummary, days);
     }
 
     function clear(accountId: unknown = ''): void {
@@ -398,7 +627,7 @@ export function createFnosLogStore(options: FnosLogStoreOptions = {}) {
         }
     }
 
-    return { record, getLogs, getBalanced, getRanchSummary, clear, flush, caps, spaceOf };
+    return { record, getLogs, getBalanced, getRanchSummary, getFarmSummary, clear, flush, caps, spaceOf };
 }
 
 let defaultStore: ReturnType<typeof createFnosLogStore> | null = null;
