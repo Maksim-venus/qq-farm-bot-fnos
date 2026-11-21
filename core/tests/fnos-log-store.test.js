@@ -222,3 +222,20 @@ test('农场照顾好友消息解析：只从正文切分也能得出动作', ()
         friend: '', stealTimes: 0, items: {}, helpWeed: 0, helpBug: 0, helpWater: 0, putWeed: 0, putBug: 0,
     });
 });
+
+test('切日与进程时区无关：TZ 设成洛杉矶 / 东京，北京时间 23:59 与 00:00 仍分属两天', () => {
+    const { spawnSync } = require('node:child_process');
+    const script = `
+        const m = require(${JSON.stringify(require.resolve('../dist/runtime/fnos-log-store'))});
+        process.stdout.write(JSON.stringify([
+            m.fnosLocalDate(Date.parse('2026-11-17T23:59:59.999+08:00')),
+            m.fnosLocalDate(Date.parse('2026-11-18T00:00:00.000+08:00')),
+            m.fnosLocalDate(Date.parse('2026-12-31T23:59:59.999+08:00')),
+            m.fnosLocalDate(Date.parse('2027-01-01T00:00:00.000+08:00')),
+        ]));`;
+    for (const tz of ['America/Los_Angeles', 'Asia/Tokyo', 'UTC']) {
+        const r = spawnSync(process.execPath, ['-e', script], { env: { ...process.env, TZ: tz }, encoding: 'utf8' });
+        assert.equal(r.status, 0, r.stderr);
+        assert.deepEqual(JSON.parse(r.stdout), ['2026-11-17', '2026-11-18', '2026-12-31', '2027-01-01'], tz);
+    }
+});
