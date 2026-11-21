@@ -22,20 +22,14 @@ function getSeaRoot(): string {
 }
 
 function getResourceRoot(): string {
+    // [fnos-fork] SEA / 飞牛包：优先环境变量和 server/resources，不走 pkg 的 src 回退。
     const override = String(process.env.QQ_FARM_RESOURCE_DIR || '').trim();
     if (override) return path.resolve(override);
     if (isSea) return path.join(getSeaRoot(), 'resources');
 
-    // When compiled (node client.js): __dirname = core/dist/config/ → resources at core/src/
-    // When tsx (tsx client.ts): __dirname = core/src/config/ → resources at core/src/
     const parent = path.join(__dirname, '..');
-    if (!isPackaged) {
-        // Check if we're inside dist/ (compiled mode)
-        const parentName = path.basename(parent);
-        if (parentName === 'dist') {
-            return path.join(parent, '..', 'src');
-        }
-    }
+    // 编译和（上游 pkg）打包后仍从 src 读取协议、配置和 WASM 等静态资源。
+    if (path.basename(parent) === 'dist') return path.join(parent, '..', 'src');
     return parent;
 }
 
