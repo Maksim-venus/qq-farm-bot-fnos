@@ -681,6 +681,19 @@ function handleNotify(msg: any): void {
             return;
         }
 
+        if (type === 'gamepb.shoppb.RotationShopNotify') {
+            const rotation = types.RanchRotationShopNotify.decode(eventBody).shops.find((shop: any) => toNum(shop.shop_id) === 7);
+            if (rotation) networkEvents.emit('ranchMarketVisitChanged', rotation);
+            return;
+        }
+
+        if (type === 'gamepb.homesteadpb.FacilitiesNotify') {
+            const notify = types.RanchFacilitiesNotify.decode(eventBody);
+            const hostGid = toNum(notify.host_gid);
+            if (hostGid > 0 && hostGid === userState.gid) networkEvents.emit('ranchFacilitiesChanged', notify.facilities);
+            return;
+        }
+
         // 物品变化通知
         if (type.includes('ItemNotify')) {
             try {
@@ -710,8 +723,8 @@ function handleNotify(msg: any): void {
                         } else if (delta !== 0) {
                             userState.coupon = Math.max(0, Number(userState.coupon || 0) + delta);
                         }
-                    } else if (id === 7002 && delta > 0) {
-                        // 便便增加即唤醒牧场例程，读取最新余额后判断是否达到门槛；无需等待六小时兜底。
+                    } else if ((id === 7002 || id === 1008) && delta > 0) {
+                        // 集市货币到账后唤醒牧场例程，按最新余额和报价兑换。
                         networkEvents.emit('ranchMarketStockReady', { id, count, delta });
                     } else if (id === 1005) {
                         if (count > 0) {
@@ -867,6 +880,7 @@ function handleNotify(msg: any): void {
                 let notify: any = null;
                 try { notify = types.IllustratedRewardRedDotNotifyV2 ? types.IllustratedRewardRedDotNotifyV2.decode(eventBody) : null; } catch { notify = null; }
                 networkEvents.emit('illustratedRewardRedDot', notify);
+                networkEvents.emit('ranchBookReward', 'normal', notify?.ranch_reward_available);
             } catch {}
             return;
         }

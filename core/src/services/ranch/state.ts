@@ -1,11 +1,20 @@
+import { getRanchFriendList } from './friend-roster';
+
 export {};
 
 const { rpc, inScene, isUnlocked } = require('./transport');
 const { animalMap, mutationMap, cubMap, canMap, facilityMap, itemMap, taskMap, itemDto, pendingOperationView, quantity, levelInfo, error } = require('./model');
 const { getServerTimeSec } = require('../../utils/utils');
+const { types } = require('../../utils/proto');
 
 function bagItems(bag: any): any[] {
     return [...bag.physical_items, ...bag.virtual_items];
+}
+
+function salePrices(item: any): any[] {
+    if (item.is_locked || !item.show || item.show.sell_cond.length || BigInt(quantity(item.count)) <= 0n) return [];
+    const prices = item.show.sells;
+    return prices.every((price: any) => BigInt(quantity(price.id)) > 0n && BigInt(quantity(price.count)) > 0n) ? prices : [];
 }
 
 function balance(bag: any, id: number): any {
@@ -29,18 +38,27 @@ async function resourceBalance(raw: any, id: number): Promise<any> {
 function animalDto(animal: any): any {
     const cfg = animalMap.get(Number(animal.animal_id));
     const stageNames = ['未知', '幼崽期', '成长期', '生产期', '成熟期', '可收获'];
+    const deliveringUntilMs = Number(animal.delivering_until_ms) || null;
     const nextTimes = [animal.infant_ready_at_ms, animal.grow_ready_at_ms, animal.produce_ready_at_ms, animal.mature_ready_at_ms].map(Number).filter(time => time > getServerTimeSec() * 1000);
     const mutation = animal.mutation;
     return {
         id: animal.animal_inst_id, ranchId: quantity(animal.ranch_inst_id), animalId: Number(animal.animal_id), slot: animal.slot_index,
         name: `${mutation?.mutation_type ? '巨大' : ''}${cfg?.name || `动物${animal.animal_id}`}`, image: itemDto({ id: (mutation?.mutation_type && mutationMap.get(Number(animal.animal_id))?.giant_product_item) || cfg?.product_item?.id || Number(animal.animal_id), count: 1 }).image,
         stage: animal.stage, stageName: animal.can_harvest ? '可收获' : animal.can_deliver ? '可生产' : animal.grass_blocked ? '缺少牧草' : stageNames[animal.stage],
-        nextAtMs: nextTimes.length ? Math.min(...nextTimes) : null, grassBlocked: animal.grass_blocked,
+        nextAtMs: nextTimes.length ? Math.min(...nextTimes) : null, deliveringUntilMs, grassBlocked: animal.grass_blocked,
         produceCount: animal.produce_count, maxProduceCount: cfg?.max_produce_count ?? null,
         canProduce: animal.can_deliver, canHarvest: animal.can_harvest, canFeed: animal.can_feed, canRelease: animal.can_donate,
         limitedCanUsed: animal.limited_can_used,
         mutation: mutation ? { type: mutation.mutation_type, source: mutation.source, weightX10: mutation.weight_display_x10, finalWeightX10: mutation.weight_final_x10, tier: mutation.tier, canStroke: mutation.strokable } : null,
     };
+}
+
+function isPendingShed(facility: any): boolean {
+    return facility.module_type === 7 && facility.facility_id === 6002001 && facility.state === 3;
+}
+
+function canActivateShed(facility: any, level: number): boolean {
+    return level >= 21 && isPendingShed(facility);
 }
 
 function facilityDto(facility: any, level: number): any {
@@ -54,7 +72,7 @@ function facilityDto(facility: any, level: number): any {
     return {
         id: quantity(facility.instance_id), facilityId: facility.facility_id,
         name: metadata?.name || `设施${facility.facility_id}`, moduleType: facility.module_type,
-        state: facility.state, active: facility.state === 1,
+        state: facility.state, active: facility.state === 1, canActivate: canActivateShed(facility, level),
         level: facility.level, capacity: facility.capacity, upgradeState: facility.upgrade_state,
         upgradeEndTime: Number(facility.upgrade_end_time),
         next: next ? { level: next.level, capacity: next.capacity, durationSec: next.upgrade_secs, requiredLevel: requirement ? Number(requirement[1]) : null, costs,
@@ -80,6 +98,12 @@ async function loadRaw(cells?: any): Promise<any> {
     return { cells: currentCells, bag };
 }
 
+function shedAwaitingActivation(raw: any): any {
+    // 达到开放条件后，服务器下发待激活的一级棚和正式实例 ID。
+    const { level } = levelInfo(Number(balance(raw.bag, 1102).total));
+    return raw.cells.facilities.find((facility: any) => canActivateShed(facility, level));
+}
+
 function snapshot(raw: any): any {
     const info = levelInfo(Number(balance(raw.bag, 1102).total));
     return {
@@ -98,7 +122,7 @@ function inventory(raw: any): any[] {
         return {
             ...itemDto(item), uid: quantity(item.uid), locked: item.is_locked, tabId: Number(item.tab_id) || Number(metadata?.show_tab_ids) || 0,
             type: metadata?.type || 0, sellPrices: item.show?.sells?.map(itemDto) || [],
-            canSell: !item.is_locked && !!item.show?.sells?.length && !item.show.sell_cond.length && [106, 107].includes(metadata?.type),
+            canSell: salePrices(item).length > 0,
             can: canMap.get(Number(item.id)) || null, animalId: animal?.id || null, giantCub: !!animal?.giantCubItemId,
             husbandryType: animal?.husbandry_type ?? null,
             product: item.item_detail?.ranch_product ? {
@@ -145,6 +169,12 @@ async function catalog(raw: any, shopId: number): Promise<any> {
             animal: [...animalMap.values()].find(row => row.cub_item_id === Number(good.item_id)) || null,
         };
     }) };
+}
+
+async function readMarketRotation(): Promise<any> {
+    const reply = await rpc('shopProfiles', { global_scene_id: 2 });
+    const profile = reply.shop_profiles.find((shop: any) => Number(shop.shop_id) === 7);
+    return profile?.rotation_state.length ? types.RanchRotationShopState.decode(profile.rotation_state) : null;
 }
 
 async function market(raw: any): Promise<any> {
@@ -217,11 +247,30 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
         if (view === 'friends') {
             if (hostGid !== undefined) state.friendRanch = await require('./friends').getFriend(hostGid);
             else {
-                // [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有）、大小号置灰原因与今日剩余次数
+// [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有，列表字段 25 或缓存）、大小号置灰原因与今日剩余次数
+                // 上游 #160：按牧场场景同步名单并优先显示昵称
+                // 上游 #163：列表带 blacklisted，供前端「加入/移出黑名单」
+                const blacklist = new Set(require('../../models/store').getRanchFriendBlacklist());
                 const fnosRanch = require('./fnos-ranch');
-                // [fnos-fork] 2026-11-17 牧场等级：列表字段 25 → 缓存 → 默认 Lv1，按牧场等级从高到低排序（同级保持原顺序）
-                state.friends = require('./fnos-friend-levels').decorateFriends((await require('../friend').getFriendsList()).map((friend: any) => ({ gid: String(friend.gid), name: friend.name, avatarUrl: friend.avatarUrl,
-                    level: Number(friend.level) || 0, ranchLevel: Number(friend.ranchLevel) || 0, fnosRules: fnosRanch.manualFriendRules(friend.gid) })));
+                const ranchFriends = await getRanchFriendList();
+                const farmByGid = new Map();
+                try {
+                    for (const row of require('../friend').getFriendsListCacheOnly() || []) {
+                        farmByGid.set(String(row.gid), row);
+                    }
+                } catch { /* ignore */ }
+                state.friends = require('./fnos-friend-levels').decorateFriends(ranchFriends.map((friend: any) => {
+                    const farm = farmByGid.get(String(friend.gid));
+                    return {
+                        gid: String(friend.gid),
+                        name: friend.name,
+                        avatarUrl: friend.avatarUrl,
+                        level: Number(farm?.level) || 0,
+                        ranchLevel: Number(farm?.ranchLevel) || 0,
+                        fnosRules: fnosRanch.manualFriendRules(friend.gid),
+                        blacklisted: blacklist.has(Number(friend.gid)),
+                    };
+                }));
                 try { state.friendTimes = await require('./friends').getInteractionTimes(); } catch { state.friendTimes = null; }
             }
         }
@@ -241,4 +290,4 @@ async function resourceBalances(keys: string[]): Promise<any[]> {
     });
 }
 
-module.exports = { getState, loadRaw, snapshot, balance, bagItems, inventory, taskList, catalog, market, canCatalog, resourceBalance, isRanchResource, resourceBalances, animalDto };
+module.exports = { getState, loadRaw, isPendingShed, shedAwaitingActivation, snapshot, balance, bagItems, inventory, salePrices, taskList, catalog, market, readMarketRotation, canCatalog, resourceBalance, isRanchResource, resourceBalances, animalDto };

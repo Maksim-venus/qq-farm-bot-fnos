@@ -40,6 +40,7 @@ export interface RanchActions {
   /** 读取、报价或执行中，或确认框打开时，所有写入按钮都不可用。 */
   disabled: ComputedRef<boolean>
   request: (action: string, input?: Record<string, unknown>, acceptedTerms?: RanchPurchaseTerms) => Promise<void>
+  requestDirect: (action: 'feed' | 'produce' | 'harvest' | 'clean', input?: Record<string, unknown>) => Promise<void>
   confirm: () => Promise<void>
   cancel: () => void
 }
@@ -61,6 +62,40 @@ export function provideRanchActions(): RanchActions {
       pending.value = null
     if (succeeded && chosen.accountId === String(currentAccountId.value || ''))
       await ranch.reload(chosen.accountId)
+  }
+
+  async function requestDirect(action: 'feed' | 'produce' | 'harvest' | 'clean', input: Record<string, unknown> = {}) {
+    const accountId = String(currentAccountId.value || '')
+    if (!accountId || disabled.value)
+      return
+    const result = await ranch.executeDirect(accountId, action, input)
+    if (!result)
+      return
+    if (result.sceneRestored === false) {
+      toast.error(result.notice || '牧场场景恢复未确认，请刷新核对操作结果')
+      return
+    }
+    if (result.status === 'skipped') {
+      toast.info(result.notice || '当前没有可操作项目')
+    }
+    else if (action === 'feed' && result.bucketRemainingSeconds !== undefined) {
+      const can = input.bucketType === 1 ? '有机罐头' : '普通罐头'
+      const remaining = Number(result.bucketRemainingSeconds)
+      const duration = remaining > 0 && remaining < 3600 ? formatDuration(remaining) : formatHours(remaining)
+      let message = `喂养完成，${can}剩余 ${duration}`
+      if (input.produceAfterFeed)
+        message += result.autoProduced ? `，已开始生产 ${result.autoProduced} 只` : '，当前没有可生产的动物'
+      if (result.autoProductionNotice)
+        toast.warning(`${message}。${result.autoProductionNotice}`)
+      else
+        toast.success(message)
+    }
+    else {
+      const labels = { feed: '喂养完成', produce: '已开始生产', harvest: '收获完成', clean: '清理完成' }
+      toast.success(result.notice || labels[action])
+    }
+    if (result.refreshRequired)
+      await ranch.reload(accountId)
   }
 
   async function request(action: string, input: Record<string, unknown> = {}, acceptedTerms?: RanchPurchaseTerms) {
@@ -105,7 +140,7 @@ export function provideRanchActions(): RanchActions {
     pending.value = null
   })
 
-  const actions: RanchActions = { pending, disabled, request, confirm, cancel: () => (pending.value = null) }
+  const actions: RanchActions = { pending, disabled, request, requestDirect, confirm, cancel: () => (pending.value = null) }
   provide(actionsKey, actions)
   return actions
 }

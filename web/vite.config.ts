@@ -7,7 +7,7 @@ import UnoCSS from 'unocss/vite'
 import { defineConfig } from 'vite'
 import viteCompression from 'vite-plugin-compression'
 
-const corePackageJson = JSON.parse(readFileSync('../core/package.json', 'utf-8'))
+const webPackageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -84,7 +84,7 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 1000,
     },
     define: {
-      __APP_VERSION__: JSON.stringify(corePackageJson.version),
+      __APP_VERSION__: JSON.stringify(webPackageJson.version),
       // 飞牛改动：打包时由 fnos/build.sh 传入 FPK_VERSION（与 manifest version 同值）；本地开发为空 → 侧栏显示「fpk dev」
       __FPK_VERSION__: JSON.stringify(String(process.env.FPK_VERSION || '').trim()),
     },

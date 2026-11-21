@@ -1,19 +1,24 @@
 import type { RanchAutomationConfig } from '../../config/ranch-automation';
+import type { RanchFriend } from './friend-roster';
+import type { FriendPatrolProgress } from './friends';
+import { getRanchFriendList, refreshRanchFriendStatus } from './friend-roster';
+import { postToMaster } from '../friend/gid-manager';
 export {};
 
-const { RANCH_SWITCH_KEYS } = require('../../config/ranch-automation');
-const { getAutomation } = require('../../models/store');
+const { RANCH_SWITCH_KEYS, RANCH_MARKET_SWITCH_KEYS, RANCH_MARKET_SWITCH_BY_CURRENCY, isRanchMarketEnabled } = require('../../config/ranch-automation');
+const { getAutomation, getRanchFriendBlacklist } = require('../../models/store');
 const { inScene, isUnlocked } = require('./transport');
-const { loadRaw, snapshot, inventory, catalog, market, balance } = require('./state');
+const { loadRaw, isPendingShed, shedAwaitingActivation, snapshot, inventory, catalog, market, readMarketRotation, balance } = require('./state');
 const { cubMap, quantity } = require('./model');
 const { prepareAction, operate } = require('./actions');
-const { getServerTimeSec, log } = require('../../utils/utils');
+const { getServerTimeSec, log, randomDelay } = require('../../utils/utils');
 const { getShopGoodsById } = require('../../config/gameConfig');
 const reservations = require('./operation-state');
 const { getAmbientSendContext, runWithSendContext } = require('./context');
 const daily = require('./daily');
 // [fnos-fork] 2026-11-16 小号等大号、牧场图鉴、好友牧场大小号规则与额外动作（见 fnos-ranch.ts）
 const fnosRanch = require('./fnos-ranch');
+const interactions = require('./friends');
 
 let nextCheckAt = 0;
 /** [fnos-fork] 2026-11-17 农牧轮流：上一轮算出的「定时事件」时间（动物成熟 / 升级完成 / 等大号到点），供插队判断；0 = 无 */
@@ -39,43 +44,138 @@ function fnosRanchProbePending(): boolean {
     } catch { return false; }
 }
 function sleep(ms: number): Promise<void> { return new Promise(resolve => setTimeout(resolve, Math.max(0, ms))); }
+// 上游 #167：图鉴红点 / 待激活棚通知把 nextCheckAt 提前，供 wakeRanchCheck 使用
+let lastCycleEndAt = 0;
+let retryAt = 0;
 let nextFriendIndex = 0;
 let friendVisits = 0;
-let pendingFriendGid: string | null = null;
+let pendingFriend: { gid: string; progress: FriendPatrolProgress } | null = null;
+let patrolFriends: RanchFriend[] | null = null;
+let patrolStatusRefresh = { attempted: new Set<number>(), lastAt: 0, rejected: false };
+const friendRetryAt = new Map<number, number>();
 let cycleStartedAt = 0;
 let cycleChanged = false;
+let ownRecheckUsed = false;
 const completedPhases = new Set<string>();
 const completedSteps = new Set<string>();
+const pendingBookKinds = new Set<'normal' | 'giant'>();
+let shedCheckPending = true;
+let shedNotifyRevision = 0;
 const PATROL_SLICE_MS = 5000;
 const SCENE_REENTRY_MS = 20_000;
-const MARKET_CHECK_MS = 6 * 60 * 60 * 1000;
-const MARKET_GOODS_PRIORITY = [80012, 80011];
-let nextMarketCheckAt = 0;
+const FRIEND_STATUS_FRESH_MS = 10_000;
+const FRIEND_ENTRY_RETRY_MS = 30 * 60_000;
+const MARKET_EXCHANGES = [
+    { currencyId: 7002, rewardPriority: [80012, 80011], minBalance: 3n },
+    { currencyId: 1008, rewardPriority: [80013, 80012, 80011], minBalance: 1n },
+].map(exchange => ({ ...exchange, key: RANCH_MARKET_SWITCH_BY_CURRENCY[exchange.currencyId] }));
+type MarketRotation = { periodDay: string; roundIndex: number; startsAt: number; endsAt: number; present: boolean };
+let marketCheckPending = true;
 let marketRunId = 0;
-let lastMarketPoop: bigint | null = null;
+let lastMarketRotation: MarketRotation | null = null;
+const lastMarketBalances = new Map<number, bigint>();
 
-function resetCycle(): void {
+function resetCycle(keepFriendProgress = false): void {
     completedPhases.clear();
     completedSteps.clear();
-    friendVisits = 0;
-    pendingFriendGid = null;
+    if (!keepFriendProgress) {
+        friendVisits = 0;
+        pendingFriend = null;
+        patrolFriends = null;
+        patrolStatusRefresh = { attempted: new Set<number>(), lastAt: 0, rejected: false };
+    }
     cycleStartedAt = 0;
     cycleChanged = false;
+    ownRecheckUsed = false;
 }
 const FRIEND_CONTROLS: Record<string, string> = { stroke: 'ranch_stroke', steal: 'ranch_friend_steal', cleanFriend: 'ranch_friend_clean', putMosquito: 'ranch_friend_mosquito' };
 const enabled = (key: string) => getAutomation()[key] === true;
-function marketDue(): boolean {
-    return getAutomation().ranch_market_organic === true && Date.now() >= nextMarketCheckAt;
+function logCanFeed(canLabel: string, message: string, result: 'skipped' | 'ok'): void {
+    log('牧场', `${canLabel}：${message}`, {
+        module: 'ranch', event: 'ranch_feed', result, accountId: process.env.FARM_ACCOUNT_ID,
+    });
+}
+const canInteract = (action: string) => enabled(FRIEND_CONTROLS[action]) && !interactions.getInteractionQuotaResetAt(action);
+
+function wakeRanchCheck(key: string): void {
+    if (enabled(key) && !cycleStartedAt && Date.now() >= retryAt) {
+        nextCheckAt = Math.min(nextCheckAt, lastCycleEndAt + SCENE_REENTRY_MS);
+    }
+}
+
+function noteRanchFacilities(facilities: any[]): boolean {
+    if (!facilities.some(isPendingShed)) return false;
+    shedNotifyRevision++;
+    if (shedCheckPending) return false;
+    shedCheckPending = true;
+    wakeRanchCheck('ranch_activate_shed');
+    return true;
+}
+
+function noteBookReward(kind: 'normal' | 'giant', available: boolean): boolean {
+    if (pendingBookKinds.has(kind) === available) return false;
+    if (available) {
+        pendingBookKinds.add(kind);
+        wakeRanchCheck('ranch_illustrated');
+    } else pendingBookKinds.delete(kind);
+    return true;
+}
+
+function marketRotation(raw: any): MarketRotation {
+    return { periodDay: quantity(raw.period_day), roundIndex: raw.round_index, startsAt: Number(raw.shop_start_time),
+        endsAt: Number(raw.shop_end_time), present: raw.present };
+}
+
+function sameMarketRound(a: Pick<MarketRotation, 'periodDay' | 'roundIndex'>, b: MarketRotation): boolean {
+    return a.periodDay === b.periodDay && a.roundIndex === b.roundIndex;
+}
+
+function marketIsOpen(rotation: MarketRotation | null): rotation is MarketRotation {
+    const now = getServerTimeSec();
+    return !!rotation?.present && rotation.startsAt <= now && now < rotation.endsAt;
+}
+
+function requestMarketCheck(): void {
+    marketCheckPending = true;
+    marketRunId++;
+    completedPhases.delete('market-organic');
+    nextCheckAt = Math.min(nextCheckAt, Date.now() + SCENE_REENTRY_MS);
+    reentryAtMs = Math.min(reentryAtMs, Date.now() + YIELD_REENTRY_MS); // [fnos-fork]
+}
+
+function noteMarketVisit(raw: any): boolean {
+    const rotation = marketRotation(raw);
+    const previous = lastMarketRotation;
+    if (previous && sameMarketRound(previous, rotation) && previous.present === rotation.present
+        && previous.startsAt === rotation.startsAt && previous.endsAt === rotation.endsAt) return false;
+    lastMarketRotation = rotation;
+    if (!marketIsOpen(rotation)) {
+        marketRunId++;
+        return false;
+    }
+    requestMarketCheck();
+    return true;
 }
 const due = (state: any) => !state.doneToday && Date.now() >= (state.nextCheckAt || 0);
 
 function getRoutineState(): any {
+    if (!isUnlocked()) return { doneToday: true, nextCheckAt: Infinity };
     const auto = getAutomation();
-    const work = RANCH_SWITCH_KEYS.some((key: string) => !['ranch_task', 'ranch_share', 'ranch_daily_benefit', 'ranch_grass_buy', 'ranch_market_organic'].includes(key) && auto[key]) || fnosRanch.hasForkWork(); // [fnos-fork]
-    const routineDue = work || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState()) || auto.ranch_daily_benefit && due(daily.getBenefitRoutineState());
+    const strokeReset = auto.ranch_stroke ? interactions.getInteractionQuotaResetAt('stroke') : 0;
+    const mosquitoReset = auto.ranch_friend_mosquito ? interactions.getInteractionQuotaResetAt('putMosquito') : 0;
+    const work = auto.ranch_stroke && !strokeReset || auto.ranch_friend_mosquito && !mosquitoReset
+        || RANCH_SWITCH_KEYS.some((key: string) => ![
+            'ranch_task', 'ranch_illustrated', 'ranch_share', 'ranch_daily_benefit', 'ranch_activate_shed', 'ranch_grass_buy',
+            'ranch_market_organic', ...RANCH_MARKET_SWITCH_KEYS, 'ranch_stroke', 'ranch_friend_mosquito',
+        ].includes(key) && auto[key])
+        || fnosRanch.hasForkWork(); // [fnos-fork]
+    const routineDue = work || auto.ranch_activate_shed && shedCheckPending || auto.ranch_illustrated && pendingBookKinds.size > 0
+        || auto.ranch_task && due(daily.getTaskRoutineState()) || auto.ranch_share && due(daily.getShareRoutineState())
+        || auto.ranch_daily_benefit && due(daily.getBenefitRoutineState());
+    const pending = routineDue || isRanchMarketEnabled(auto) && marketCheckPending;
     return {
-        doneToday: !isUnlocked() || !(routineDue || auto.ranch_market_organic),
-        nextCheckAt: routineDue ? nextCheckAt : Math.max(nextCheckAt, nextMarketCheckAt),
+        doneToday: !pending,
+        nextCheckAt: pending ? nextCheckAt : Math.min(strokeReset || Infinity, mosquitoReset || Infinity),
         reentryAt: reentryAtMs, // [fnos-fork]
     };
 }
@@ -110,15 +210,8 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
     } catch { /* ignore */ }
     if (fnosDueRanch.length) completedPhases.delete('friends');
     const fnosMiscWait = () => { try { return require('../fnos-timetable').miscShouldWait(); } catch { return false; } };
+    const shedNotifyAtStart = shedNotifyRevision;
     try {
-        // 名单只用作拜访索引，实际资格由进好友牧场后的回包确认；复用农场已同步的名单。
-        let friends: any[] = [];
-        if (!completedPhases.has('friends') && Object.values(FRIEND_CONTROLS).some(enabled)) {
-            const friendService = require('../friend');
-            friends = friendService.getFriendsListCacheOnly();
-            if (!friends.length) friends = await friendService.getFriendsList(false, 'normal', true);
-        }
-        // 首次名单读取可能较久，仍留在农场，等下一次空档再切换。
         if (options.canContinue?.() === false || Date.now() >= (options.farmDeadline?.() ?? Infinity)) {
             nextCheckAt = Date.now() + SCENE_REENTRY_MS;
             reentryAtMs = Date.now() + YIELD_REENTRY_MS; // [fnos-fork]
@@ -127,10 +220,18 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
         await inScene(async (cells: any) => {
             const startedAt = Date.now();
             let steps = 0;
-            const shouldYield = () => options.canContinue?.() === false
-                || Date.now() >= Math.min(startedAt + sliceMs, options.farmDeadline?.() ?? Infinity);
-            const checkpoint = () => {
-                if (options.canContinue?.() === false || steps > 0 && shouldYield()) throw Object.assign(new Error('牧场巡查让路'), { code: 'RANCH_PATROL_YIELD' });
+            const markStep = (action?: string) => {
+                steps++;
+                if (action !== 'harvest' && action !== 'produce') ownRecheckUsed = false;
+            };
+            // [fnos-fork] 轮流模式 sliceMs 可为 Infinity，只为农场定时事件 / canContinue 让路
+            const shouldYield = (friendActed = false) => options.canContinue?.() === false
+                || Date.now() >= (options.farmDeadline?.() ?? Infinity)
+                || (steps > 0 || friendActed) && Date.now() >= startedAt + sliceMs;
+            const checkpoint = (checkDeadline = false) => {
+                if (shouldYield(checkDeadline)) {
+                    throw Object.assign(new Error('牧场巡查让路'), { code: 'RANCH_PATROL_YIELD' });
+                }
             };
             async function phase(name: string, work: () => Promise<any>): Promise<void> {
                 if (completedPhases.has(name)) return;
@@ -140,26 +241,29 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             checkpoint();
             let raw = await loadRaw(cells);
             let nextActionAt = Infinity;
-            const updateDeadline = () => {
+            const updateDeadline = (reopenOwn = false) => {
                 const state = snapshot(raw);
                 const upcoming = state.facilities.flatMap((f: any) => [
-                    ...(auto.ranch_harvest || auto.ranch_produce ? (f.ranch?.animals || []).map((a: any) => a.nextAtMs) : []),
+                    ...(auto.ranch_harvest || auto.ranch_produce ? (f.ranch?.animals || []).flatMap((a: any) =>
+                        [a.nextAtMs, auto.ranch_harvest ? a.deliveringUntilMs : 0]) : []),
                     auto.ranch_upgrade && f.upgradeState ? (f.upgradeEndTime < 100_000_000_000 ? f.upgradeEndTime * 1000 : f.upgradeEndTime) : 0,
                 ]).filter((at: any) => at > state.serverTime);
                 nextActionAt = upcoming.length ? Date.now() + Math.min(...upcoming) - state.serverTime : Infinity;
-                // 续跑期间出现新成熟动物时，先处理自家产出，再接着原来的进度。
                 for (const [action, flag] of [['harvest', 'can_harvest'], ['produce', 'can_deliver']]) {
                     // [fnos-fork] 小号等大号：在等大号偷的货架不算「可收」，避免反复进场
                     const ready = action === 'harvest' ? fnosRanch.ownHarvestReady(raw)
                         : raw.cells.facilities.some((f: any) => f.ranch?.animals.some((a: any) => a[flag]));
                     if (ready && enabled(action === 'harvest' ? 'ranch_harvest' : 'ranch_produce')) {
-                        completedPhases.delete(action);
-                        completedSteps.delete(`${action}:{"all":true}`);
+                        if (reopenOwn && completedPhases.delete(action)) {
+                            completedSteps.delete(`${action}:{"all":true}`);
+                            ownRecheckUsed = true;
+                        }
                         nextActionAt = Math.min(nextActionAt, Date.now());
                     }
                 }
             };
-            updateDeadline();
+            // 已完成的产出可以提前复查，随后先给本轮的其他待办一次执行机会。
+            updateDeadline(!ownRecheckUsed);
             const available = (id: number) => {
                 const funds = balance(raw.bag, id);
                 return BigInt(funds.total) - BigInt(funds.locked) - BigInt(reservations.forCurrentAccount().reserved(`item:${id}`));
@@ -169,24 +273,27 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                 const count = money > 0n ? money / BigInt(good.price.count) : 0n;
                 return Number(count < BigInt(wanted) ? count : BigInt(wanted));
             };
-            async function act(key: string, action: string, input: any = {}, currency?: number, progress?: string): Promise<boolean> {
+            async function act(key: string, action: string, input: any = {}, currency?: number, progress?: string, expectedRewardId?: number): Promise<boolean> {
+                const canLabel = key === 'ranch_feed_organic' ? '有机罐头'
+                    : key === 'ranch_feed_normal' ? (input.normalStage === 'longest' ? '普通罐头（仅最长阶段）' : '普通罐头') : '';
                 const isEnabled = () => enabled(key) && (key !== 'ranch_grass_buy' || enabled('ranch_grass'));
                 if (!isEnabled()) return false;
                 const step = `${action}:${JSON.stringify(input)}${progress === undefined ? '' : `:${progress}`}`;
                 if (completedSteps.has(step)) return false;
-                checkpoint();
+                checkpoint(action === 'exchange');
                 let label = action;
                 try {
                     const quote = await prepareAction(action, input);
                     label = quote.label;
                     if (quote.skipped || currency && quote.costItems.some((cost: any) => cost.id !== currency)
-                        || key === 'ranch_market_organic' && (quote.rewards.length !== 1 || !MARKET_GOODS_PRIORITY.includes(Number(quote.rewards[0].id)))) {
+                        || expectedRewardId !== undefined && (quote.rewards.length !== 1 || Number(quote.rewards[0].id) !== expectedRewardId)) {
+                        if (canLabel) logCanFeed(canLabel, quote.message || '本轮未找到喂养目标', 'skipped');
                         completedSteps.add(step);
-                        steps++;
+                        markStep(action);
                         return false;
                     }
                     if (!isEnabled()) return false;
-                    checkpoint();
+                    checkpoint(action === 'exchange');
                     const parent = getAmbientSendContext();
                     const result = await runWithSendContext({
                         check: (service: string, method: string) => parent?.check(service, method) || (isEnabled() ? null
@@ -194,19 +301,30 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                         onSent: (service: string, method: string) => parent?.onSent(service, method),
                     }, () => operate(action, { ...input, expected: quote.expected }));
                     completedSteps.add(step);
-                    steps++;
-                    if (result.status === 'skipped') return false;
+                    markStep(action);
+                    if (result.status === 'skipped') {
+                        if (canLabel) logCanFeed(canLabel, result.notice || '动物状态已变化，本轮未喂养', 'skipped');
+                        return false;
+                    }
                     cycleChanged = true;
-                    log('牧场', `${quote.label}${result.notice ? `：${result.notice}` : '完成'}`, { module: 'ranch', event: `ranch_${action}`, result: 'ok' });
+                    if (canLabel) {
+                        logCanFeed(canLabel, `喂养完成，目标 ${quote.count} 只，消耗 ${result.costs[0].count} 秒，桶内剩余 ${result.bucketRemainingSeconds} 秒`, 'ok');
+                    } else {
+                        log('牧场', `${quote.label}${result.notice ? `：${result.notice}` : '完成'}`, { module: 'ranch', event: `ranch_${action}`, result: 'ok' });
+                    }
                     raw = await loadRaw();
                     updateDeadline();
                     return true;
                 } catch (error: any) {
                     // 状态或余额变化交给下一次巡查重新报价；已发出但结果未知的写入由持久账本保护。
-                    if (['INSUFFICIENT_BALANCE', 'RESERVE_PROTECTED', 'PENDING_CONFIRMATION', 'RANCH_OFFER_CHANGED', 'GOODS_UNAVAILABLE', 'RANCH_STATE_CHANGED'].includes(error.code)) {
+                    const canBucketFull = action === 'useCan' && error.code === 1003002
+                        && /罐头容器已(?:达到上限|满)/.test(error.errorMessage ?? error.message);
+                    if (canBucketFull || ['INSUFFICIENT_BALANCE', 'RESERVE_PROTECTED', 'PENDING_CONFIRMATION', 'RANCH_OFFER_CHANGED', 'RANCH_EXCHANGE_UNAVAILABLE', 'GOODS_UNAVAILABLE', 'RANCH_STATE_CHANGED'].includes(error.code)) {
+                        if (action === 'claimIllustrated' && error.code === 'RANCH_OFFER_CHANGED') pendingBookKinds.add(input.kind);
                         completedSteps.add(step);
-                        steps++;
-                        log('牧场', `${label} 暂未执行：${error.message}`, { module: 'ranch', event: `ranch_${action}`, result: 'skipped' });
+                        markStep(action);
+                        if (canLabel) logCanFeed(canLabel, `暂未执行：${error.message}`, 'skipped');
+                        else log('牧场', `${label} 暂未执行：${error.message}`, { module: 'ranch', event: `ranch_${action}`, result: 'skipped' });
                         return false;
                     }
                     throw error;
@@ -231,34 +349,57 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             await phase('clean', () => act('ranch_clean', 'clean'));
             await phase('sell', () => act('ranch_sell', 'sell', { all: true }));
 
+            if (isRanchMarketEnabled(auto) && marketCheckPending) completedPhases.delete('market-organic');
             await phase('market-organic', async () => {
-                if (!enabled('ranch_market_organic')) return;
-                const poop = available(7002);
-                const stockReady = poop >= 3n && (lastMarketPoop === null || poop > lastMarketPoop);
-                if (!marketDue() && !stockReady) return;
-                checkpoint();
+                if (!isRanchMarketEnabled(getAutomation())) return;
+                const stockReady = MARKET_EXCHANGES.some(({ key, currencyId, minBalance }) => {
+                    const stock = available(currencyId);
+                    return enabled(key) && stock >= minBalance && stock > (lastMarketBalances.get(currencyId) ?? 0n);
+                });
+                if (!marketCheckPending && !stockReady && marketIsOpen(lastMarketRotation)) return;
+                checkpoint(true);
                 const runId = marketRunId;
-                const current = await market(raw);
-                // 先兑尽 4 小时，再兑 1 小时；只使用便便，不碰松果或其它货币的同名商品。
-                if (current.opened && current.present) {
-                    for (const rewardId of MARKET_GOODS_PRIORITY) {
-                        for (const good of current.goods.filter((entry: any) => entry.available && Number(entry.reward.id) === rewardId && Number(entry.price.id) === 7002 && BigInt(entry.price.count) > 0n)) {
-                            while (good.available) {
-                                const stock = available(7002);
+                const rawRotation = await readMarketRotation();
+                let rotation = rawRotation ? marketRotation(rawRotation) : null;
+                let current = null;
+                if (marketIsOpen(rotation)) {
+                    checkpoint(true);
+                    current = await market(raw);
+                }
+                if (current && marketIsOpen(rotation) && current.opened && current.present && sameMarketRound(current, rotation)) {
+                    for (const { key, currencyId, rewardPriority } of MARKET_EXCHANGES) {
+                        if (!enabled(key)) continue;
+                        const goods = current.goods.filter((entry: any) => entry.available && Number(entry.price.id) === currencyId
+                            && BigInt(entry.price.count) > 0n && rewardPriority.includes(Number(entry.reward.id)));
+                        goods.sort((a: any, b: any) => rewardPriority.indexOf(Number(a.reward.id)) - rewardPriority.indexOf(Number(b.reward.id)));
+                        for (const good of goods) {
+                            while (enabled(key) && good.remaining !== 0 && marketIsOpen(rotation)) {
+                                const stock = available(currencyId);
                                 const count = affordable(good, Math.min(good.remaining ?? 2147483647, 2147483647));
                                 if (count < 1) break;
-                                const exchanged = await act('ranch_market_organic', 'exchange', { goodsId: good.id, count }, 7002, `${runId}:${good.id}:${stock}`);
+                                const exchanged = await act(key, 'exchange', { goodsId: good.id, count, marketRotation: rotation },
+                                    currencyId, `${runId}:${good.id}:${stock}`, Number(good.reward.id));
                                 if (!exchanged) break;
                                 if (good.remaining !== null) good.remaining = Math.max(0, good.remaining - count);
-                                if (good.remaining === 0) good.available = false;
                             }
                         }
                     }
+                } else if (current) rotation = null;
+                for (const { currencyId } of MARKET_EXCHANGES) lastMarketBalances.set(currencyId, available(currencyId));
+                // 旧一轮结束时保留执行期间收到的到访或到账待办。
+                if (runId === marketRunId) {
+                    lastMarketRotation = rotation;
+                    marketCheckPending = false;
                 }
-                // 完成后才推迟检查；让路时保留到期状态，到账通知也不能被旧一轮覆盖。
-                lastMarketPoop = available(7002);
-                if (runId === marketRunId) nextMarketCheckAt = Date.now() + MARKET_CHECK_MS;
             });
+
+            if (enabled('ranch_activate_shed')) {
+                const shed = shedAwaitingActivation(raw);
+                if (shed) {
+                    shedCheckPending = true;
+                    if (await act('ranch_activate_shed', 'activateShed', { facilityId: quantity(shed.instance_id) })) shedCheckPending = false;
+                } else if (shedNotifyAtStart === shedNotifyRevision) shedCheckPending = false;
+            }
 
             await phase('upgrade', async () => {
                 if (enabled('ranch_upgrade')) {
@@ -272,6 +413,19 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                     }
                 }
             });
+
+            // 成熟动物腾栏后，在补栏前核对一次。让路时保留尚未核对的图鉴。
+            for (const kind of ['normal', 'giant'] as const) {
+                if (!enabled('ranch_illustrated') || !pendingBookKinds.delete(kind)) continue;
+                completedSteps.delete(`claimIllustrated:${JSON.stringify({ kind })}`);
+                try {
+                    await act('ranch_illustrated', 'claimIllustrated', { kind });
+                } catch (cause: any) {
+                    if (cause.outcomeUnknown || cause.code === 'RANCH_RESULT_UNKNOWN') pendingBookKinds.delete(kind);
+                    else pendingBookKinds.add(kind);
+                    throw cause;
+                }
+            }
 
             if (enabled('ranch_buy')) {
                 const bagFirst = auto.ranch_strategy === 'bag_priority';
@@ -355,51 +509,118 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                 }
             });
 
-            await phase('feed-normal', async () => { if (enabled('ranch_feed_normal') && available(7003) > 0n) await act('ranch_feed_normal', 'feed', { all: true, bucketType: 2 }); });
-            await phase('feed-organic', async () => { if (enabled('ranch_feed_organic') && available(7004) > 0n) await act('ranch_feed_organic', 'feed', { all: true, bucketType: 1 }); });
+            await phase('feed-normal', async () => {
+                if (!enabled('ranch_feed_normal')) return;
+                const normalStage = getAutomation().ranch_feed_normal_stage;
+                if (available(7003) <= 0n) {
+                    logCanFeed(normalStage === 'longest' ? '普通罐头（仅最长阶段）' : '普通罐头', '罐头桶没有可用时长，本轮未喂养', 'skipped');
+                    return;
+                }
+                await act('ranch_feed_normal', 'feed', { all: true, bucketType: 2, normalStage });
+            });
+            await phase('feed-organic', async () => {
+                if (!enabled('ranch_feed_organic')) return;
+                if (available(7004) <= 0n) {
+                    logCanFeed('有机罐头', '罐头桶没有可用时长，本轮未喂养', 'skipped');
+                    return;
+                }
+                await act('ranch_feed_organic', 'feed', { all: true, bucketType: 1 });
+            });
 
+            async function claimDailyRewards(): Promise<void> {
+                if (cycleChanged && !completedPhases.has('tasks')) daily.markTasksChanged();
+                await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); markStep(); } });
+                await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); markStep(); } });
+                await phase('benefit', async () => { if (enabled('ranch_daily_benefit') && due(daily.getBenefitRoutineState())) { checkpoint(); await daily.claimBenefit(); markStep(); } });
+            }
+            // 大名单会跨多个切片，到期的每日奖励在继续巡查前先执行。
+            if (pendingFriend || friendVisits > 0) await claimDailyRewards();
             await phase('friends', async () => {
                 // [fnos-fork] 2026-11-17 没有到点的好友牧场、常规轮巡也没到间隔、也没有要探的好友牧场：这一轮不碰好友（省掉次数查询和好友列表）
-                if (!fnosDueRanch.length && !pendingFriendGid && Date.now() < fnosNextRegularFriendsAt && !fnosRanchProbePending()) return;
-                if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork] 帮好友生产 / 给好友加牧草
+                if (!fnosDueRanch.length && !pendingFriend && Date.now() < fnosNextRegularFriendsAt && !fnosRanchProbePending()) return;
+                if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled() || Object.keys(FRIEND_CONTROLS).some(canInteract)) { // [fnos-fork] 帮好友生产 / 给好友加牧草
                     fnosRanch.beginFriendPhase({ gold: Number(available(1007)), grass: Number(available(7001)) }); // [fnos-fork] 2026-11-17 给好友加牧草默认用仓库牧草
                     checkpoint();
-                    const interactions = require('./friends');
-                    const times = await interactions.getInteractionTimes();
-                    const wanted = (action: string) => enabled(FRIEND_CONTROLS[action])
-                        && (!['stroke', 'putMosquito'].includes(action) || times[action] > 0);
-                    if (Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled()) { // [fnos-fork]
-                        if (!friends.length) friends = await require('../friend').getFriendsList(); // 上游 #148 已先读缓存名单
-                        const anyWanted = () => Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled();
+                    patrolFriends ??= await getRanchFriendList(completedBatch => {
+                        if (completedBatch) markStep();
+                        checkpoint();
+                    });
+                    const blacklist = new Set(getRanchFriendBlacklist(process.env.FARM_ACCOUNT_ID));
+                    const friends = patrolFriends.filter(friend => !blacklist.has(friend.gid));
+                    if (!friends.length) return;
+                    const hasBulkWork = enabled('ranch_friend_steal') || enabled('ranch_friend_clean') || fnosRanch.friendExtrasEnabled();
+                    const times = hasBulkWork ? {} : await interactions.getInteractionTimes();
+                    const wanted = (action: string) => canInteract(action) && times[action] !== 0;
+                    const anyWanted = () => Object.keys(FRIEND_CONTROLS).some(wanted) || fnosRanch.friendExtrasEnabled();
+                    const statusDecides = () => !wanted('stroke') && !wanted('putMosquito');
+                    if (anyWanted()) {
                         const visitOne = async (friend: any): Promise<void> => {
+                            const gid = String(friend.gid);
+                            const canVisit = () => !getRanchFriendBlacklist(process.env.FARM_ACCOUNT_ID).includes(friend.gid);
+                            if (!canVisit() || (friendRetryAt.get(friend.gid) ?? 0) > Date.now()) {
+                                pendingFriend = null;
+                                return;
+                            }
+                            if (pendingFriend?.gid !== gid && statusDecides() && !patrolStatusRefresh.rejected
+                                && !patrolStatusRefresh.attempted.has(friend.gid) && Date.now() - friend.statusAtMs > FRIEND_STATUS_FRESH_MS) {
+                                if (Date.now() - patrolStatusRefresh.lastAt < 1000) await randomDelay(500, 1000);
+                                checkpoint(true);
+                                try {
+                                    const queried = await refreshRanchFriendStatus(friends, nextFriendIndex % friends.length);
+                                    for (const id of queried) patrolStatusRefresh.attempted.add(id);
+                                } catch (error: any) {
+                                    if (error.name !== 'GatewayError') throw error;
+                                    patrolStatusRefresh.rejected = true;
+                                    log('牧场', `好友状态刷新失败，本轮进门核对：${error.message}`, { module: 'ranch', event: 'ranch_friend', result: 'skipped' });
+                                }
+                                patrolStatusRefresh.lastAt = Date.now();
+                                markStep();
+                                checkpoint();
+                            }
+                            if (!canVisit() || (pendingFriend?.gid !== gid && statusDecides() && Date.now() - friend.statusAtMs <= FRIEND_STATUS_FRESH_MS
+                                && !(wanted('steal') && friend.canSteal) && !(wanted('cleanFriend') && friend.canHelp))) {
+                                pendingFriend = null;
+                                return;
+                            }
+                            if (pendingFriend?.gid !== gid) pendingFriend = { gid, progress: {} };
                             try {
                                 // [fnos-fork] 大小号规则：不偷大号 / 不帮大号清 / 放蚊子只给大号或不给大小号
-                                const result = await interactions.automateFriend(friend.gid, fnosRanch.wrapFriendWanted(friend.gid, wanted), shouldYield);
+                                const result = await interactions.automateFriend(friend.gid, fnosRanch.wrapFriendWanted(friend.gid, action => wanted(action) && canVisit()), shouldYield, (outcome: any, nickname: string) => {
+                                    const confirmed = outcome.status === 'confirmed';
+                                    if (confirmed) daily.markTasksChanged();
+                                    ownRecheckUsed = false;
+                                    log('牧场', `${nickname || friend.name}：${outcome.notice}`, {
+                                        module: 'ranch', event: `ranch_${outcome.action}`, result: confirmed ? 'ok' : 'skipped',
+                                    });
+                                }, pendingFriend.progress);
                                 Object.assign(times, result.times);
-                                steps++;
-                                for (const outcome of result.results) {
-                                    daily.markTasksChanged();
-                                    log('牧场', `${friend.name}：${outcome.notice}`, { module: 'ranch', event: `ranch_${outcome.action}`, result: 'ok' });
-                                }
                                 if (result.yielded) {
-                                    pendingFriendGid = String(friend.gid);
                                     throw Object.assign(new Error('牧场好友巡查让路'), { code: 'RANCH_PATROL_YIELD' });
                                 }
+                                friendRetryAt.delete(friend.gid);
+                                markStep();
                             } catch (error: any) {
-                                if (error.name !== 'GatewayError' || error.methodName !== 'EnterHomestead') throw error;
-                                log('牧场', `暂不能拜访 ${friend.name}：${error.message}`, { module: 'ranch', event: 'ranch_friend', result: 'skipped' });
+                                if (error.name !== 'GatewayError' || error.serviceName !== 'gamepb.visitpb.VisitService'
+                                    || error.methodName !== 'EnterHomestead') throw error;
+                                markStep();
+                                friendRetryAt.set(friend.gid, Date.now() + FRIEND_ENTRY_RETRY_MS);
+                                // 仅在服务端明确给出非好友原因时请求主进程持久化。
+                                const nonFriend = error.code === 1002002 && /不是(?:你的)?好友|非好友|(?:没有|不存在)好友关系|\bnot (?:a |your )?friend\b/i.test(error.errorMessage);
+                                if (!nonFriend || !postToMaster({ type: 'ranch_friend_blacklist_add', gid: friend.gid, friendName: friend.name })) {
+                                    log('牧场', `暂不能拜访 ${friend.name}：${error.message}`, { module: 'ranch', event: 'ranch_friend', result: 'skipped' });
+                                }
                             }
-                            pendingFriendGid = null;
+                            pendingFriend = null;
                         };
                         // [fnos-fork] 2026-11-17 好友时间表：先去到点的好友牧场（不占每轮 3 位的名额）
                         if (!anyWanted()) fnosDueRanch.length = 0;
                         while (fnosDueRanch.length && anyWanted()) {
                             checkpoint();
-                            const due = fnosDueRanch[0];
-                            const friend = friends.find((row: any) => Number(row.gid) === due.gid);
+                            const dueItem = fnosDueRanch[0];
+                            const friend = friends.find((row: any) => Number(row.gid) === dueItem.gid);
                             if (friend) {
-                                if (pendingFriendGid !== String(friend.gid)) {
-                                    log('牧场', `按时间表前往 ${friend.name || due.name}（预计可偷 ${require('../fnos-timetable').formatClock(due.at)}）`, { module: 'ranch', event: 'fnos好友牧场', result: 'timetable', friendGid: due.gid });
+                                if (pendingFriend?.gid !== String(friend.gid)) {
+                                    log('牧场', `按时间表前往 ${friend.name || dueItem.name}（预计可偷 ${require('../fnos-timetable').formatClock(dueItem.at)}）`, { module: 'ranch', event: 'fnos好友牧场', result: 'timetable', friendGid: dueItem.gid });
                                 }
                                 await visitOne(friend);
                             }
@@ -409,17 +630,17 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                         // 把要探的好友牧场（未扫描 / 暂无可偷到复查时间）轮一遍；已知可偷时间的跳过；翻阅节奏 500～1000 毫秒、每 300 位休息
                         const tt = require('../fnos-timetable');
                         if (tt.isEnabled()) {
-                            if (!fnosRanchProbeQueue.length && !pendingFriendGid) {
+                            if (!fnosRanchProbeQueue.length && !pendingFriend) {
                                 const targets = tt.ranchProbeTargets(friends);
                                 fnosRanchProbeQueue.push(...targets.map((f: any) => Number(f.gid)));
                                 if (targets.length) log('牧场', `好友牧场状态轮巡：本轮 ${targets.length} 位，已知可偷时间的跳过`, { module: 'ranch', event: 'fnos好友牧场', result: 'probe', count: targets.length });
                             }
-                            while ((fnosRanchProbeQueue.length || pendingFriendGid) && anyWanted()) {
+                            while ((fnosRanchProbeQueue.length || pendingFriend) && anyWanted()) {
                                 checkpoint();
-                                const gid = pendingFriendGid ? Number(pendingFriendGid) : fnosRanchProbeQueue[0];
+                                const gid = pendingFriend ? Number(pendingFriend.gid) : fnosRanchProbeQueue[0];
                                 const friend = friends.find((row: any) => Number(row.gid) === gid);
                                 if (fnosRanchProbeQueue[0] === gid) fnosRanchProbeQueue.shift();
-                                if (!friend) { pendingFriendGid = null; continue; }
+                                if (!friend) { pendingFriend = null; continue; }
                                 const before = steps;
                                 await visitOne(friend);
                                 if (steps === before) tt.noteRanchProbeFailed(gid); // 进不去：1 小时内不再探
@@ -431,12 +652,11 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
                                 }
                             }
                             if (!anyWanted()) fnosRanchProbeQueue.length = 0;
-                        } else
-                        // 沿用本轮巡查，每轮最多拜访三位，避免长期占用农牧场共用连接。
-                        if (Date.now() >= fnosNextRegularFriendsAt || pendingFriendGid) {
+                        } else if (Date.now() >= fnosNextRegularFriendsAt || pendingFriend) {
+                            // 沿用本轮巡查，每轮最多拜访三位，避免长期占用农牧场共用连接。
                             for (; friendVisits < Math.min(3, friends.length) && anyWanted(); friendVisits++) {
                                 checkpoint();
-                                const friend = friends.find((row: any) => String(row.gid) === pendingFriendGid) || friends[nextFriendIndex % friends.length];
+                                const friend = friends.find((row: any) => String(row.gid) === pendingFriend?.gid) || friends[nextFriendIndex % friends.length];
                                 await visitOne(friend);
                                 nextFriendIndex++;
                             }
@@ -452,14 +672,19 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             // [fnos-fork] 2026-11-17 杂项（牧场任务 / 分享 / 每日福利 / 图鉴）只在空闲时做：30 秒内有收获 / 偷菜 / 帮忙到点就留到下一轮
             const miscWait = fnosMiscWait();
             if (miscWait) log('牧场', '有收获 / 偷菜 / 帮忙即将到点，牧场任务、分享、每日福利、图鉴留到空闲时再做', { module: 'ranch', event: 'fnos牧场轮次', result: 'misc_deferred' });
-            if (!miscWait) await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); steps++; } });
-            if (!miscWait) await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); steps++; } });
+            if (!miscWait) await phase('tasks', async () => { if (enabled('ranch_task') && due(daily.getTaskRoutineState())) { checkpoint(); await daily.claimTasks(); markStep(); } });
+            if (!miscWait) await phase('share', async () => { if (enabled('ranch_share') && due(daily.getShareRoutineState())) { checkpoint(); await daily.claimShare(); markStep(); } });
             // [fnos-fork] 上游 #142 牧场每日福利同样算杂项，空闲时领
-            if (!miscWait) await phase('benefit', async () => { if (enabled('ranch_daily_benefit') && due(daily.getBenefitRoutineState())) { checkpoint(); await daily.claimBenefit(); steps++; } });
+            if (!miscWait) await phase('benefit', async () => { if (enabled('ranch_daily_benefit') && due(daily.getBenefitRoutineState())) { checkpoint(); await daily.claimBenefit(); markStep(); } });
             if (!miscWait) await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
             if (fnosRanch.holdWakeAt() > 0) nextActionAt = Math.min(nextActionAt, fnosRanch.holdWakeAt()); // [fnos-fork] 等大号超时放行时提前回来
             timedWakeAtMs = Number.isFinite(nextActionAt) ? nextActionAt : 0; // [fnos-fork] 农牧轮流插队时间点
-            nextCheckAt = Math.max(Date.now() + SCENE_REENTRY_MS, Math.min(nextCheckAt, nextActionAt, cycleChanged ? Date.now() + 30_000 : Infinity));
+            lastCycleEndAt = Date.now();
+            const bookDue = enabled('ranch_illustrated') && pendingBookKinds.size > 0;
+            const shedDue = enabled('ranch_activate_shed') && shedCheckPending && shedNotifyAtStart !== shedNotifyRevision;
+            const nextRoutine = Math.min(nextCheckAt, nextActionAt, cycleChanged ? lastCycleEndAt + 30_000 : Infinity);
+            nextCheckAt = Math.max(lastCycleEndAt + SCENE_REENTRY_MS, bookDue || shedDue ? lastCycleEndAt : nextRoutine);
+            retryAt = 0;
             resetCycle();
         });
         reentryAtMs = Date.now(); // [fnos-fork] 2026-11-17 去掉 20 秒重进间隔：什么时候再进牧场由农牧轮流（每边至少 1 分钟）决定
@@ -470,23 +695,20 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             reentryAtMs = Date.now() + YIELD_REENTRY_MS; // [fnos-fork] 让路后插队的事做完就接着做
             return 'yielded';
         }
-        resetCycle();
+        resetCycle(pendingFriend !== null);
         reentryAtMs = Date.now() + (error.code === 'RANCH_AUTOMATION_DISABLED' ? SCENE_REENTRY_MS : ERROR_REENTRY_MS); // [fnos-fork]
         if (error.code === 'RANCH_AUTOMATION_DISABLED') return 'disabled';
         nextCheckAt = Date.now() + Math.max(auto.ranch_check_minutes, 10) * 60_000;
+        retryAt = nextCheckAt;
         log('牧场', `日常牧场巡查失败：${error.message}`, { module: 'ranch', event: 'ranch_automation', result: 'error' });
         return 'error';
     }
 }
 
-// 上游 #147：便便到账后重新判断有机化肥兑换
 function resetMarketSchedule(): void {
-    nextMarketCheckAt = 0;
-    lastMarketPoop = null;
-    marketRunId++;
-    completedPhases.delete('market-organic');
-    nextCheckAt = Math.min(nextCheckAt, Date.now() + SCENE_REENTRY_MS);
-    reentryAtMs = Math.min(reentryAtMs, Date.now() + YIELD_REENTRY_MS); // [fnos-fork]
+    requestMarketCheck();
+    lastMarketRotation = null;
+    lastMarketBalances.clear();
 }
 
 /** [fnos-fork] 2026-11-17 农牧轮流：牧场定时事件（动物成熟 / 升级完成 / 等大号到点）的时间，今天无事或没有时返回 0 */
@@ -500,6 +722,25 @@ function friendTimetableActive(): boolean {
 }
 
 /** [fnos-fork] 2026-11-17 还有排队的到点好友牧场（让路后续跑） */
-function hasPendingDueFriends(): boolean { return fnosDueRanch.length > 0; }
+function hasPendingDueFriends(): boolean { return fnosDueRanch.length > 0 || pendingFriend !== null; }
 
-module.exports = { run, getRoutineState, selectAnimal, timedWakeAt, hasPendingDueFriends, friendTimetableActive, resetMarketSchedule, resetSchedule: () => { marketRunId++; nextMarketCheckAt = 0; lastMarketPoop = null; nextCheckAt = 0; timedWakeAtMs = 0; reentryAtMs = 0; fnosDueRanch.length = 0; fnosNextRegularFriendsAt = 0; fnosRanchProbeQueue.length = 0; resetCycle(); } };
+module.exports = {
+    run, getRoutineState, selectAnimal, timedWakeAt, hasPendingDueFriends, friendTimetableActive,
+    requestMarketCheck, noteMarketVisit, resetMarketSchedule, noteBookReward, noteRanchFacilities,
+    resetSchedule: () => {
+        requestMarketCheck();
+        nextCheckAt = 0;
+        lastMarketRotation = null;
+        lastMarketBalances.clear();
+        timedWakeAtMs = 0;
+        reentryAtMs = 0;
+        fnosDueRanch.length = 0;
+        fnosNextRegularFriendsAt = 0;
+        fnosRanchProbeQueue.length = 0;
+        friendRetryAt.clear();
+        shedCheckPending = true;
+        shedNotifyRevision++;
+        retryAt = 0;
+        resetCycle();
+    },
+};

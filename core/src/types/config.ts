@@ -11,7 +11,7 @@ export type PlantingStrategy =
 
 export type BagSeedFallbackStrategy = Exclude<PlantingStrategy, 'bag_priority'>;
 
-export type FertilizerMode = 'both' | 'normal' | 'organic' | 'smart' | 'none';
+export type FertilizerMode = 'both' | 'normal' | 'organic' | 'smart' | 'none' | 'normal_ripen' | 'organic_ripen';
 
 export type FertilizerLandType = 'blue-crystal' | 'purple-gold' | 'gold' | 'black' | 'red' | 'normal';
 
@@ -77,6 +77,7 @@ export interface AccountConfig {
   knownFriendGidSyncCooldownSec: number;
   friendsListCacheTtlSec: number;
   friendBlacklist: number[];
+  ranchFriendBlacklist: number[];
   plantBlacklist: number[];
   stealDelaySeconds: number;
   plantOrderRandom: boolean;

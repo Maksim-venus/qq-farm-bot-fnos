@@ -4,6 +4,7 @@ import { NCard } from 'naive-ui/es/card'
 import { NModal } from 'naive-ui/es/modal'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, ref, watch } from 'vue'
+import api, { getApiErrorMessage } from '@/api'
 import BookOverview from '@/components/illustrated/BookOverview.vue'
 import BookSection from '@/components/illustrated/BookSection.vue'
 import BookTile from '@/components/illustrated/BookTile.vue'
@@ -11,22 +12,31 @@ import BookToolbar from '@/components/illustrated/BookToolbar.vue'
 import { formatCount, useRanchActions, useRanchLoader } from '@/components/ranch/ranch-shared'
 import RanchGate from '@/components/ranch/RanchGate.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import { useAccountStore } from '@/stores/account'
 import { useRanchStore } from '@/stores/ranch'
+import { useToastStore } from '@/stores/toast'
 
 const props = defineProps<{ kind: 'normal' | 'giant' }>()
+const { currentAccountId } = storeToRefs(useAccountStore())
 const { state, loading } = storeToRefs(useRanchStore())
 const { refresh } = useRanchLoader('illustrated')
 const { disabled, request } = useRanchActions()
+const toast = useToastStore()
 
 const isGiant = computed(() => props.kind === 'giant')
 const book = computed(() => state.value?.book || null)
-const animals = computed<any[]>(() => book.value?.animals || [])
+const animals = computed<any[]>(() => {
+  const entries = book.value?.animals || []
+  return isGiant.value ? entries.flatMap((entry: any) => entry.giantItem ? [{ ...entry, ...entry.giantItem }] : []) : entries
+})
+const hasUnreadGiant = computed(() => book.value?.animals.some((entry: any) => entry.giantItem && entry.giant?.isNew))
 const owned = (entry: any) => isGiant.value ? !!entry.giant?.unlocked : !!entry.unlocked
 const ownedCount = computed(() => animals.value.filter(owned).length)
 
 const filter = ref('all')
 const query = ref('')
 const detailsOpen = ref(false)
+const clearing = ref(false)
 const rewardList = ref<HTMLElement | null>(null)
 watch(() => props.kind, () => {
   filter.value = 'all'
@@ -86,6 +96,41 @@ function tileMeta(entry: any) {
     return entry.giant?.harvestCount && entry.giant.harvestCount !== '0' ? `已收获 ${entry.giant.harvestCount} 次` : '未收集'
   return `${entry.giant.tierName ? `${entry.giant.tierName} · ` : ''}${entry.giant.weightKg} kg`
 }
+async function clearGiantNew() {
+  const accountId = String(currentAccountId.value || '')
+  const currentBook = book.value
+  if (clearing.value || disabled.value || !accountId || !hasUnreadGiant.value)
+    return
+  const isCurrent = () => accountId === String(currentAccountId.value || '') && book.value === currentBook
+  clearing.value = true
+  try {
+    const response = await api.post('/api/ranch/illustrated/clear-new', {}, {
+      headers: { 'x-account-id': accountId },
+      skipErrorToast: true,
+      timeout: 45000,
+    } as any)
+    if (!isCurrent())
+      return
+    if (!response.data?.ok)
+      throw new Error(getApiErrorMessage(response.data, '巨大图鉴已读操作失败'))
+    const { cleared, notice, refreshRequired } = response.data.data
+    const confirmed = new Set<number>(cleared)
+    for (const entry of currentBook.animals) {
+      if (confirmed.has(Number(entry.id)) && entry.giant)
+        entry.giant.isNew = false
+    }
+    toast.info(notice)
+    if (!confirmed.size || refreshRequired)
+      await refresh()
+  }
+  catch (cause) {
+    if (isCurrent())
+      toast.error(getApiErrorMessage(cause, '巨大图鉴已读操作失败'))
+  }
+  finally {
+    clearing.value = false
+  }
+}
 async function scrollToNext() {
   await nextTick()
   const target = rewardList.value?.querySelector<HTMLElement>('[data-next="true"]')
@@ -112,10 +157,13 @@ async function scrollToNext() {
             <NButton v-if="isGiant" secondary @click="detailsOpen = true">
               奖励详情
             </NButton>
-            <NButton v-if="claimable" type="primary" :disabled="disabled" @click="request('claimIllustrated', { kind })">
+            <NButton v-if="claimable" type="primary" :disabled="disabled || clearing" @click="request('claimIllustrated', { kind })">
               领取奖励
             </NButton>
-            <NButton secondary :loading="loading" aria-label="刷新图鉴" title="刷新图鉴" @click="refresh">
+            <NButton v-if="isGiant && hasUnreadGiant" secondary :loading="clearing" :disabled="disabled" @click="clearGiantNew">
+              全部已读
+            </NButton>
+            <NButton secondary :loading="loading" :disabled="clearing" aria-label="刷新图鉴" title="刷新图鉴" @click="refresh">
               <template #icon>
                 <span class="i-carbon-renew" />
               </template>
@@ -137,7 +185,7 @@ async function scrollToNext() {
           <BookTile
             v-for="entry in visible"
             :key="entry.id"
-            :name="isGiant ? `巨大${entry.name}` : entry.name"
+            :name="entry.name"
             :image="entry.image"
             :state="owned(entry) ? 'owned' : 'missing'"
             :meta="tileMeta(entry)"

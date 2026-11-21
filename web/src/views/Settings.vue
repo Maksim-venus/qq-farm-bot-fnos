@@ -38,15 +38,6 @@ const fertilizerLandTypeOptions = [
 const router = useRouter()
 const route = useRoute()
 const inRanch = computed(() => route.meta.gameSpace === 'ranch')
-const ranchAnimalOptions = ref<Array<{ value: number, label: string, kind: string }>>([])
-onMounted(async () => {
-  try {
-    const response = await api.get('/api/ranch/automation-options')
-    if (response.data.ok)
-      ranchAnimalOptions.value = response.data.data
-  }
-  catch (error) { showAlert(getApiErrorMessage(error, '牧场动物选项读取失败'), 'danger') }
-})
 const accountStore = useAccountStore()
 const settingStore = useSettingStore()
 const statusStore = useStatusStore()
@@ -918,7 +909,7 @@ const localAutomationSettings = ref({
     mystery_shop_allow_diamond: false,
     mystery_shop_arrival_notify: false,
     mystery_shop_purchase_notify: false,
-    fertilizer: 'normal',
+    fertilizer: 'none',
     skip_own_weed_bug: false,
     fertilizer_multi_season: false,
     fertilizer_land_types: [...defaultFertilizerLandTypes],
@@ -943,11 +934,13 @@ const localAutomationSettings = ref({
 })
 
 const fertilizerOptions = [
+  { label: '不施肥', value: 'none' },
   { label: '普通 + 有机', value: 'both' },
-  { label: '普通 + 快成熟有机', value: 'smart' },
   { label: '仅普通化肥', value: 'normal' },
   { label: '仅有机化肥', value: 'organic' },
-  { label: '不施肥', value: 'none' },
+  { label: '仅普通化肥催熟', value: 'normal_ripen' },
+  { label: '仅有机化肥催熟', value: 'organic_ripen' },
+  { label: '智能施肥（普通 + 有机催熟）', value: 'smart' },
 ]
 
 function syncLocalAutomationSettings() {
@@ -1960,7 +1953,6 @@ async function handleResetSystemConfig() {
             v-model="localAutomationSettings"
             :saving="automationSaving"
             :in-ranch="inRanch"
-            :ranch-animal-options="ranchAnimalOptions"
             :fertilizer-land-type-options="fertilizerLandTypeOptions"
             :fertilizer-options="fertilizerOptions"
             @save="saveAutomationSettings"
