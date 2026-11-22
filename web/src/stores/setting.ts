@@ -113,6 +113,7 @@ export interface FnosRanch {
   altHoldFallbackMinutes: number
   illustratedAutoClaim: boolean
   illustratedAutoComplete: boolean
+  mugeAutoClaim: boolean
   friendFeed: boolean
   /** [fnos-fork] 2026-11-17 加草来源：warehouse = 农场仓库牧草（默认）；gold = 金币 */
   friendFeedSource: 'warehouse' | 'gold'
@@ -126,6 +127,7 @@ const FNOS_RANCH_DEFAULT: FnosRanch = {
   altHoldFallbackMinutes: 60,
   illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 默认开
   illustratedAutoComplete: false,
+  mugeAutoClaim: true, // [fnos-fork] 牧歌初启成长手册奖励自动领取默认开
   friendFeed: false,
   friendFeedSource: 'warehouse',
   friendFeedPerTime: 10,

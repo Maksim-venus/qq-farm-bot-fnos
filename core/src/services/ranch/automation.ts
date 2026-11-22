@@ -677,6 +677,7 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             // [fnos-fork] 上游 #142 牧场每日福利同样算杂项，空闲时领
             if (!miscWait) await phase('benefit', async () => { if (enabled('ranch_daily_benefit') && due(daily.getBenefitRoutineState())) { checkpoint(); await daily.claimBenefit(); markStep(); } });
             if (!miscWait) await phase('fnos-book', async () => { if (await fnosRanch.runBook()) cycleChanged = true; }); // [fnos-fork] 牧场图鉴自动领取
+            if (!miscWait) await phase('fnos-muge', async () => { if (await fnosRanch.runMuge()) cycleChanged = true; }); // [fnos-fork] 牧歌初启成长手册自动领取
             if (fnosRanch.holdWakeAt() > 0) nextActionAt = Math.min(nextActionAt, fnosRanch.holdWakeAt()); // [fnos-fork] 等大号超时放行时提前回来
             timedWakeAtMs = Number.isFinite(nextActionAt) ? nextActionAt : 0; // [fnos-fork] 农牧轮流插队时间点
             lastCycleEndAt = Date.now();

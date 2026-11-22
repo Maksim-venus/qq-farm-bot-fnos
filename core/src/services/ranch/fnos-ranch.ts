@@ -42,6 +42,8 @@ export interface FnosRanchConfig {
     altHoldFallbackMinutes: number;
     illustratedAutoClaim: boolean;
     illustratedAutoComplete: boolean;
+    /** [fnos-fork] 牧歌初启 成长手册奖励（每个已完成任务 + 积分档位）自动领取，默认开 */
+    mugeAutoClaim: boolean;
     /** 帮好友生产（TriggerProduce，好友动物 can_deliver 时） */
     friendHelpProduce: boolean;
     /** 给好友加牧草（AddFeed） */
@@ -66,6 +68,7 @@ const DEFAULT_FNOS_RANCH: FnosRanchConfig = {
     altHoldFallbackMinutes: 60,
     illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴奖励自动领取默认开启（老配置一次性迁移见 fnos-claim-default-migration）
     illustratedAutoComplete: false,
+    mugeAutoClaim: true, // [fnos-fork] 牧歌初启成长手册奖励自动领取默认开
     friendHelpProduce: false,
     friendFeed: false,
     friendFeedSource: 'warehouse',
@@ -90,6 +93,7 @@ function normalizeFnosRanch(input: unknown, fallback: FnosRanchConfig = DEFAULT_
         altHoldFallbackMinutes: int('altHoldFallbackMinutes', 5, 720),
         illustratedAutoClaim: bool('illustratedAutoClaim'),
         illustratedAutoComplete: bool('illustratedAutoComplete'),
+        mugeAutoClaim: bool('mugeAutoClaim'),
         friendHelpProduce: bool('friendHelpProduce'),
         friendFeed: bool('friendFeed'),
         // [fnos-fork] 2026-11-17 旧配置没有此字段 → 默认仓库牧草
@@ -105,6 +109,7 @@ const rt = {
     lastHoldLog: '',
     holdWakeAtMs: 0,
     nextBookAt: 0,
+    nextMugeAt: 0,
     uncollectedProducts: null as Set<number> | null,
     dayKey: '',
     lastLog: {} as Record<string, string>,
@@ -118,6 +123,7 @@ function resetFnosRanchRuntime(): void {
     rt.lastHoldLog = '';
     rt.holdWakeAtMs = 0;
     rt.nextBookAt = 0;
+    rt.nextMugeAt = 0;
     rt.uncollectedProducts = null;
     rt.dayKey = '';
     rt.lastLog = {};
@@ -274,6 +280,44 @@ async function runBook(nowMs: number = Date.now()): Promise<boolean> {
     return changed;
 }
 
+// ============ 2b. 牧歌初启 成长手册自动领取 ============
+const MUGE_INTERVAL_MS = 30 * 60 * 1000;
+/**
+ * [fnos-fork] 牧歌初启成长手册：任务奖励（op 82，task_id=0 = 一次领全部 status=2 的任务）+ 积分档位奖励（op 83，tier_id=0 = 领全部可领档位）。
+ * 每次先领任务（涨积分），再领档位，最多循环 6 轮直到没有可领的；活动未开始 / 已结束 / 无可领项都静默。
+ */
+async function runMuge(nowMs: number = Date.now()): Promise<boolean> {
+    const { ranch } = readConfigs();
+    if (!ranch.mugeAutoClaim) return false;
+    if (nowMs < rt.nextMugeAt) return false;
+    rt.nextMugeAt = nowMs + MUGE_INTERVAL_MS;
+    const muge = require('../muge-activity');
+    let changed = false;
+    try {
+        for (let round = 0; round < 6; round++) {
+            const state = await muge.getMugeActivity();
+            if (!state.active || !state.handbook) {
+                if (!state.active && nowMs > state.endTime) rt.nextMugeAt = nowMs + 6 * 3600 * 1000;
+                break;
+            }
+            const taskReady = state.handbook.tasks.some((t: any) => t.status === 2);
+            const tierReady = state.handbook.tiers.some((t: any) => t.status === 2);
+            if (!taskReady && !tierReady) break;
+            const action = taskReady ? 'claimTask' : 'claimHandbook';
+            const done = await muge.operateMugeActivity(action);
+            changed = true;
+            const got = (done.rewards || []).map((item: any) => `${item.name || `物品 #${item.id}`} ×${item.count}`).join('、');
+            log(`牧歌初启成长手册${taskReady ? '任务' : '积分档位'}奖励已领取：${got || '（回包未列出物品）'}`, { event: 'fnos牧歌初启', result: 'ok', action });
+        }
+    } catch (e: any) {
+        const code = e?.code;
+        if (code === 'MUGE_NOT_CLAIMABLE' || code === 'MUGE_ENDED' || code === 'MUGE_UNAVAILABLE') return changed; // 已领 / 未开始 / 不可用：静默
+        rt.nextMugeAt = nowMs + 10 * 60 * 1000;
+        logOnce('muge-error', `牧歌初启成长手册领取失败：${e?.message || e}，10 分钟后再试`, { event: 'fnos牧歌初启', result: 'error' });
+    }
+    return changed;
+}
+
 /** 自动完成图鉴：在上游选出的候选里，优先挑产物还没进图鉴的动物；没有就返回 null 交还上游策略。 */
 function pickAnimalForBook(candidates: any[]): any | null {
     let enabled = false;
@@ -301,7 +345,7 @@ function hasForkWork(nowMs: number = Date.now()): boolean {
     try {
         const { ranch } = readConfigs();
         // [fnos-fork] 2026-11-17 图鉴只在到期时算「有活」，避免只开了图鉴领取也每轮巡查都进牧场
-        return ((ranch.illustratedAutoClaim || ranch.illustratedAutoComplete) && nowMs >= rt.nextBookAt) || ranch.friendHelpProduce || ranch.friendFeed;
+        return ((ranch.illustratedAutoClaim || ranch.illustratedAutoComplete) && nowMs >= rt.nextBookAt) || (ranch.mugeAutoClaim && nowMs >= rt.nextMugeAt) || ranch.friendHelpProduce || ranch.friendFeed;
     } catch { return false; }
 }
 
@@ -543,6 +587,7 @@ module.exports = {
     ownHarvestReady,
     holdWakeAt: () => rt.holdWakeAtMs,
     runBook,
+    runMuge,
     pickAnimalForBook,
     hasForkWork,
     markBookDue,

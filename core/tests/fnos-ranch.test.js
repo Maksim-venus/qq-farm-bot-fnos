@@ -27,7 +27,7 @@ test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 
 test('normalize：默认值与范围夹取、旧字段（被上游取代）丢弃；真实 store 默认带 fnosRanch', () => {
     const d = ranch.normalizeFnosRanch(undefined);
-    assert.deepEqual(d, { altHold: true, altHoldFallbackMinutes: 60, illustratedAutoClaim: true, illustratedAutoComplete: false,
+    assert.deepEqual(d, { altHold: true, altHoldFallbackMinutes: 60, illustratedAutoClaim: true, illustratedAutoComplete: false, mugeAutoClaim: true,
         friendHelpProduce: false, friendFeed: false, friendFeedSource: 'warehouse', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 });
     const c = ranch.normalizeFnosRanch({ altHoldFallbackMinutes: 1, friendFeedPerTime: 0, friendFeedGoldKeep: -5, friendHelpProduce: 1,
         rotation: false, friendSteal: true, friendPutMosquito: true, friendFeedKeep: 200 });
