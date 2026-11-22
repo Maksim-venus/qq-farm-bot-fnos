@@ -213,6 +213,10 @@ const ranchFeedStages = [
               <BaseSwitch v-model="settings.fnosRanch.illustratedAutoComplete" label="自动完成牧场图鉴（买幼崽优先缺的）" />
             </div>
             <div class="automation-setting-item">
+              <!-- [fnos-fork] 牧歌初启成长手册：已完成任务奖励 + 积分档位奖励，默认开 -->
+              <BaseSwitch v-model="settings.fnosRanch.mugeAutoClaim" label="牧歌初启成长手册奖励自动领取" title="成长手册里所有已完成任务的奖励和积分档位奖励；约 30 分钟随牧场巡查检查一次，活动未开始 / 已结束 / 已领完时静默" />
+            </div>
+            <div class="automation-setting-item">
               <BaseSwitch v-model="settings.fnosRanch.friendHelpProduce" label="好友牧场：帮忙生产" />
             </div>
             <div class="automation-setting-item">

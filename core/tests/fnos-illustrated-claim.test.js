@@ -107,6 +107,7 @@ test('红点通知解码：IllustratedRewardRedDotNotifyV2 三个布尔', () => 
 });
 
 test('牧场：默认开；只开图鉴领取时到期才算有活，领过后 30 分钟内不进场；红点 ranch 提前', async () => {
+    apply({ fnosRanch: { mugeAutoClaim: false } }); // 牧歌初启另有测试，这里只看图鉴
     ranch.resetFnosRanchRuntime();
     assert.equal(store.getConfigSnapshot('7').fnosRanch.illustratedAutoClaim, true);
     const now = Date.now();
