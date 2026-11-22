@@ -3,6 +3,7 @@ import { NButton } from 'naive-ui/es/button'
 import { storeToRefs } from 'pinia'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '@/api'
+import CareerHarvestSteal from '@/components/CareerHarvestSteal.vue'
 import { formatCount, useRanchActions } from '@/components/ranch/ranch-shared'
 import RanchAnimalCard from '@/components/ranch/RanchAnimalCard.vue'
 import RanchGate from '@/components/ranch/RanchGate.vue'
@@ -126,6 +127,16 @@ function fnosTtCell(friend: any) {
   const live = selected.value === friend?.gid && !!detail.value?.canSteal
   return fnosRanchCountdown(fnosTtRows.value[String(friend?.gid)], fnosTtNow.value, live)
 }
+watch(detail, (live) => {
+  if (!live)
+    return
+  const friend = friends.value.find(entry => entry.gid === live.gid)
+  if (friend) {
+    friend.canHelp = live.cleanableHazards > 0
+    friend.helpCount = live.cleanableHazards
+    friend.canSteal = live.canSteal
+  }
+})
 
 async function loadList(id: string) {
   await ranch.load(id, 'friends')
@@ -297,13 +308,22 @@ async function reloadList() {
                 </span>
                 <span class="friend-tags">
                   <span v-if="blacklistedSet.has(Number(friend.gid))" class="f-tag f-tag--blocked">已拉黑</span>
-                  <template v-else-if="selected === friend.gid && detail">
-                    <span class="f-tag f-tag--level">牧场 Lv.{{ detail.level }}</span>
-                    <span class="f-tag" :class="{ 'f-tag--steal': detail.canSteal }">
-                      <span class="i-carbon-shopping-bag" />{{ detail.canSteal ? `可偷 ${detail.stealableShelves} 个货架` : '暂无可偷产物' }}
+                  <template v-else>
+                    <span v-if="friend.canHelp" class="f-tag">
+                      <span class="i-carbon-clean text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                      {{ friend.helpCount > 0 ? `可清理 ${friend.helpCount}` : '可清理' }}
                     </span>
+                    <template v-if="selected === friend.gid && detail">
+                      <span class="f-tag f-tag--level">牧场 Lv.{{ detail.level }}</span>
+                      <span class="f-tag" :class="{ 'f-tag--steal': detail.canSteal }">
+                        <span class="i-carbon-shopping-bag" />{{ detail.canSteal ? `可偷 ${detail.stealableShelves} 个货架` : '暂无可偷产物' }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <span v-if="friend.canSteal" class="f-tag f-tag--steal">可偷取</span>
+                      <span v-if="!friend.canHelp && !friend.canSteal" class="f-tag">点击查看牧场</span>
+                    </template>
                   </template>
-                  <span v-else class="f-tag">点击查看牧场</span>
                   <!-- [fnos-fork] 牧场等级（好友列表字段 25 / 本账号缓存；未读取的按 Lv1）；展开后已有「牧场 Lv」时不重复显示 -->
                   <span v-if="!(selected === friend.gid && detail)" class="f-tag f-tag--level" :class="{ 'f-tag--level-guess': friend.ranchLevelKnown === false }" :title="fnosRanchLevelTitle(friend)">Lv.{{ fnosRanchLevelOf(friend) }}</span>
                   <!-- [fnos-fork] 2026-11-17 还多久可偷（赶产倒计时） -->
@@ -354,6 +374,7 @@ async function reloadList() {
               <p v-if="detail.notice" class="friend-shelves__notice" role="alert">
                 {{ detail.notice }}
               </p>
+              <CareerHarvestSteal v-if="detail.career" :career="detail.career" />
               <div class="friend-interactions">
                 <span>今日可抚摸 <b>{{ detail.strokeRemaining }}</b> 次</span>
                 <span>今日可放蚊子 <b>{{ detail.mosquitoRemaining }}</b> 次</span>
