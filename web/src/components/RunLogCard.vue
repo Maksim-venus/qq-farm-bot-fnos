@@ -12,7 +12,7 @@ import BaseSelect from '@/components/ui/BaseSelect.vue'
 import { useAccountStore } from '@/stores/account'
 import { useStatusStore } from '@/stores/status'
 import { useToastStore } from '@/stores/toast'
-import { FNOS_ERROR_LEVEL_OPTIONS, FNOS_LOG_VIEWS, fnosBuildLogCategoryParams, fnosEmptyLogText, fnosIsCategoryLogView } from '@/utils/fnos-log-categories'
+import { fnosBuildLogCategoryParams, fnosEmptyLogText, fnosIsCategoryLogView } from '@/utils/fnos-log-categories'
 import {
   FNOS_LOG_PER_SPACE_CAP,
   FNOS_LOG_SPACE_VIEWS,
@@ -50,12 +50,11 @@ const space = ref<FnosLogSpaceView>(fnosLoadLogSpaceView())
 const farmFilter = reactive({ module: '', event: '' })
 const ranchFilter = reactive({ scope: '', event: '' })
 const common = reactive({ keyword: '', isWarn: '' })
-const logView = ref<FnosLogView>('all')
 const fnosErrorLevel = ref<FnosErrorLevelFilter>('')
 
 // 偷菜 / 报错分栏在「全部」「农场」可用（偷菜日志也包含牧场偷取）；牧场用自己的范围 / 事件
-const categoryEnabled = computed(() => space.value !== 'ranch')
-const effectiveLogView = computed<FnosLogView>(() => categoryEnabled.value ? logView.value : 'all')
+// [fnos-fork] 2026-11-23 取消「偷菜日志 / 报错日志」分栏，只保留一份统一日志（后端分类接口保留但前端不再使用）
+const effectiveLogView = computed<FnosLogView>(() => 'all')
 
 const hasActiveLogFilter = computed(() => {
   if (common.keyword || common.isWarn || fnosIsCategoryLogView(effectiveLogView.value))
@@ -298,7 +297,7 @@ function onLogFilterChange() {
   loadLogs(true)
 }
 
-watch([space, logView, fnosErrorLevel], async () => {
+watch([space], async () => {
   fnosSaveLogSpaceView(space.value)
   await loadLogs(true)
   scrollToBottom()
@@ -443,19 +442,6 @@ useIntervalFn(loadSummaries, 60000)
           <span class="inline-flex items-center gap-1 whitespace-nowrap"><span :class="view.icon" />{{ view.label }}</span>
         </NTab>
       </NTabs>
-      <template v-if="categoryEnabled">
-        <NTabs v-model:value="logView" type="segment" size="small" class="fnos-log-views__tabs">
-          <NTab v-for="view in FNOS_LOG_VIEWS" :key="view.value" :name="view.value">
-            <span class="inline-flex items-center gap-1 whitespace-nowrap"><span :class="view.icon" />{{ view.label }}</span>
-          </NTab>
-        </NTabs>
-        <BaseSelect
-          v-if="logView === 'error'"
-          v-model="fnosErrorLevel"
-          class="fnos-log-views__level"
-          :options="FNOS_ERROR_LEVEL_OPTIONS"
-        />
-      </template>
     </div>
 
     <div v-if="showFarmSummary" class="fnos-day-summary fnos-day-summary--farm mb-3" title="从升级到这一版开始按天累计，按北京时间 0 点切日，重启不丢；清空日志不会清掉汇总">
