@@ -12,7 +12,8 @@ export interface OverviewSnapshot {
   exp: { current: number, needed: number }
   assets: OverviewTile[]
   stock: OverviewTile[]
-  career: { harvest: number, mature: number, steal: number } | null
+  /** 牧场：收获 / 成熟 / 收取好友；农场：只有收获 / 偷菜（mature 缺省） */
+  career: { harvest: number, mature?: number, steal: number } | null
   facilities: Array<{ id: string, name: string, level: number, text: string, percent: number, pending: boolean }>
   todo: Array<{ key: string, label: string, value: number }>
   today: Array<{ key: string, label: string, count: number }>
@@ -71,7 +72,7 @@ function remainToAt(sec: unknown, now: number): number | null {
   return sec === null || sec === undefined || !Number.isFinite(n) ? null : now + Math.max(0, n) * 1000
 }
 
-export function buildFarmSnapshot(input: { status: any, items?: any[], diamond?: unknown, now?: number }): OverviewSnapshot {
+export function buildFarmSnapshot(input: { status: any, items?: any[], diamond?: unknown, career?: { harvest: number, steal: number } | null, now?: number }): OverviewSnapshot {
   const now = input.now ?? Date.now()
   const s = input.status || {}
   const items = input.items || []
@@ -103,7 +104,7 @@ export function buildFarmSnapshot(input: { status: any, items?: any[], diamond?:
       { key: 3001, label: '普通收藏点', value: count(3001) },
       { key: 3002, label: '典藏收藏点', value: count(3002) },
     ],
-    career: null,
+    career: input.career ? { harvest: Number(input.career.harvest) || 0, steal: Number(input.career.steal) || 0 } : null,
     facilities: [],
     todo: [],
     today: Object.keys(ops).filter(k => k !== 'upgrade' && k !== 'levelUp').map(k => ({ key: k, label: farmOpLabel(k), count: Number(ops[k]) || 0 })),
@@ -200,4 +201,42 @@ export function formatUpdatedAt(updatedAt: number | undefined, now = Date.now())
   const d = new Date(updatedAt + 8 * 3600_000)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
+}
+
+export interface MergedAsset { key: string | number, label: string, value: string, image?: string, imageId?: number, shared?: boolean, from: OverviewSpace }
+
+/**
+ * 首页资产：农场、牧场合成一排。点券、金豆豆两边是同一个货币，只显示一个值，取「更新的那边」（asOf 大的；实时数据用当前时间）；
+ * 钻石也是通用货币，只在农场一侧读取，同样只显示一次。金币、金券、松果各自只属于一边。
+ * 某一边没有数据（没缓存）时，只显示另一边有的项。
+ */
+export function mergeOverviewAssets(farm: OverviewSnapshot | null, ranch: OverviewSnapshot | null, farmAsOf = 0, ranchAsOf = 0): MergedAsset[] {
+  const out: MergedAsset[] = []
+  const farmTile = (key: string) => farm?.assets.find(t => String(t.key) === key)
+  const ranchTile = (key: number) => ranch?.assets.find(t => Number(t.key) === key)
+  const newest = (f?: OverviewTile, r?: OverviewTile): { tile: OverviewTile, from: OverviewSpace } | null => {
+    if (f && r)
+      return ranchAsOf > farmAsOf ? { tile: r, from: 'ranch' } : { tile: f, from: 'farm' }
+    if (f)
+      return { tile: f, from: 'farm' }
+    return r ? { tile: r, from: 'ranch' } : null
+  }
+  const gold = farmTile('gold')
+  if (gold)
+    out.push({ ...gold, from: 'farm' })
+  const coupon = newest(farmTile('coupon'), ranchTile(1002))
+  if (coupon)
+    out.push({ ...coupon.tile, key: 'coupon', label: '点券', shared: true, from: coupon.from })
+  const bean = newest(farmTile('goldBean'), ranchTile(1005))
+  if (bean)
+    out.push({ ...bean.tile, key: 'goldBean', label: '金豆豆', shared: true, from: bean.from })
+  const diamond = farmTile('diamond')
+  if (diamond)
+    out.push({ ...diamond, from: 'farm' })
+  for (const id of [1007, 1008]) {
+    const t = ranchTile(id)
+    if (t)
+      out.push({ ...t, from: 'ranch' })
+  }
+  return out
 }

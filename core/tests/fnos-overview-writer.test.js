@@ -132,3 +132,40 @@ test('生涯先于牧场状态到达：已有缓存时直接补，没有缓存�
     writer.onRanchCareer('2', { harvest: 1, mature: 1, steal: 1 });
     assert.equal(cache.get('2').ranch, null);
 });
+
+test('农场生涯：巡查拉到后写进农场快照，之后状态刷新沿用', () => {
+    const { cache, writer, advance } = setup(0);
+    writer.onStatus('1', farmStatus());
+    assert.equal(cache.get('1').farm.career, null);
+    advance(1000);
+    writer.onFarmCareer('1', { harvest: 12345, steal: 678 });
+    assert.deepEqual(cache.get('1').farm.career, { harvest: 12345, steal: 678 });
+    advance(1000);
+    writer.onStatus('1', farmStatus(300));
+    assert.deepEqual(cache.get('1').farm.career, { harvest: 12345, steal: 678 });
+});
+
+test('refreshFarmCareer：节流，取不到生涯不发送', async () => {
+    const career = require('../dist/services/career');
+    const net = require('../dist/utils/network');
+    const mod = require('../dist/services/fnos-farm-career');
+    const origCareer = career.getCareerInfoOrNull;
+    const origState = net.getUserState;
+    const got = [];
+    hooks.setOverviewSink((k, d) => got.push([k, d]));
+    try {
+        net.getUserState = () => ({ gid: 7 });
+        career.getCareerInfoOrNull = async () => ({ harvest: 10, steal: 3, level: 1 });
+        mod.resetFarmCareerRefreshForTest();
+        assert.equal(await mod.refreshFarmCareer(100000, 60000), true);
+        assert.equal(await mod.refreshFarmCareer(101000, 60000), false);
+        assert.equal(await mod.refreshFarmCareer(200000, 60000), true);
+        career.getCareerInfoOrNull = async () => null;
+        assert.equal(await mod.refreshFarmCareer(400000, 60000), false);
+    } finally {
+        career.getCareerInfoOrNull = origCareer;
+        net.getUserState = origState;
+        hooks.setOverviewSink(null);
+    }
+    assert.deepEqual(got, [['farmCareer', { harvest: 10, steal: 3 }], ['farmCareer', { harvest: 10, steal: 3 }]]);
+});

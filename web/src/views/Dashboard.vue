@@ -14,7 +14,7 @@ import { getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { useRanchStore } from '@/stores/ranch'
 import { useStatusStore } from '@/stores/status'
-import { buildFarmSnapshot, buildRanchSnapshot, formatUpdatedAt } from '@/utils/fnos-overview'
+import { buildFarmSnapshot, buildRanchSnapshot, formatUpdatedAt, mergeOverviewAssets } from '@/utils/fnos-overview'
 
 // [fnos-fork] 2026-11-23 首页合并概览：农场、牧场放在同一个首页（农场、牧场两个空间的「概览」都是这一页）。
 // 当前所在空间读实时数据；另一边读服务端缓存的快照（/api/fnos/overview-cache），不额外实时查游戏。
@@ -74,7 +74,7 @@ const cache = ref<{ farm: OverviewSnapshot | null, ranch: OverviewSnapshot | nul
 const statusIsCurrent = computed(() => String(status.value?.accountId || '') === String(currentAccountId.value || ''))
 const farmLive = computed(() => !inRanch.value && statusIsCurrent.value && !!status.value?.connection?.connected)
 const farmSnap = computed<OverviewSnapshot | null>(() => farmLive.value
-  ? buildFarmSnapshot({ status: status.value, items: dashboardItems.value, diamond: diamondBalance.value, now: now.value.getTime() })
+  ? buildFarmSnapshot({ status: status.value, items: dashboardItems.value, diamond: diamondBalance.value, career: cache.value.farm?.career as any, now: now.value.getTime() })
   : cache.value.farm)
 const ranchLive = computed(() => inRanch.value && !!ranchState.value)
 const ranchSnap = computed<OverviewSnapshot | null>(() => ranchLive.value
@@ -111,6 +111,18 @@ const groups = computed(() => [
   { space: 'ranch' as const, name: '牧场', snap: ranchSnap.value, stamp: ranchStamp.value },
 ])
 const ranchRevealed = computed(() => ranchSnap.value)
+// 资产合并显示：点券、金豆豆两边同一个货币，取更新的一边（实时 = 当前时间，缓存 = 写入时间）
+const mergedAssets = computed(() => mergeOverviewAssets(
+  farmSnap.value,
+  ranchSnap.value,
+  farmLive.value ? now.value.getTime() : (cache.value.farm?.updatedAt || 0),
+  ranchLive.value ? now.value.getTime() : (cache.value.ranch?.updatedAt || 0),
+))
+const mergedStock = computed(() => [
+  ...(farmSnap.value?.stock || []).map(t => ({ ...t, from: 'farm' as const })),
+  ...(ranchSnap.value?.stock || []).map(t => ({ ...t, from: 'ranch' as const })),
+])
+const assetStamp = computed(() => `农场${farmStamp.value.live ? '实时' : (cache.value.farm?.updatedAt ? `缓存 ${formatUpdatedAt(cache.value.farm.updatedAt, now.value.getTime())}` : '无缓存')} · 牧场${ranchStamp.value.live ? '实时' : (cache.value.ranch?.updatedAt ? `缓存 ${formatUpdatedAt(cache.value.ranch.updatedAt, now.value.getTime())}` : '无缓存')}`)
 
 const FARM_ICONS: Record<string, string> = {
   gold: 'i-fas-coins text-yellow-500',
@@ -149,7 +161,7 @@ function formatDuration(seconds: number) {
   const pad = (n: number) => n.toString().padStart(2, '0')
   return d > 0 ? `${d}天 ${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(h)}:${pad(m)}:${pad(s)}`
 }
-const countdowns = computed(() => groups.value.flatMap(({ snap, stamp, space }) => (snap?.nextChecks || []).map((c) => {
+const countdowns = computed(() => groups.value.filter(g => g.space === 'farm').flatMap(({ snap, stamp, space }) => (snap?.nextChecks || []).map((c) => {
   let text: string
   const live = stamp.live
   if (live && space === 'farm' && !status.value?.connection?.connected)
@@ -295,16 +307,18 @@ useIntervalFn(() => loadCache(false), 30000)
             </button>
           </div>
 
-          <div v-for="g in groups" :key="g.space" class="ov-exp">
-            <div class="ov-exp__labels">
-              <span>{{ g.name }}经验 <small class="ov-stamp" :class="{ 'is-live': g.stamp.live }">{{ g.stamp.text }}</small></span>
-              <span class="ov-exp__value">
-                {{ expText(g.snap) }}
-                <b>{{ g.snap ? Math.floor(expPercent(g.snap)) : 0 }}%</b>
-              </span>
-            </div>
-            <div class="ov-exp__track">
-              <div class="ov-exp__bar" :style="{ width: `${g.snap ? expPercent(g.snap) : 0}%` }" />
+          <div class="ov-exps">
+            <div v-for="g in groups" :key="g.space" class="ov-exp">
+              <div class="ov-exp__labels">
+                <span>{{ g.name }}经验 <small class="ov-stamp" :class="{ 'is-live': g.stamp.live }">{{ g.stamp.text }}</small></span>
+                <span class="ov-exp__value">
+                  {{ expText(g.snap) }}
+                  <b>{{ g.snap ? Math.floor(expPercent(g.snap)) : 0 }}%</b>
+                </span>
+              </div>
+              <div class="ov-exp__track">
+                <div class="ov-exp__bar" :style="{ width: `${g.snap ? expPercent(g.snap) : 0}%` }" />
+              </div>
             </div>
           </div>
 
@@ -317,45 +331,35 @@ useIntervalFn(() => loadCache(false), 30000)
           </div>
         </section>
 
-        <!-- 资产：农场 + 牧场 -->
-        <section class="ov-card">
-          <h3 class="ov-card__title">
-            资产
+        <!-- 资产：农场 + 牧场合成一排；点券、金豆豆只显示一个值（取更新的一边） -->
+        <section class="ov-card ov-card--dense">
+          <h3 class="ov-card__title ov-card__title--row">
+            <span>资产</span><small class="ov-stamp">{{ assetStamp }}</small>
           </h3>
-          <div v-for="g in groups" :key="g.space" class="ov-group">
-            <div class="ov-group__head">
-              <span>{{ g.name }}</span><small class="ov-stamp" :class="{ 'is-live': g.stamp.live }">{{ g.stamp.text }}</small>
+          <div v-if="mergedAssets.length" class="ov-tiles ov-tiles--dense">
+            <div v-for="t in mergedAssets" :key="t.key" class="ov-tile">
+              <span class="ov-tile__label"><img v-if="t.image || t.imageId" class="ov-tile__img" :src="t.image || RANCH_IMAGE(t.imageId!)" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
+              <strong class="ov-tile__value" :title="t.value">{{ t.value }}</strong>
             </div>
-            <div v-if="g.snap" class="ov-tiles">
-              <div v-for="t in g.snap.assets" :key="t.key" class="ov-tile">
-                <span class="ov-tile__label"><img v-if="t.image || t.imageId" class="ov-tile__img" :src="t.image || RANCH_IMAGE(t.imageId)" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
-                <strong class="ov-tile__value" :title="t.value">{{ t.value }}</strong>
-              </div>
-            </div>
-            <div v-else class="ov-stamp">
-              暂无缓存，进入{{ g.name }}后自动记录
-            </div>
+          </div>
+          <div v-else class="ov-stamp">
+            暂无数据，进入农场 / 牧场后自动记录
           </div>
         </section>
 
-        <!-- 库存：农场化肥 / 收藏点 + 牧场牧草 / 便便 / 罐头 -->
-        <section class="ov-card">
-          <h3 class="ov-card__title">
-            库存
+        <!-- 库存：农场化肥 / 收藏点 + 牧场牧草 / 便便 / 罐头，一个紧凑网格 -->
+        <section class="ov-card ov-card--dense">
+          <h3 class="ov-card__title ov-card__title--row">
+            <span>库存</span><small class="ov-stamp">{{ assetStamp }}</small>
           </h3>
-          <div v-for="g in groups" :key="g.space" class="ov-group">
-            <div class="ov-group__head">
-              <span>{{ g.name }}</span><small class="ov-stamp" :class="{ 'is-live': g.stamp.live }">{{ g.stamp.text }}</small>
+          <div v-if="mergedStock.length" class="ov-tiles ov-tiles--dense">
+            <div v-for="t in mergedStock" :key="`${t.from}-${t.key}`" class="ov-tile" :title="t.from === 'farm' ? '农场' : '牧场'">
+              <span class="ov-tile__label"><img v-if="t.image || t.imageId" class="ov-tile__img" :src="t.image || RANCH_IMAGE(t.imageId!)" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
+              <strong class="ov-tile__value">{{ t.value }}</strong>
             </div>
-            <div v-if="g.snap" class="ov-tiles">
-              <div v-for="t in g.snap.stock" :key="t.key" class="ov-tile">
-                <span class="ov-tile__label"><img v-if="t.image || t.imageId" class="ov-tile__img" :src="t.image || RANCH_IMAGE(t.imageId)" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
-                <strong class="ov-tile__value">{{ t.value }}</strong>
-              </div>
-            </div>
-            <div v-else class="ov-stamp">
-              暂无缓存，进入{{ g.name }}后自动记录
-            </div>
+          </div>
+          <div v-else class="ov-stamp">
+            暂无数据，进入农场 / 牧场后自动记录
           </div>
         </section>
       </div>
@@ -372,17 +376,17 @@ useIntervalFn(() => loadCache(false), 30000)
 
         <div class="dash-split__side">
           <!-- 下次巡查倒计时 -->
-          <div class="flex flex-col farm-card rounded-2xl bg-white p-6 shadow-md dark:bg-gray-800">
-            <h3 class="mb-4 flex items-center gap-2 text-lg font-display font-medium">
+          <div class="flex flex-col farm-card rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
+            <h3 class="mb-2 flex items-center gap-2 text-sm font-display font-medium">
               <span class="i-carbon-time" /> <span>下次巡查倒计时</span>
             </h3>
-            <div class="flex flex-col justify-center gap-4">
+            <div class="flex flex-col justify-center gap-2 text-sm">
               <div v-for="c in countdowns" :key="c.key" class="flex items-center justify-between">
                 <div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                  <span class="text-lg" :class="c.icon" />
+                  <span :class="c.icon" />
                   <span>{{ c.label }}</span>
                 </div>
-                <div class="text-lg tabular-nums font-bold" :class="{ 'opacity-60': c.cached }">
+                <div class="tabular-nums font-bold" :class="{ 'opacity-60': c.cached }">
                   {{ c.text }}
                 </div>
               </div>
@@ -390,8 +394,8 @@ useIntervalFn(() => loadCache(false), 30000)
           </div>
 
           <!-- 今日统计 / 今日收益统计 -->
-          <div class="farm-card rounded-2xl bg-white p-5 shadow-md dark:bg-gray-800">
-            <h3 class="mb-3 flex items-center gap-2 text-lg font-display font-medium">
+          <div class="farm-card rounded-2xl bg-white p-4 shadow-md dark:bg-gray-800">
+            <h3 class="mb-2 flex items-center gap-2 text-sm font-display font-medium">
               <span class="i-carbon-chart-column" /> <span>今日收益统计</span>
             </h3>
             <div v-for="g in groups" :key="g.space" class="ov-group">
@@ -399,8 +403,8 @@ useIntervalFn(() => loadCache(false), 30000)
                 <span>{{ g.name }}</span><small class="ov-stamp" :class="{ 'is-live': g.stamp.live }">{{ g.stamp.text }}</small>
               </div>
               <EmptyState v-if="g.space === 'farm' && g.stamp.live && !status?.connection?.connected" bare title="账号未登录" description="启动账号后显示今日统计" icon="i-carbon-connection-signal-off" />
-              <dl v-else-if="g.snap?.today?.length" class="grid grid-cols-2 gap-2">
-                <div v-for="item in g.snap.today" :key="item.key" class="ranch-todo" :class="{ 'is-zero': !item.count }">
+              <dl v-else-if="g.snap?.today?.length" class="ov-mini-grid">
+                <div v-for="item in g.snap.today" :key="item.key" class="ranch-todo ranch-todo--mini" :class="{ 'is-zero': !item.count }">
                   <dt class="text-xs text-gray-500 dark:text-gray-400">
                     {{ item.label }}
                   </dt>
@@ -415,26 +419,34 @@ useIntervalFn(() => loadCache(false), 30000)
             </div>
           </div>
 
-          <!-- 牧场生涯 -->
-          <section v-if="ranchSnap?.career" class="ov-card">
-            <h3 class="ov-card__title">
-              牧场生涯 <small class="ov-stamp" :class="{ 'is-live': ranchStamp.live }">{{ ranchStamp.text }}</small>
+          <!-- 农场生涯：游戏生涯接口的累计收获 / 累计偷菜 -->
+          <section v-if="farmSnap?.career" class="ov-card ov-card--dense">
+            <h3 class="ov-card__title ov-card__title--row">
+              <span>农场生涯</span><small class="ov-stamp" :class="{ 'is-live': farmStamp.live }">{{ farmStamp.text }}</small>
             </h3>
-            <CareerHarvestSteal :career="ranchSnap.career" variant="tiles" />
+            <CareerHarvestSteal :career="farmSnap.career" variant="tiles" compact />
+          </section>
+
+          <!-- 牧场生涯 -->
+          <section v-if="ranchSnap?.career" class="ov-card ov-card--dense">
+            <h3 class="ov-card__title ov-card__title--row">
+              <span>牧场生涯</span><small class="ov-stamp" :class="{ 'is-live': ranchStamp.live }">{{ ranchStamp.text }}</small>
+            </h3>
+            <CareerHarvestSteal :career="ranchSnap.career" variant="tiles" compact />
           </section>
 
           <!-- 待处理 -->
-          <section v-if="ranchSnap?.todo?.length" class="farm-card rounded-2xl p-5">
+          <section v-if="ranchSnap?.todo?.length" class="farm-card rounded-2xl p-4">
             <header class="ranch-card-head">
-              <h3 class="flex items-center gap-2 text-lg font-display font-medium">
+              <h3 class="flex items-center gap-2 text-sm font-display font-medium">
                 <span class="i-carbon-task" /> <span>牧场待处理</span>
               </h3>
               <small class="ov-stamp" :class="{ 'is-live': ranchStamp.live }">{{ ranchStamp.text }}</small>
             </header>
-            <div class="grid grid-cols-2 gap-2 2xl:gap-3">
-              <div v-for="item in ranchSnap.todo" :key="item.key" class="ranch-todo" :class="{ 'is-zero': !item.value }">
-                <div class="flex items-center gap-2">
-                  <span class="select-none text-base" :class="TODO_ICONS[item.key]" />
+            <div class="ov-mini-grid">
+              <div v-for="item in ranchSnap.todo" :key="item.key" class="ranch-todo ranch-todo--mini" :class="{ 'is-zero': !item.value }">
+                <div class="flex items-center gap-1">
+                  <span class="select-none text-sm" :class="TODO_ICONS[item.key]" />
                   <span class="text-xs text-gray-500">{{ item.label }}</span>
                 </div>
                 <b>{{ item.value }}</b>
@@ -443,9 +455,9 @@ useIntervalFn(() => loadCache(false), 30000)
           </section>
 
           <!-- 设施 -->
-          <section v-if="ranchSnap?.facilities?.length" class="farm-card rounded-2xl p-5">
+          <section v-if="ranchSnap?.facilities?.length" class="farm-card rounded-2xl p-4">
             <header class="ranch-card-head">
-              <h3 class="flex items-center gap-2 text-lg font-display font-medium">
+              <h3 class="flex items-center gap-2 text-sm font-display font-medium">
                 <span class="i-carbon-building" /> <span>牧场设施</span>
               </h3>
               <small class="ov-stamp" :class="{ 'is-live': ranchStamp.live }">{{ ranchStamp.text }}</small>
@@ -462,8 +474,8 @@ useIntervalFn(() => loadCache(false), 30000)
               </div>
             </div>
           </section>
-          <section v-else-if="!ranchSnap" class="farm-card rounded-2xl p-5">
-            <h3 class="mb-2 flex items-center gap-2 text-lg font-display font-medium">
+          <section v-else-if="!ranchSnap" class="farm-card rounded-2xl p-4">
+            <h3 class="mb-2 flex items-center gap-2 text-sm font-display font-medium">
               <span class="i-carbon-building" /> <span>牧场生涯 / 待处理 / 设施</span>
             </h3>
             <div class="ov-stamp">
@@ -970,5 +982,76 @@ useIntervalFn(() => loadCache(false), 30000)
 .ov-refresh:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* [fnos-fork] 紧凑：资产 / 库存 / 生涯 / 今日收益 / 待处理 不增加高度 */
+.ov-card--dense {
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.ov-card__title--row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ov-tiles--dense {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  align-content: start;
+}
+
+.ov-tiles--dense .ov-tile {
+  gap: 1px;
+  padding: 6px 9px;
+  border-radius: 10px;
+}
+
+.ov-tiles--dense .ov-tile__label {
+  gap: 4px;
+  font-size: 11px;
+}
+
+.ov-tiles--dense .ov-tile__label > span {
+  font-size: 12px;
+}
+
+.ov-tiles--dense .ov-tile__value {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.ov-exps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+@media (min-width: 520px) {
+  .ov-exps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+}
+
+.ov-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 6px;
+}
+
+.ranch-todo--mini {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 5px 9px;
+  border-radius: 10px;
+}
+
+.ranch-todo--mini b,
+.ranch-todo--mini dd {
+  font-size: 13px;
 }
 </style>
