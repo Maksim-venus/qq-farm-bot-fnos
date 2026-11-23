@@ -257,6 +257,18 @@ function createOverviewWriter(options: { cache?: any, now?: () => number, interv
             if (state.career) m.ranchCareer = state.career;
             schedule(id, 'ranch');
         },
+        /** 牧场巡查每轮单独拉到的生涯（不带牧场状态） */
+        onRanchCareer(accountId: string, career: any): void {
+            const id = String(accountId || '');
+            if (!id || !career) return;
+            const m = slot(id);
+            m.ranchCareer = career;
+            if (m.ranchState) schedule(id, 'ranch');
+            else {
+                const prev = cache().get(id).ranch;
+                if (prev) { try { cache().set(id, 'ranch', { ...prev, career: { harvest: Number(career.harvest) || 0, mature: Number(career.mature) || 0, steal: Number(career.steal) || 0 } }); } catch { /* ignore */ } }
+            }
+        },
         flush,
         dispose(): void { for (const t of timers.values()) clearTimeout(t); timers.clear(); },
     };

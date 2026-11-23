@@ -338,6 +338,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
                 if (msg.kind === 'bag') writer.onBag(accountId, msg.data);
                 else if (msg.kind === 'diamond') writer.onDiamond(accountId, msg.data);
                 else if (msg.kind === 'ranch') writer.onRanchState(accountId, msg.data);
+                else if (msg.kind === 'ranchCareer') writer.onRanchCareer(accountId, msg.data);
             } catch { /* ignore */ }
         } else if (msg.type === 'log') {
             const logEntry = {

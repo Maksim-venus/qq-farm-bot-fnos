@@ -113,3 +113,22 @@ test('取数钩子：没有 sink 什么都不做，有 sink 就转发，sink 抛
     assert.doesNotThrow(() => hooks.emitOverviewData('ranch', {}));
     hooks.setOverviewSink(null);
 });
+
+test('牧场巡查单独拉到的生涯：补进牧场快照，不需要牧场概览视图', () => {
+    const { cache, writer, advance } = setup(0);
+    writer.onRanchState('1', ranchState());
+    assert.equal(cache.get('1').ranch.career, null);
+    advance(1000);
+    writer.onRanchCareer('1', { harvest: 7, mature: 5, steal: 3, products: [] });
+    assert.deepEqual(cache.get('1').ranch.career, { harvest: 7, mature: 5, steal: 3 });
+    // 之后的普通牧场读取沿用这份生涯
+    advance(1000);
+    writer.onRanchState('1', ranchState('99'));
+    assert.deepEqual(cache.get('1').ranch.career, { harvest: 7, mature: 5, steal: 3 });
+});
+
+test('生涯先于牧场状态到达：已有缓存时直接补，没有缓存时不写', () => {
+    const { cache, writer } = setup(0);
+    writer.onRanchCareer('2', { harvest: 1, mature: 1, steal: 1 });
+    assert.equal(cache.get('2').ranch, null);
+});
