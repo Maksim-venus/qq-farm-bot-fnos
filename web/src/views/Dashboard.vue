@@ -172,7 +172,7 @@ const countdowns = computed(() => groups.value.filter(g => g.space === 'farm').f
     text = live ? '巡查中...' : '待更新'
   else
     text = formatDuration((c.at - now.value.getTime()) / 1000)
-  return { key: `${space}-${c.key}`, space, label: c.label, text, cached: !live, icon: c.key === 'friend' ? 'i-carbon-collaborate text-blue-500' : space === 'ranch' ? 'i-carbon-pedestrian-family text-amber-500' : 'i-carbon-sprout text-green-500' }
+  return { key: `${space}-${c.key}`, space, label: c.label, text, cached: !live, icon: c.key === 'friend' ? 'i-carbon-collaborate text-blue-500' : 'i-carbon-sprout text-green-500' }
 })))
 
 const localUptime = ref(0)
