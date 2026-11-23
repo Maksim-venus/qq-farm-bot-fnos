@@ -228,6 +228,23 @@ function mountAccountRoutes(app: Application, ctx: AdminContext): void {
         res.json({ ok: true, data });
     });
 
+    // [fnos-fork] 2026-11-23 首页合并概览缓存：农场 / 牧场各一份快照（按账号持久化），非当前空间读这里，不实时查游戏
+    app.get('/api/fnos/overview-cache', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        res.json({ ok: true, data: require('../../runtime/fnos-overview-cache').getOverviewCache().get(id) });
+    });
+    app.put('/api/fnos/overview-cache/:space', (req: Request, res: Response) => {
+        const id = getAccId(ctx, req);
+        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
+        try {
+            const data = require('../../runtime/fnos-overview-cache').getOverviewCache().set(id, String(req.params.space), req.body);
+            res.json({ ok: true, data });
+        } catch (e: any) {
+            res.status(400).json({ ok: false, error: e?.message || '保存失败' });
+        }
+    });
+
     // API: 清空当前账号运行日志
     app.delete('/api/logs', (req: Request, res: Response) => {
         const id = getAccId(ctx, req);

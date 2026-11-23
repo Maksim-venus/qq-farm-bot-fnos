@@ -1693,6 +1693,8 @@ function syncStatus(force: boolean = false): void {
         friendQuiet,
         helpQuiet: friendQuiet,
         stealQuiet: friendQuiet,
+        // [fnos-fork] 牧场下次巡查：null = 今天已做完 / 暂停中，没有下次时间
+        ranchRemainSec: Number.isFinite(ranchNextRunAt()) ? Math.max(0, Math.ceil((ranchNextRunAt() - nowMs) / 1000)) : null,
     };
 
     fullStats.automation = getAutomation();
