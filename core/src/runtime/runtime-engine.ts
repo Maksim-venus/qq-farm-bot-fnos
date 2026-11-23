@@ -11,6 +11,8 @@ const { createReloginReminderService } = require('./relogin-reminder');
 const { createRuntimeState } = require('./runtime-state');
 const { createWorkerManager } = require('./worker-manager');
 
+const { listHostedSessions, findAccountSession } = require('../session/ipc');
+
 const OPERATION_KEYS = ['harvest', 'farming', 'fertilize', 'plant', 'steal', 'helpFarming', 'taskClaim', 'sell', 'upgrade'];
 
 interface RuntimeEngineOptions {
@@ -67,7 +69,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         sendConfiguredPush,
     } = reloginReminder;
 
-    const { startWorker, stopWorker, restartWorker, callWorkerApi } = createWorkerManager({
+    const { startWorker, stopWorker, restartWorker, callWorkerApi, startAccountWorker, stopAccountWorker, detachAllWorkers } = createWorkerManager({
         fork,
         WorkerThread: Worker,
         runtimeMode,
@@ -109,8 +111,8 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         broadcastConfigToWorkers,
         buildConfigSnapshotForAccount,
         broadcastGameConfigReload,
-        startWorker,
-        stopWorker,
+        startWorker: startAccountWorker,
+        stopWorker: stopAccountWorker,
         restartWorker,
     });
 
@@ -168,7 +170,13 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
             startAdminServer(dataProvider);
         }
 
-        if (shouldAutoStartAccounts) {
+        if (processRef.env.FARM_SESSION_SOCKET) {
+            const sessions = await listHostedSessions();
+            for (const account of store.getAccounts().accounts) {
+                const session = findAccountSession(sessions, account);
+                if (session || shouldAutoStartAccounts) startWorker(account, session?.sessionId);
+            }
+        } else if (shouldAutoStartAccounts) {
             startAllAccounts();
         }
     }
@@ -187,6 +195,7 @@ function createRuntimeEngine(options: RuntimeEngineOptions = {}) {
         start,
         startAllAccounts,
         stopAllAccounts,
+        detachAllWorkers,
         broadcastConfigToWorkers,
         broadcastGameConfigReload,
         startWorker,

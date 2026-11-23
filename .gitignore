@@ -60,3 +60,6 @@ protocol-captures/
 
 # fnOS 打包输出
 fnos/out/
+/runtime/
+/releases/
+/packages/*/dist/

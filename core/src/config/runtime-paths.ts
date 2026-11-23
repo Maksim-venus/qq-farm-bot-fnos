@@ -1,6 +1,7 @@
 export {};
 const fs = require('node:fs');
 const path = require('node:path');
+const { resolveRuntimePaths, resolveWebRootInfo } = require('@qq-farm-bot/session-contract');
 const isPackaged: boolean = !!(process as any).pkg;
 
 /** 是否运行在 Node 单文件可执行程序（SEA）中（飞牛原生包 V1.2.0 起）。 */
@@ -40,6 +41,29 @@ function getResourcePath(...segments: string[]): string {
 function getAppRootForWritable(): string {
     if (isSea) return getSeaRoot();
     return isPackaged ? path.dirname(process.execPath) : path.join(__dirname, '../..');
+}
+
+function getRuntimePaths() {
+    const appRoot = getAppRootForWritable();
+    // [fnos-fork] 飞牛原生包：数据、运行时目录都放在 QQ_FARM_DATA_DIR（${TRIM_PKGVAR}/data）下，安装目录保持只读；
+    // 前端目录沿用 getWebDistDir（QQ_FARM_WEB_DIR / SEA 的 server/web/dist）。
+    const fnosDataDir = String(process.env.QQ_FARM_DATA_DIR || '').trim();
+    const defaultRuntimeDir = fnosDataDir
+        ? path.join(path.resolve(fnosDataDir), 'runtime')
+        : (isPackaged ? path.join(appRoot, 'runtime') : path.resolve(appRoot, '../runtime'));
+    return resolveRuntimePaths({
+        appRoot,
+        isPackaged,
+        defaultDataDir: getDataDir(),
+        defaultRuntimeDir,
+        defaultResourceRoot: getResourceRoot(),
+        defaultWebRoot: getWebDistDir(path.resolve(__dirname, '../../../web/dist')),
+        defaultShareFilePath: getShareFilePath(),
+    });
+}
+
+function getWebRootInfo() {
+    return resolveWebRootInfo(getRuntimePaths().runtimeDir, getWebDistDir(path.resolve(__dirname, '../../../web/dist')));
 }
 
 function getDataDir(): string {
@@ -86,6 +110,8 @@ module.exports = {
     getWebDistDir,
     getWorkerScriptPath,
     getResourcePath,
+    getRuntimePaths,
+    getWebRootInfo,
     getDataDir,
     getDataFile,
     ensureDataDir,

@@ -227,7 +227,8 @@ test('上游 Worker 的登录与跨日强制任务遵守邮箱时刻，同日整
         start() { loginReady = true; startDailyRoutineTimer(); },
     })`, {
         exports: {}, Date: h.ClockDate,
-        process: { env: { FARM_ACCOUNT_ID: 'worker' }, send: noop, on: noop },
+        // [fnos-fork] 上游 #181 起 worker 顶层调用 process.once('disconnect')，模拟进程补上 once（上游测试本身缺这一项会崩）
+        process: { env: { FARM_ACCOUNT_ID: 'worker' }, send: noop, on: noop, once: noop },
         require: name => modules[name] || {},
     }, { filename });
     const flush = () => new Promise(resolve => setImmediate(resolve));

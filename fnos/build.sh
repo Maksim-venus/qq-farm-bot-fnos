@@ -76,6 +76,8 @@ pnpm install --frozen-lockfile
 echo "==> 2/5 构建前端（base=${GATEWAY_BASE}）与后端"
 # 飞牛改动：把本次 APP_VERSION 注入前端（侧栏「fpk v…」），与 manifest version 同源
 VITE_BASE="${GATEWAY_BASE}" FPK_VERSION="${APP_VERSION}" pnpm -C web build
+# [fnos-fork] 上游 #181 新增 workspace 包 @qq-farm-bot/session-contract，core 依赖其 dist
+pnpm build:contract
 pnpm -C core build:ts
 
 echo "==> 3/5 组装应用目录"

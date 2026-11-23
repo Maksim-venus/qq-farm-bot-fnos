@@ -167,6 +167,8 @@ const visibleEntries = computed(() => visible.value.map((friend) => {
   return {
     friend,
     gid,
+    // [fnos-fork] 标签行总有 fork 的 Lv / 还多久可偷，所以 statusId 一律给出（上游只在有状态标签时给，会把整行标签藏掉）
+    statusId: `ranch-friend-status-${gid}`,
     expanded: !blacklisted && Boolean(expandedGids.value[gid]),
     blacklisted,
     detail,
@@ -231,6 +233,7 @@ watch(() => state.value?.friendRanch, (live) => {
   if (friend) {
     friend.canHelp = live.cleanableHazards > 0
     friend.helpCount = live.cleanableHazards
+    friend.canMidwife = live.ranches.some((pen: any) => pen.animals.some((animal: any) => animal.canProduce))
     friend.canSteal = live.canSteal
   }
 })
@@ -461,7 +464,7 @@ async function reloadList() {
       <div v-else class="friends__list">
         <div v-for="entry in visibleEntries" :key="entry.gid" class="friend-card" :class="{ 'is-expanded': entry.expanded, 'is-tt-ready': fnosTtCell(entry.friend).ready && !entry.blacklisted, 'is-blacklisted': entry.blacklisted }">
           <div class="friend-row">
-            <button type="button" class="friend-open" :aria-expanded="entry.expanded" :aria-label="`${entry.friend.name}，查看牧场`" :disabled="disabled || entry.blacklisted" @click="toggle(entry.friend, $event)">
+            <button type="button" class="friend-open" :aria-expanded="entry.expanded" :aria-describedby="entry.statusId" :aria-label="`${entry.friend.name}，查看牧场`" :disabled="disabled || entry.blacklisted" @click="toggle(entry.friend, $event)">
               <span class="friend-avatar">
                 <img v-if="entry.friend.avatarUrl && !failedAvatars[entry.gid]" :src="entry.friend.avatarUrl" alt="" loading="lazy" @error="failedAvatars[entry.gid] = true">
                 <span v-else class="i-carbon-user" />
@@ -471,23 +474,18 @@ async function reloadList() {
                   <strong class="friend-name" :title="entry.friend.name">{{ entry.friend.name }}</strong>
                   <span class="friend-gid">{{ entry.gid }}</span>
                 </span>
-                <span class="friend-tags">
+                <span v-if="entry.statusId" :id="entry.statusId" class="friend-tags">
                   <span v-if="entry.blacklisted" class="f-tag f-tag--blocked">已拉黑</span>
                   <template v-else>
-                    <span v-if="entry.friend.canHelp" class="f-tag">
-                      <span class="i-carbon-clean text-amber-600 dark:text-amber-400" aria-hidden="true" />
-                      {{ entry.friend.helpCount > 0 ? `可清理 ${entry.friend.helpCount}` : '可清理' }}
+                    <span v-if="entry.friend.canMidwife" class="f-tag">
+                      <span class="i-carbon-circle-dash" aria-hidden="true" />可帮生产
                     </span>
-                    <template v-if="entry.expanded && entry.detail">
-                      <span class="f-tag f-tag--level">牧场 Lv.{{ entry.detail.level }}</span>
-                      <span class="f-tag" :class="{ 'f-tag--steal': entry.detail.canSteal }">
-                        <span class="i-carbon-shopping-bag" />{{ entry.detail.canSteal ? `可偷 ${entry.detail.stealableShelves} 个货架` : '暂无可偷产物' }}
-                      </span>
-                    </template>
-                    <template v-else>
-                      <span v-if="entry.friend.canSteal" class="f-tag f-tag--steal">可偷取</span>
-                      <span v-if="!entry.friend.canHelp && !entry.friend.canSteal" class="f-tag">点击查看牧场</span>
-                    </template>
+                    <span v-if="entry.friend.canSteal" class="f-tag f-tag--steal">
+                      <span class="i-carbon-shopping-bag" aria-hidden="true" />可偷
+                    </span>
+                    <span v-if="entry.friend.canHelp" class="f-tag">
+                      <span class="i-carbon-clean text-amber-600 dark:text-amber-400" aria-hidden="true" />可清理
+                    </span>
                   </template>
                   <!-- [fnos-fork] 牧场等级（好友列表字段 25 / 本账号缓存；未读取的按 Lv1）；展开后已有「牧场 Lv」时不重复显示 -->
                   <span v-if="!(entry.expanded && entry.detail)" class="f-tag f-tag--level" :class="{ 'f-tag--level-guess': entry.friend.ranchLevelKnown === false }" :title="fnosRanchLevelTitle(entry.friend)">Lv.{{ fnosRanchLevelOf(entry.friend) }}</span>
@@ -546,6 +544,7 @@ async function reloadList() {
                 </div>
                 <div class="friend-overview__toolbar">
                   <div class="friend-overview__stats">
+                    <span class="friend-stat">牧场等级 <b>{{ entry.detail.level }}</b></span>
                     <span v-if="entry.detail.feedMachine" class="friend-stat">
                       <span class="i-carbon-wheat text-amber-600 dark:text-amber-400" aria-hidden="true" />
                       <span>牧草机 <b>{{ formatCount(entry.detail.feedMachine.count) }} / {{ formatCount(entry.detail.feedMachine.capacity) }}</b></span>
@@ -656,7 +655,7 @@ async function reloadList() {
                     <h4>货架产物</h4>
                     <span class="friend-section__meta">{{ entry.shelves.length ? `${entry.shelves.length} 个货架` : '空' }}</span>
                     <span v-if="entry.detail.canSteal" class="friend-pill is-highlight">
-                      可偷 {{ entry.detail.stealableShelves }} 个
+                      可偷
                     </span>
                   </div>
                   <NButton size="small" type="primary" :title="entry.detail.fnosRules?.steal || ''" :disabled="disabled || !entry.detail.canSteal || !!entry.detail.fnosRules?.steal" @click="request('steal', { hostGid: entry.gid })">
@@ -674,7 +673,7 @@ async function reloadList() {
                         <img :src="product.image" alt="">{{ product.name }}<b>×{{ formatCount(product.count) }}</b>
                       </span>
                     </div>
-                    <span class="shelf__state">{{ shelf.canSteal ? '可偷取' : '不可偷' }}</span>
+                    <span class="shelf__state">{{ shelf.canSteal ? '可偷' : '不可偷' }}</span>
                   </div>
                 </div>
                 <p v-else class="friend-section__empty">
@@ -881,11 +880,6 @@ async function reloadList() {
   line-height: 1;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-}
-
-.f-tag--level {
-  color: var(--ui-ink);
-  font-weight: var(--fw-600);
 }
 
 .f-tag--steal {
