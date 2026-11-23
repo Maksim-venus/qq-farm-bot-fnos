@@ -93,11 +93,14 @@ function facilityDto(facility: any, level: number): any {
     };
 }
 
-async function loadRaw(cells?: any): Promise<any> {
-    const currentCells = cells || await rpc('cells');
+async function loadBag(): Promise<any> {
     const bag = await rpc('bag', { global_scene_id: 2 });
     if (bag.global_scene_id !== 2) throw error('RANCH_RESPONSE_MISMATCH', '牧场背包场景不匹配');
-    return { cells: currentCells, bag };
+    return bag;
+}
+
+async function loadRaw(cells?: any): Promise<any> {
+    return { cells: cells || await rpc('cells'), bag: await loadBag() };
 }
 
 function shedAwaitingActivation(raw: any): any {
@@ -271,8 +274,11 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
         }
         if (view === 'visitors') state.visitors = await require('./fnos-visitors').fetchRanchVisitors(); // [fnos-fork] 牧场最近访客
         if (view === 'friends') {
-            if (hostGid !== undefined) state.friendRanch = await require('./friends').getFriend(hostGid);
-            else {
+            if (hostGid !== undefined) {
+                const grass = balance(raw.bag, 7001); // 上游 #179：赠送牧草可用数量
+                state.friendRanch = await require('./friends').getFriend(hostGid);
+                state.friendRanch.grassAvailable = (BigInt(grass.total) - BigInt(grass.locked)).toString();
+            } else {
 // [fnos-fork] 列表带等级（好友列表协议只有农场等级 GameFriend.level；牧场等级要进好友牧场才有，列表字段 25 或缓存）、大小号置灰原因与今日剩余次数
                 // 上游 #160：按牧场场景同步名单并优先显示昵称
                 // 上游 #163：列表带 blacklisted，供前端「加入/移出黑名单」
@@ -317,4 +323,4 @@ async function resourceBalances(keys: string[]): Promise<any[]> {
     });
 }
 
-module.exports = { getState, loadRaw, isPendingShed, shedAwaitingActivation, snapshot, balance, bagItems, inventory, salePrices, taskList, catalog, market, readMarketRotation, canCatalog, ranchMallCatalog, canLockRanchItem, ranchCareer, resourceBalance, isRanchResource, resourceBalances, animalDto };
+module.exports = { getState, loadBag, loadRaw, isPendingShed, shedAwaitingActivation, snapshot, balance, bagItems, inventory, salePrices, taskList, catalog, market, readMarketRotation, canCatalog, ranchMallCatalog, canLockRanchItem, ranchCareer, resourceBalance, isRanchResource, resourceBalances, animalDto };
