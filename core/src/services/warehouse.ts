@@ -37,6 +37,26 @@ let fertilizerGiftLastOpenAt: number = 0;
 let charitySettlementGiftLastOpenAt: number = 0;
 let pendingBagRequest: Promise<any> | null = null;
 
+// [fnos-fork] 2026-11-23 首页概览缓存：只取化肥桶 / 收藏点，规则同 getBagDetail 的 systemItems
+function emitOverviewBag(reply: any): void {
+    try {
+        const items = (getBagItems(reply) || [])
+            .filter((it: any) => [1011, 1012, 3001, 3002].includes(toNum(it.id)) && toNum(it.count) > 0 && toNum(it.uid) <= 0)
+            .map((it: any) => {
+                const id: number = toNum(it.id);
+                const count: number = toNum(it.count);
+                const info: any = getItemById(id) || null;
+                const hoursText: string = info && String(info.interaction_type || '') === 'fertilizerbucket'
+                    ? `${(Math.floor((count / 3600) * 10) / 10).toFixed(1)}小时`
+                    : '';
+                return { id, count, hoursText };
+            });
+        require('../runtime/fnos-overview-hooks').emitOverviewData('bag', items);
+    } catch {
+        // 不影响背包读取
+    }
+}
+
 // ============ API ============
 
 async function getBag(options: { fresh?: boolean } = {}): Promise<any> {
@@ -45,7 +65,9 @@ async function getBag(options: { fresh?: boolean } = {}): Promise<any> {
     const request = (async () => {
         const body: Uint8Array = types.BagRequest.encode(types.BagRequest.create({})).finish();
         const { body: replyBody } = await sendMsgAsync('gamepb.itempb.ItemService', 'Bag', body);
-        return types.BagReply.decode(replyBody);
+        const reply = types.BagReply.decode(replyBody);
+        emitOverviewBag(reply); // [fnos-fork] 首页概览缓存：每次读到背包都把概览用到的几项交给主进程
+        return reply;
     })();
     pendingBagRequest = request;
     try {

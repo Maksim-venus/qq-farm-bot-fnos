@@ -62,6 +62,9 @@ function sendToMaster(payload: Record<string, any>): void {
     }
 }
 
+// [fnos-fork] 2026-11-23 首页概览缓存：业务代码读到背包 / 钻石 / 牧场数据时，通过这里交给主进程落盘
+try { require('../runtime/fnos-overview-hooks').setOverviewSink?.((kind: string, data: any) => sendToMaster({ type: 'fnos_overview', kind, data })); } catch { /* 概览缓存不影响 Worker 启动 */ }
+
 function onMasterMessage(handler: (msg: any) => void): void {
     if (process.send) {
         process.on('message', handler);

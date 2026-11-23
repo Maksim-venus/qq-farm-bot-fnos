@@ -100,7 +100,10 @@ async function loadBag(): Promise<any> {
 }
 
 async function loadRaw(cells?: any): Promise<any> {
-    return { cells: cells || await rpc('cells'), bag: await loadBag() };
+    const raw = { cells: cells || await rpc('cells'), bag: await loadBag() };
+    // [fnos-fork] 2026-11-23 首页概览缓存：牧场自动化每轮 / 页面读取都会走到这里
+    try { require('../../runtime/fnos-overview-hooks').emitOverviewData('ranch', snapshot(raw)); } catch { /* 不影响牧场流程 */ }
+    return raw;
 }
 
 function shedAwaitingActivation(raw: any): any {
@@ -253,7 +256,10 @@ async function getState(view = 'animals', shopId?: number, hostGid?: string): Pr
         const raw = await loadRaw(cells);
         const state = snapshot(raw);
         state.pendingOperations = require('./operation-state').forCurrentAccount().pending().map(pendingOperationView);
-        if (view === 'overview') state.career = await ranchCareer(getUserState().gid);
+        if (view === 'overview') {
+            state.career = await ranchCareer(getUserState().gid);
+            try { require('../../runtime/fnos-overview-hooks').emitOverviewData('ranch', state); } catch { /* 同上 */ }
+        }
         if (view === 'bag') state.bag = inventory(raw);
         if (view === 'shop') state.shop = await catalog(raw, Number(shopId ?? 5));
         if (view === 'market') state.market = await market(raw);

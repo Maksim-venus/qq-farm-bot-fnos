@@ -259,6 +259,7 @@ function createWorkerManager(options: WorkerManagerOptions) {
 
         if (msg.type === 'status_sync') {
             worker.status = normalizeStatusForPanel(msg.data, accountId, worker.name);
+            try { require('./fnos-overview-writer').getOverviewWriter().onStatus(accountId, msg.data); } catch { /* [fnos-fork] 概览缓存不影响状态同步 */ }
             if (typeof onStatusSync === 'function') {
                 onStatusSync(accountId, worker.status, worker.name);
             }
@@ -330,6 +331,14 @@ function createWorkerManager(options: WorkerManagerOptions) {
                     }
                 }
             }
+        } else if (msg.type === 'fnos_overview') {
+            // [fnos-fork] 2026-11-23 Worker 拿到背包 / 钻石 / 牧场数据：后台直接写概览缓存
+            try {
+                const writer = require('./fnos-overview-writer').getOverviewWriter();
+                if (msg.kind === 'bag') writer.onBag(accountId, msg.data);
+                else if (msg.kind === 'diamond') writer.onDiamond(accountId, msg.data);
+                else if (msg.kind === 'ranch') writer.onRanchState(accountId, msg.data);
+            } catch { /* ignore */ }
         } else if (msg.type === 'log') {
             const logEntry = {
                 ...msg.data,
