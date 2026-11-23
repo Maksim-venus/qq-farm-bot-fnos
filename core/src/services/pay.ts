@@ -23,7 +23,9 @@ async function getRechargeInfo(source: string = DEFAULT_RECHARGE_SOURCE): Promis
 async function getDiamondBalance(): Promise<number> {
     const reply: any = await getRechargeInfo();
     const infos: any[] = Array.isArray(reply?.recharge_infos) ? reply.recharge_infos : [];
-    return Math.max(0, toNum(infos[0]?.balance));
+    const balance = Math.max(0, toNum(infos[0]?.balance));
+    require('../runtime/fnos-overview-hooks').emitOverviewData('diamond', balance); // [fnos-fork] 首页概览缓存
+    return balance;
 }
 
 module.exports = {

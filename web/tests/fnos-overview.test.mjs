@@ -85,14 +85,10 @@ test('牧场今日完成 / 无统计时倒计时为空、今日收益为空', ()
   assert.deepEqual(s.today, [])
 })
 
-test('更新时间展示与回写节流', () => {
+test('更新时间展示', () => {
   const now = 100 * 3_600_000
   assert.equal(o.formatUpdatedAt(undefined, now), '')
   assert.equal(o.formatUpdatedAt(now - 1000, now), '刚刚')
   assert.equal(o.formatUpdatedAt(now - 5 * 60_000, now), '5 分钟前')
   assert.equal(o.formatUpdatedAt(now - 3 * 3_600_000, now), '3 小时前')
-  assert.equal(o.shouldPersist(undefined, 'a', 0, 1000), true)
-  assert.equal(o.shouldPersist({ at: 0, hash: 'a' }, 'a', 5000, 1000), false)
-  assert.equal(o.shouldPersist({ at: 0, hash: 'a' }, 'b', 500, 1000), false)
-  assert.equal(o.shouldPersist({ at: 0, hash: 'a' }, 'b', 1500, 1000), true)
 })

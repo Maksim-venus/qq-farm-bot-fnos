@@ -4,7 +4,7 @@
 
 export type OverviewSpace = 'farm' | 'ranch'
 
-export interface OverviewTile { key: string | number, label: string, value: string, image?: string }
+export interface OverviewTile { key: string | number, label: string, value: string, image?: string, imageId?: number }
 export interface OverviewSnapshot {
   space: OverviewSpace
   level: number
@@ -200,16 +200,4 @@ export function formatUpdatedAt(updatedAt: number | undefined, now = Date.now())
   const d = new Date(updatedAt + 8 * 3600_000)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getUTCMonth() + 1}月${d.getUTCDate()}日 ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`
-}
-
-/** 回写节流：同一边两次保存至少间隔 intervalMs，且内容没变就不存。 */
-export function shouldPersist(prev: { at: number, hash: string } | undefined, hash: string, now: number, intervalMs: number): boolean {
-  if (!prev)
-    return true
-  return hash !== prev.hash && now - prev.at >= intervalMs
-}
-
-/** 去掉随时间变化的字段后的内容指纹，用来判断快照有没有真的变化。 */
-export function snapshotHash(snapshot: OverviewSnapshot): string {
-  return JSON.stringify({ ...snapshot, nextChecks: undefined, updatedAt: undefined })
 }

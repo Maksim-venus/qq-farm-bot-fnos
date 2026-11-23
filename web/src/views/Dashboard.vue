@@ -14,7 +14,7 @@ import { getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useBagStore } from '@/stores/bag'
 import { useRanchStore } from '@/stores/ranch'
 import { useStatusStore } from '@/stores/status'
-import { buildFarmSnapshot, buildRanchSnapshot, formatUpdatedAt, shouldPersist, snapshotHash } from '@/utils/fnos-overview'
+import { buildFarmSnapshot, buildRanchSnapshot, formatUpdatedAt } from '@/utils/fnos-overview'
 
 // [fnos-fork] 2026-11-23 首页合并概览：农场、牧场放在同一个首页（农场、牧场两个空间的「概览」都是这一页）。
 // 当前所在空间读实时数据；另一边读服务端缓存的快照（/api/fnos/overview-cache），不额外实时查游戏。
@@ -87,9 +87,10 @@ const ranchSnap = computed<OverviewSnapshot | null>(() => ranchLive.value
     })
   : cache.value.ranch)
 
-async function loadCache() {
+async function loadCache(reset = true) {
   const id = String(currentAccountId.value || '')
-  cache.value = { farm: null, ranch: null }
+  if (reset)
+    cache.value = { farm: null, ranch: null }
   if (!id)
     return
   try {
@@ -102,27 +103,7 @@ async function loadCache() {
   }
 }
 
-const lastSaved: Record<string, { at: number, hash: string }> = {}
-async function persist(space: 'farm' | 'ranch', snapshot: OverviewSnapshot | null, intervalMs: number) {
-  const id = String(currentAccountId.value || '')
-  if (!id || !snapshot)
-    return
-  const key = `${id}:${space}`
-  const hash = snapshotHash(snapshot)
-  if (!shouldPersist(lastSaved[key], hash, Date.now(), intervalMs))
-    return
-  lastSaved[key] = { at: Date.now(), hash }
-  try {
-    await api.put(`/api/fnos/overview-cache/${space}`, snapshot, { headers: { 'x-account-id': id }, skipErrorToast: true } as any)
-  }
-  catch {
-    delete lastSaved[key]
-  }
-}
-// 读到数据就回写（节流）：农场每次状态 / 背包 / 钻石变化，牧场每次读取牧场数据
-watch(farmSnap, snap => farmLive.value && snap?.level ? persist('farm', snap, 30_000) : undefined)
-watch(ranchSnap, snap => ranchLive.value && snap?.level ? persist('ranch', snap, 15_000) : undefined)
-
+// [fnos-fork] 概览缓存由后台每次拿到农场 / 牧场数据时写入，页面不再回写，只定时重新读取
 const farmStamp = computed(() => farmLive.value ? { live: true, text: '实时' } : { live: false, text: cache.value.farm?.updatedAt ? `缓存 · ${formatUpdatedAt(cache.value.farm.updatedAt, now.value.getTime())}更新` : '暂无缓存' })
 const ranchStamp = computed(() => ranchLive.value ? { live: true, text: '实时' } : { live: false, text: cache.value.ranch?.updatedAt ? `缓存 · ${formatUpdatedAt(cache.value.ranch.updatedAt, now.value.getTime())}更新` : '暂无缓存' })
 const groups = computed(() => [
@@ -281,6 +262,7 @@ onMounted(async () => {
   await refreshDiamond()
 })
 useIntervalFn(refresh, 10000)
+useIntervalFn(() => loadCache(false), 30000)
 </script>
 
 <template>
@@ -346,7 +328,7 @@ useIntervalFn(refresh, 10000)
             </div>
             <div v-if="g.snap" class="ov-tiles">
               <div v-for="t in g.snap.assets" :key="t.key" class="ov-tile">
-                <span class="ov-tile__label"><img v-if="t.image" class="ov-tile__img" :src="t.image" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
+                <span class="ov-tile__label"><img v-if="t.image || t.imageId" class="ov-tile__img" :src="t.image || RANCH_IMAGE(t.imageId)" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
                 <strong class="ov-tile__value" :title="t.value">{{ t.value }}</strong>
               </div>
             </div>
@@ -367,7 +349,7 @@ useIntervalFn(refresh, 10000)
             </div>
             <div v-if="g.snap" class="ov-tiles">
               <div v-for="t in g.snap.stock" :key="t.key" class="ov-tile">
-                <span class="ov-tile__label"><img v-if="t.image" class="ov-tile__img" :src="t.image" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
+                <span class="ov-tile__label"><img v-if="t.image || t.imageId" class="ov-tile__img" :src="t.image || RANCH_IMAGE(t.imageId)" alt=""><span v-else :class="FARM_ICONS[String(t.key)]" />{{ t.label }}</span>
                 <strong class="ov-tile__value">{{ t.value }}</strong>
               </div>
             </div>
