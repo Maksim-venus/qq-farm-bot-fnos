@@ -119,17 +119,12 @@ export interface AccountConfig {
     autoComplete: boolean;
   };
   /**
-   * [fnos-fork] 2026-10-31 偷收比。公式：生涯偷菜 / 生涯收获 × 100%，严格大于阈值才触发。
-   * 四项开关独立，默认关。autoDeleteOnlineStealer 与阈值无关，默认关。
+   * [fnos-fork] 在线期间来偷菜的自动删除（键名沿用旧的 fnosStealRatio）。
+   * 2026-11-23 起偷收比阈值 / 忽略申请 / Bark / 筛选 / 自动删除已下架，旧字段读取时丢弃。
    * 见 services/friend/fnos-steal-ratio.ts。
    */
   fnosStealRatio?: {
-    thresholdPercent: number;
-    ignoreApplications: boolean;
-    listFilter: boolean;
-    barkOnSteal: boolean;
-    autoDelete: boolean;
-    /** [fnos-fork] 在线期间来偷菜的自动删除，缺省 false */
+    /** 缺省 false */
     autoDeleteOnlineStealer?: boolean;
   };
   /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（见 services/fnos-quiet-priority.ts） */

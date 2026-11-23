@@ -213,7 +213,7 @@ function addFriendToBlacklist(friendGid: any, friendName: string, reason: string
     });
     if (!sent) return false;
 
-    // [fnos-fork] 偷收比自动删除会带上明确原因；原来的封禁自动拉黑文案保持不变
+    // [fnos-fork] 在线期间偷菜删除会带上明确原因；原来的封禁自动拉黑文案保持不变
     const customReason = String(reason || '').trim();
     if (customReason && customReason !== '手动删除好友') {
         log('好友', `已将 ${friendName || `GID:${gid}`} 加入黑名单：${customReason}`, {
@@ -972,7 +972,7 @@ export async function deleteFriend(friendGid: any, reason?: string): Promise<{ o
         ? friendsListCache.find((friend: any) => toNum(friend.gid) === gid)
         : null;
     const name: string = String((cached && cached.name) || '').trim() || `GID:${gid}`;
-    // [fnos-fork] reason 仅偷收比自动删除传入；手动删除保持原日志
+    // [fnos-fork] reason 仅在线期间偷菜删除传入；手动删除保持原日志
     const why = String(reason || '').trim();
 
     await delFriend(gid);

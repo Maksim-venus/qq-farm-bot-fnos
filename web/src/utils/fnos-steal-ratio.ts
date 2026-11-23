@@ -1,104 +1,23 @@
 /**
- * [fnos-fork] 偷收比（2026-10-31）
+ * [fnos-fork] 在线期间来偷菜的自动删除（文件名沿用旧的 steal-ratio）
  *
- * 与 core/src/services/friend/fnos-steal-ratio.ts、好友卡片「收偷比」同一公式：
- *   偷收比 = 生涯偷菜 ÷ 生涯收获 × 100%
- * 生涯收获为 0 且生涯偷菜 > 0 视为「只偷不收」（超过任意阈值）；两者都是 0 为 0%。
- * 「超过阈值」是严格大于。
+ * 2026-11-23 起偷收比阈值 / 忽略申请 / Bark / 好友页筛选 / 自动删除已下架，
+ * 旧配置里的这些字段读取时直接丢弃，只认 autoDeleteOnlineStealer。
  */
 
 export interface FnosStealRatioConfig {
-  thresholdPercent: number
-  ignoreApplications: boolean
-  listFilter: boolean
-  barkOnSteal: boolean
-  autoDelete: boolean
-  /** 在线期间来偷菜的自动删除，与阈值和上面四项无关，默认关 */
+  /** 在线期间来偷菜的自动删除，默认关 */
   autoDeleteOnlineStealer: boolean
 }
 
-export interface FnosStealRatioInfo {
-  percent: number
-  infinite: boolean
-  text: string
-}
-
-export type FnosStealFilterMode = 'all' | 'above' | 'below' | 'range'
-
 const DEFAULTS: FnosStealRatioConfig = {
-  thresholdPercent: 80,
-  ignoreApplications: false,
-  listFilter: false,
-  barkOnSteal: false,
-  autoDelete: false,
   autoDeleteOnlineStealer: false,
 }
 
 export function fnosNormalizeStealRatio(input: unknown, fallback: FnosStealRatioConfig = DEFAULTS): FnosStealRatioConfig {
   const base = { ...DEFAULTS, ...(fallback || {}) }
   const src = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, any> : {}
-  const raw = src.thresholdPercent !== undefined ? Number(src.thresholdPercent) : base.thresholdPercent
-  const rounded = Number.isFinite(raw) ? Math.round(raw) : 80
-  const thresholdPercent = rounded >= 1 && rounded <= 100000 ? rounded : (base.thresholdPercent || 80)
-  const flag = (key: keyof FnosStealRatioConfig) => (src[key] !== undefined ? !!src[key] : !!base[key])
   return {
-    thresholdPercent,
-    ignoreApplications: flag('ignoreApplications'),
-    listFilter: flag('listFilter'),
-    barkOnSteal: flag('barkOnSteal'),
-    autoDelete: flag('autoDelete'),
-    autoDeleteOnlineStealer: flag('autoDeleteOnlineStealer'),
+    autoDeleteOnlineStealer: src.autoDeleteOnlineStealer !== undefined ? !!src.autoDeleteOnlineStealer : !!base.autoDeleteOnlineStealer,
   }
-}
-
-export function fnosStealRatioInfo(harvest: unknown, steal: unknown): FnosStealRatioInfo {
-  const h = Math.max(0, Math.floor(Number(harvest) || 0))
-  const s = Math.max(0, Math.floor(Number(steal) || 0))
-  if (h <= 0 && s <= 0)
-    return { percent: 0, infinite: false, text: '0%' }
-  if (h <= 0)
-    return { percent: Number.POSITIVE_INFINITY, infinite: true, text: '只偷不收' }
-  const percent = s / h * 100
-  return { percent, infinite: false, text: `${percent.toFixed(1).replace(/\.0$/, '')}%` }
-}
-
-export function fnosStealRatioAbove(harvest: unknown, steal: unknown, thresholdPercent: number): boolean {
-  const info = fnosStealRatioInfo(harvest, steal)
-  if (info.infinite)
-    return true
-  return info.percent > thresholdPercent
-}
-
-/**
- * 好友列表筛选。还没读到生涯数据时，只有「全部」算命中，避免把未知好友误判成高或低。
- * 自定义区间含两端；偷收比可超过 100%。上限留空表示不限，只偷不收只在上限留空时出现。
- */
-export function fnosFriendMatchesStealFilter(
-  career: { harvest?: number, steal?: number } | null | undefined,
-  mode: FnosStealFilterMode,
-  thresholdPercent: number,
-  rangeMin: number | string | null | undefined,
-  rangeMax: number | string | null | undefined,
-): boolean {
-  if (mode === 'all')
-    return true
-  if (!career)
-    return false
-  const info = fnosStealRatioInfo(career.harvest, career.steal)
-  if (mode === 'above')
-    return info.infinite || info.percent > thresholdPercent
-  if (mode === 'below')
-    return !info.infinite && info.percent <= thresholdPercent
-  const blank = (v: unknown) => v === '' || v === null || v === undefined
-  let min = blank(rangeMin) ? 0 : Number(rangeMin)
-  let max = blank(rangeMax) ? Number.POSITIVE_INFINITY : Number(rangeMax)
-  if (!Number.isFinite(min))
-    min = 0
-  if (Number.isNaN(max))
-    max = Number.POSITIVE_INFINITY
-  if (min > max)
-    [min, max] = [max, min]
-  if (info.infinite)
-    return max === Number.POSITIVE_INFINITY
-  return info.percent >= min && info.percent <= max
 }

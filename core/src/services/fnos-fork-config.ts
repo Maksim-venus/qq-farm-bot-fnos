@@ -14,15 +14,10 @@ export interface FnosForkConfigs {
     alt: { enabled: boolean; masterGid: number; masterName: string; holdForMaster: boolean; timeoutMinutes: number; skipStealMaster: boolean; badOnlyMaster: boolean };
     /** [fnos-fork] 2026-10-28 图鉴奖励自动领取 / 自动完成图鉴 */
     illustrated: { autoClaimRewards: boolean; autoComplete: boolean };
-    /** [fnos-fork] 2026-10-31 偷收比 */
+    /** [fnos-fork] 在线期间来偷菜的自动删除（旧偷收比设置已下架） */
     /** [fnos-fork] 2026-11-16 牧场：等大号、图鉴、轮换值守、好友牧场 */
     ranch: import('./ranch/fnos-ranch').FnosRanchConfig;
     stealRatio: {
-        thresholdPercent: number;
-        ignoreApplications: boolean;
-        listFilter: boolean;
-        barkOnSteal: boolean;
-        autoDelete: boolean;
         autoDeleteOnlineStealer: boolean;
     };
     /** [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳（见 services/fnos-quiet-priority.ts） */
@@ -53,7 +48,7 @@ function readFnosForkConfigs(accountId?: string): FnosForkConfigs {
         const message = String(e && e.message ? e.message : e);
         if (Date.now() - lastReadErrorLogAt > 10 * 60 * 1000) {
             lastReadErrorLogAt = Date.now();
-            try { require('../utils/utils').logWarn('系统', `读取 fork 设置（大号/小号、图鉴、偷收比）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
+            try { require('../utils/utils').logWarn('系统', `读取 fork 设置（大号/小号、图鉴、在线偷菜删除）失败：${message}`, { module: 'system', event: 'fnos设置' }); } catch { /* ignore */ }
         }
         return { alt: normalizeFnosAltAccount(undefined), illustrated: normalizeFnosIllustratedAuto(undefined), stealRatio: normalizeFnosStealRatio(undefined), quiet: normalizeFnosQuietPriority(undefined), ranch: normalizeFnosRanch(undefined), error: message };
     }
@@ -95,10 +90,10 @@ function logFnosForkStatus(reason: string, force: boolean = false): boolean {
     const prefix = reason ? `${reason}：` : '';
     log('小号', `${prefix}${describeAlt(cfg.alt)}`, { module: 'farm', event: '小号设置', result: cfg.alt.enabled ? 'enabled' : 'disabled', masterGid: cfg.alt.masterGid, holdForMaster: cfg.alt.holdForMaster, timeoutMinutes: cfg.alt.timeoutMinutes });
     if (force ? (cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete) : true) log('图鉴', `${prefix}${describeIllustrated(cfg.illustrated)}`, { module: 'farm', event: '图鉴自动设置', result: cfg.illustrated.autoClaimRewards || cfg.illustrated.autoComplete ? 'enabled' : 'disabled' });
-    // [fnos-fork] 偷收比：只在开启时或设置变化时打印
+    // [fnos-fork] 在线偷菜删除：只在开启时或设置变化时打印
     const { describeFnosStealRatio } = require('./friend/fnos-steal-ratio');
-    const stealOn = cfg.stealRatio.ignoreApplications || cfg.stealRatio.listFilter || cfg.stealRatio.barkOnSteal || cfg.stealRatio.autoDelete || cfg.stealRatio.autoDeleteOnlineStealer;
-    if (force ? stealOn : true) log('偷收比', `${prefix}${describeFnosStealRatio(cfg.stealRatio)}`, { module: 'friend', event: '偷收比设置', result: stealOn ? 'enabled' : 'disabled', thresholdPercent: cfg.stealRatio.thresholdPercent });
+    const stealOn = cfg.stealRatio.autoDeleteOnlineStealer;
+    if (force ? stealOn : true) log('偷收比', `${prefix}${describeFnosStealRatio(cfg.stealRatio)}`, { module: 'friend', event: '偷收比设置', result: stealOn ? 'enabled' : 'disabled' });
     // [fnos-fork] 2026-11-16 自己收菜优先 / 空闲时只保留心跳：登录时只在开启时打印，设置变化时总是打印
     const { describeFnosQuietPriority } = require('./fnos-quiet-priority');
     if (force ? (cfg.quiet.ownHarvestFirst || cfg.quiet.idleKeepaliveOnly) : true) log('系统', `${prefix}${describeFnosQuietPriority(cfg.quiet)}`, { module: 'system', event: '收菜优先与空闲设置', ownHarvestFirst: cfg.quiet.ownHarvestFirst, idleKeepaliveOnly: cfg.quiet.idleKeepaliveOnly });

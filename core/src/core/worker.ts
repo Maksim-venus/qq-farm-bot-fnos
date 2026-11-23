@@ -792,7 +792,7 @@ async function runStartupSequence(canContinue: () => boolean = () => loginReady)
         startMysteryShopTimer();
         // [fnos-fork] 图鉴奖励自动领取 / 自动完成图鉴（都未开启时每轮直接返回，不发请求）
         require('../services/fnos-illustrated-auto').startFnosIllustratedAuto(workerScheduler, runExclusiveAutomationTask);
-        // [fnos-fork] 偷收比：忽略高比例申请、来偷菜 Bark、自动删除、在线期间偷菜删除（开关都关时不发请求）
+        // [fnos-fork] 在线期间偷菜删除（开关关时不发请求）
         require('../services/friend/fnos-steal-ratio').startFnosStealRatio(workerScheduler, runExclusiveAutomationTask);
     } catch (e: any) {
         log('系统', `登录启动序列执行失败: ${e.message}`, { module: 'system', event: '启动序列', result: 'error' });
@@ -1291,9 +1291,6 @@ async function handleApiCall(msg: any): Promise<void> {
                     break;
                 case 'delFriend':
                     result = await deleteFriend(args[0]);
-                    break;
-                case 'lookupStealRatios': // [fnos-fork] 好友页按偷收比筛选时批量查生涯
-                    result = await require('../services/friend/fnos-steal-ratio').lookupStealRatios(args[0]);
                     break;
                 case 'getSeeds':
                     result = await getAvailableSeeds(args[0] === true);
