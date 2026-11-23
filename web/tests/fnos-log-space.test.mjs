@@ -81,12 +81,12 @@ test('北京时间 0 点切日边界：23:59 与 00:00 分属两天', () => {
   assert.equal(m.fnosMsUntilNextBeijingMidnight(after), 24 * 3600 * 1000)
 })
 
-test('一张卡片：农场概览、牧场概览都用 RunLogCard，农场概览不再内嵌单独的农场日志', () => {
+test('一张卡片：合并后的首页用 RunLogCard（农场、牧场两个空间的概览是同一页）', () => {
   const dash = readFileSync(new URL('../src/views/Dashboard.vue', import.meta.url), 'utf8')
-  const ranchView = readFileSync(new URL('../src/views/RanchOverview.vue', import.meta.url), 'utf8')
+  const menu = readFileSync(new URL('../src/router/menu.ts', import.meta.url), 'utf8')
   const card = readFileSync(new URL('../src/components/RunLogCard.vue', import.meta.url), 'utf8')
   assert.match(dash, /<RunLogCard/)
-  assert.match(ranchView, /<RunLogCard/)
+  assert.match(menu, /ranch-dashboard.*Dashboard\.vue/)
   assert.doesNotMatch(dash, /fetchLogs/)
   assert.match(card, /FNOS_LOG_SPACE_VIEWS/)
   assert.match(card, /FNOS_RANCH_SCOPE_OPTIONS/)
