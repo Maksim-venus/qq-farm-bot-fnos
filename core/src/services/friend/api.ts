@@ -228,17 +228,13 @@ export async function helpFarming(friendGid: number, landIds: number[], stopWhen
     }
 }
 
-// [fnos-fork] 2026-11-23 偷菜被拒属于常态（被人摘走/未成熟/未种植/留点吧），不再写「错误」日志，
-// 否则会刷屏并被「今日农场」计为出错；调用方仍会收到异常，偷菜与降级逻辑不变。
-export const FNOS_STEAL_EXPECTED_ERROR_CODES: readonly number[] = [1001011, 1001021, 1001040, 1001045];
-
 export async function stealHarvest(friendGid: number, landIds: number[]): Promise<any> {
     const body: Uint8Array = types.HarvestRequest.encode(types.HarvestRequest.create({
         land_ids: landIds,
         host_gid: toLong(friendGid),
         is_all: true,
     })).finish();
-    const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Harvest', body, { expectedErrorCodes: FNOS_STEAL_EXPECTED_ERROR_CODES });
+    const { body: replyBody } = await sendMsgAsync('gamepb.plantpb.PlantService', 'Harvest', body);
     const reply: any = types.HarvestReply.decode(replyBody);
     schedulerRef().updateOperationLimits(reply.operation_limits);
     return reply;
