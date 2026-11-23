@@ -122,7 +122,7 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
         });
     }
 
-    // [fnos-fork] 2026-10-31 偷收比：四项开关独立；autoDeleteOnlineStealer 与阈值无关。缺字段沿用已保存值
+    // [fnos-fork] 在线期间来偷菜的自动删除（接口路径沿用 steal-ratio）。缺字段沿用已保存值
     // [fnos-fork] 2026-11-17 好友时间表（农场好友 / 牧场好友列表「还多久可偷」列）：读 worker 落盘的 data/fnos-timetable/<账号>.json
     app.get('/api/fnos/timetable', (req: Request, res: Response) => {
         const id = getAccId(ctx, req);
@@ -180,18 +180,6 @@ function mountFnosForkRoutes(app: Application, ctx: AdminContext): void {
             res.json({ ok: true, data });
         } catch (e: any) {
             sendBulletinError(res, e);
-        }
-    });
-
-    app.post('/api/fnos/steal-ratio/lookup', async (req: Request, res: Response) => {
-        const id = getAccId(ctx, req);
-        if (!id) return res.status(400).json({ ok: false, error: 'Missing x-account-id' });
-        try {
-            const gids = Array.isArray(req.body?.gids) ? req.body.gids : [];
-            const data = await ctx.provider.lookupStealRatios(id, gids);
-            res.json({ ok: true, data });
-        } catch (e: any) {
-            handleApiError(res, e);
         }
     });
 }

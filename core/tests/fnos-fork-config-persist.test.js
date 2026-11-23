@@ -133,7 +133,7 @@ test('升级到 2026.11.15.1：账号配置文件里的奶茶 fork 字段启动�
     assert.deepEqual(out.alt, ALT2);
     assert.equal(out.steal, 4);
     assert.equal(out.hour, 9);
-    assert.equal(out.ratio.thresholdPercent, 60);
+    assert.deepEqual(out.ratio, { autoDeleteOnlineStealer: false }); // 旧偷收比字段读取时丢弃，文件里原样保留
     assert.equal(fs.readFileSync(path.join(accountDir, '3.json'), 'utf8'), untouched3, '没有奶茶字段的文件不改写');
     assert.equal(fs.readFileSync(path.join(dir, 'fnos-illustrated', '1.json'), 'utf8'), '{"pending":[20021]}');
     // 第二次启动：幂等

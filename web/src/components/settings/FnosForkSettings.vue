@@ -5,7 +5,7 @@
  * - 2026-11-15：奶茶 fork 功能（自动雇佣/工作事项/收益/种子兑换/制作/工资/店铺升级）按用户要求下架；
  *   图鉴奖励领取 / 自动完成图鉴移到「自动控制」（AutomationSettingsForm），随自动控制一起保存。
  * 所在栏目：
- * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱、偷收比、在线期间来偷菜自动删除）
+ * - section="coop"：设置 → 大小号协作（大号/小号、不偷大号、只给大号放捣乱、在线期间来偷菜自动删除）
  * - section="activity"：设置 → 活动设置（2026-11-17 起说明上游「牧歌初启」活动和牧场每日福利的位置）
  * 接口见 core/src/controllers/admin/fnos-fork-routes.ts；请求经 Axios baseURL，自动带飞牛网关前缀。
  */
@@ -16,7 +16,7 @@ import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useToastStore } from '@/stores/toast'
-import { fnosNormalizeStealRatio } from '@/utils/fnos-steal-ratio' // [fnos-fork] 偷收比
+import { fnosNormalizeStealRatio } from '@/utils/fnos-steal-ratio' // [fnos-fork] 在线期间来偷菜的自动删除
 import { gatewayPath } from '@/utils/gateway' // [fnos-fork]
 
 const props = defineProps<{ accountId?: string | null, accountName?: string | null, section?: 'coop' | 'activity' }>()
@@ -28,7 +28,7 @@ interface FriendItem { gid: number | string, name?: string }
 
 // [fnos-fork] holdForMaster「成熟作物先留给大号偷」缺省为 true（旧配置没有该字段时保持原有行为）
 const alt = ref<AltAccount>({ enabled: false, masterGid: 0, masterName: '', holdForMaster: true, timeoutMinutes: 0, skipStealMaster: false, badOnlyMaster: false })
-// [fnos-fork] 偷收比：四项开关独立，默认关；在线期间来偷菜自动删除与阈值无关，默认关
+// [fnos-fork] 在线期间来偷菜自动删除，默认关
 const stealRatio = ref(fnosNormalizeStealRatio(null))
 const stealSaving = ref(false)
 const friends = ref<FriendItem[]>([])
@@ -163,7 +163,7 @@ async function saveStealRatio() {
     const res = await api.post('/api/fnos/steal-ratio', stealRatio.value, { headers: headers() })
     if (res.data?.data)
       stealRatio.value = fnosNormalizeStealRatio(res.data.data)
-    reportSave(res, '偷收比设置已保存')
+    reportSave(res, '设置已保存')
   }
   catch (e: any) {
     toast.error(getApiErrorMessage(e, '保存失败'))
@@ -345,7 +345,7 @@ onMounted(() => {
         </div>
       </section>
 
-      <!-- [fnos-fork] 偷收比 -->
+      <!-- [fnos-fork] 在线期间来偷菜的自动删除 -->
       <section v-if="isCoop" class="fnos-fork-card farm-card rounded-2xl p-4" data-testid="fnos-steal-ratio">
         <div class="mb-4 flex items-start gap-3">
           <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-orange-50 text-orange-600 dark:bg-orange-900/25 dark:text-orange-400">
@@ -353,11 +353,8 @@ onMounted(() => {
           </div>
           <div class="min-w-0">
             <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
-              偷收比
+              在线期间来偷菜
             </h4>
-            <p class="mt-0.5 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-              偷收比 = 生涯偷菜 ÷ 生涯收获 × 100%，和好友卡片上的「收偷比」是同一组生涯数据。超过下面的百分比才触发（默认 80%，刚好等于不算）。前四项可以单独开，默认都关。最下面的「在线期间来偷菜的自动删除」不看偷收比，也是默认关。
-            </p>
           </div>
         </div>
 
@@ -365,50 +362,15 @@ onMounted(() => {
           <span class="i-carbon-circle-dash mr-1 inline-block animate-spin align-middle" />加载中...
         </div>
         <div v-else class="fnos-fork-card__body">
-          <BaseInput
-            v-model.number="stealRatio.thresholdPercent"
-            type="number"
-            :min="1"
-            :max="100000"
-            label="阈值（%，可超过 100）"
-          />
-          <p class="fnos-hint text-gray-500 dark:text-gray-400">
-            生涯收获为 0、生涯偷菜大于 0 时视为超过任意阈值。两者都是 0 视为 0%，不触发。这是对方的生涯总偷菜和总收获，不是只统计偷本账号的数量。
-          </p>
-          <div class="fnos-setting-item">
-            <BaseSwitch v-model="stealRatio.ignoreApplications" label="忽略高偷收比好友申请" />
-          </div>
-          <p class="fnos-hint text-gray-500 dark:text-gray-400">
-            有人申请加好友时，偷收比超过阈值就拒绝该申请（不会一直挂着）。没超过的申请不会因此被接受；要自动通过仍用「自动控制」里的「自动通过好友申请」。
-          </p>
-          <div class="fnos-setting-item">
-            <BaseSwitch v-model="stealRatio.listFilter" label="好友页显示偷收比筛选" />
-          </div>
-          <p class="fnos-hint text-gray-500 dark:text-gray-400">
-            打开后，好友页可以按高于阈值、不高于阈值或自定义区间过滤。筛选时会读取好友的生涯数据。
-          </p>
-          <div class="fnos-setting-item">
-            <BaseSwitch v-model="stealRatio.barkOnSteal" label="高偷收比来偷菜时发 Bark" />
-          </div>
-          <p class="fnos-hint text-gray-500 dark:text-gray-400">
-            用「系统设置 → 下线提醒」里已配置的 Bark（渠道须为 Bark）。同一好友 30 分钟内只推一次。开启后先记下当前访客记录，不补发更早的偷菜。「静音也提醒」与下线提醒同一个开关。
-          </p>
-          <div class="fnos-setting-item">
-            <BaseSwitch v-model="stealRatio.autoDelete" label="自动删除高偷收比好友" />
-          </div>
-          <p class="fnos-hint text-gray-500 dark:text-gray-400">
-            约每 10 分钟最多删 1 人，并写入黑名单，避免马上被自动通过加回来。大小号协作里配置的大号，以及本机其他账号里已登录过的小号，都不会删。日志标签「偷收比」。
-          </p>
           <div class="fnos-setting-item">
             <BaseSwitch v-model="stealRatio.autoDeleteOnlineStealer" label="在线期间来偷菜的自动删除" />
           </div>
           <p class="fnos-hint text-gray-500 dark:text-gray-400">
-            和偷收比阈值无关，默认关。只删除这次上线之后、程序正在运行时新检测到的偷菜（和「高偷收比来偷菜时发 Bark」用的是同一条访客记录）。掉线、程序停止，以及重连后补拉到的历史记录都不删；每次重新上线都会重新记下上线时刻和基线。启动后第一次拉到的记录只做基线。
-            不删大小号协作里的大号、本机登录过的小号。多人同时来偷时排队，两次删除至少间隔 1 分钟，同一个人在这段在线里不重复删。删除前后写入运行日志的「偷菜日志」，原因是「在线期间偷菜」。下线提醒的渠道是 Bark 时，删除成功会再推一条，推送失败不影响删除。
+            只删上线之后新来偷菜的人，默认关，不删大号和小号。
           </p>
           <div class="fnos-fork-card__footer">
             <BaseButton variant="primary" size="sm" :loading="stealSaving" @click="saveStealRatio">
-              保存偷收比
+              保存
             </BaseButton>
           </div>
         </div>
