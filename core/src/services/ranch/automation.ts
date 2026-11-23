@@ -8,7 +8,7 @@ export {};
 const { RANCH_SWITCH_KEYS, RANCH_MARKET_SWITCH_KEYS, RANCH_MARKET_SWITCH_BY_CURRENCY, RANCH_NEAR_HARVEST_MS, isRanchMarketEnabled } = require('../../config/ranch-automation');
 const { getAutomation, getRanchFriendBlacklist } = require('../../models/store');
 const { inScene, isUnlocked } = require('./transport');
-const { loadRaw, isPendingShed, shedAwaitingActivation, snapshot, inventory, catalog, market, readMarketRotation, balance } = require('./state');
+const { loadRaw, refreshOverviewCareer, isPendingShed, shedAwaitingActivation, snapshot, inventory, catalog, market, readMarketRotation, balance } = require('./state');
 const { cubMap, quantity } = require('./model');
 const { prepareAction, operate } = require('./actions');
 const { getServerTimeSec, log, randomDelay } = require('../../utils/utils');
@@ -240,6 +240,7 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             }
             checkpoint();
             let raw = await loadRaw(cells);
+            void refreshOverviewCareer(); // [fnos-fork] 2026-11-23 每轮巡查刷新概览缓存里的牧场生涯（节流）
             const available = (id: number) => {
                 const funds = balance(raw.bag, id);
                 return BigInt(funds.total) - BigInt(funds.locked) - BigInt(reservations.forCurrentAccount().reserved(`item:${id}`));
