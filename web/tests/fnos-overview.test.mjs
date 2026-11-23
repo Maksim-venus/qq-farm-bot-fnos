@@ -92,3 +92,35 @@ test('更新时间展示', () => {
   assert.equal(o.formatUpdatedAt(now - 5 * 60_000, now), '5 分钟前')
   assert.equal(o.formatUpdatedAt(now - 3 * 3_600_000, now), '3 小时前')
 })
+
+test('资产合并：点券、金豆豆只显示一个，取更新的一边；独有项各留各的', () => {
+  const farm = o.buildFarmSnapshot({ now: 1, diamond: 5, status: { status: { level: 1, gold: 100, coupon: 10, goldBean: 20 } } })
+  const ranch = o.buildRanchSnapshot({ imageOf: String, state: { level: 1, currencies: [
+    { id: 1007, name: '金券', count: '7' },
+    { id: 1002, name: '点券', count: '11' },
+    { id: 1005, name: '金豆豆', count: '21' },
+    { id: 1008, name: '松果', count: '3' },
+  ] } })
+  const byKey = list => Object.fromEntries(list.map(t => [t.key, t]))
+  let m = byKey(o.mergeOverviewAssets(farm, ranch, 100, 50))
+  assert.equal(m.coupon.value, '10')
+  assert.equal(m.goldBean.value, '20')
+  assert.equal(m.coupon.from, 'farm')
+  m = byKey(o.mergeOverviewAssets(farm, ranch, 50, 100))
+  assert.equal(m.coupon.value, '11')
+  assert.equal(m.goldBean.value, '21')
+  assert.equal(m.coupon.from, 'ranch')
+  const list = o.mergeOverviewAssets(farm, ranch, 1, 2)
+  assert.equal(list.length, 6)
+  assert.deepEqual(list.map(t => t.label), ['金币', '点券', '金豆豆', '钻石', '金券', '松果'])
+  // 缺一边
+  assert.deepEqual(o.mergeOverviewAssets(null, ranch).map(t => t.label), ['点券', '金豆豆', '金券', '松果'])
+  assert.deepEqual(o.mergeOverviewAssets(farm, null).map(t => t.label), ['金币', '点券', '金豆豆', '钻石'])
+  assert.deepEqual(o.mergeOverviewAssets(null, null), [])
+})
+
+test('农场快照带生涯：只有累计收获 / 累计偷菜', () => {
+  const s = o.buildFarmSnapshot({ status: {}, career: { harvest: 100, steal: 20 } })
+  assert.deepEqual(s.career, { harvest: 100, steal: 20 })
+  assert.equal(o.buildFarmSnapshot({ status: {} }).career, null)
+})

@@ -37,7 +37,7 @@ function remainToAt(sec: unknown, now: number): number | null {
     return sec === null || sec === undefined || !Number.isFinite(n) ? null : now + Math.max(0, n) * 1000;
 }
 
-function buildFarmSnapshot(input: { status: any, items?: any[] | null, diamond?: number | null, prev?: any, now: number }): any {
+function buildFarmSnapshot(input: { status: any, items?: any[] | null, diamond?: number | null, career?: any, prev?: any, now: number }): any {
     const s = input.status || {};
     const prev = input.prev || null;
     const items = input.items;
@@ -75,7 +75,8 @@ function buildFarmSnapshot(input: { status: any, items?: any[] | null, diamond?:
             { key: 'diamond', label: '钻石', value: input.diamond !== null && input.diamond !== undefined ? amount(input.diamond) : (prevAsset('diamond') ?? '0') },
         ],
         stock,
-        career: null,
+        // [fnos-fork] 农场生涯：游戏生涯接口（CareerInfoGet）里自己的累计收获 / 累计偷菜；没取到就沿用缓存
+        career: input.career ? { harvest: Number(input.career.harvest) || 0, steal: Number(input.career.steal) || 0 } : (input.prev?.career || null),
         facilities: [],
         todo: [],
         today: Object.keys(ops).filter(k => k !== 'upgrade' && k !== 'levelUp').map(k => ({ key: k, label: FARM_OP_LABELS[k] || k, count: Number(ops[k]) || 0 })),
@@ -160,6 +161,7 @@ type AccountMem = {
     diamond?: number | null;
     ranchState?: any;
     ranchCareer?: any;
+    farmCareer?: any;
     ranchOps?: any;
     ranchRemain?: unknown;
 };
@@ -180,7 +182,7 @@ function createOverviewWriter(options: { cache?: any, now?: () => number, interv
         if (space === 'farm') {
             if (!m.status || !(Number(m.status.status?.level) > 0)) return null;
             if (!m.status.connection?.connected) return null;
-            return buildFarmSnapshot({ status: m.status, items: m.items, diamond: m.diamond, prev: cache().get(id).farm, now: t });
+            return buildFarmSnapshot({ status: m.status, items: m.items, diamond: m.diamond, career: m.farmCareer, prev: cache().get(id).farm, now: t });
         }
         if (!m.ranchState || !(Number(m.ranchState.level) > 0)) return null;
         const prev = cache().get(id).ranch;
@@ -256,6 +258,13 @@ function createOverviewWriter(options: { cache?: any, now?: () => number, interv
             m.ranchState = state;
             if (state.career) m.ranchCareer = state.career;
             schedule(id, 'ranch');
+        },
+        /** 农场巡查每轮单独拉到的生涯（累计收获 / 累计偷菜） */
+        onFarmCareer(accountId: string, career: any): void {
+            const id = String(accountId || '');
+            if (!id || !career) return;
+            slot(id).farmCareer = { harvest: Number(career.harvest) || 0, steal: Number(career.steal) || 0 };
+            schedule(id, 'farm');
         },
         /** 牧场巡查每轮单独拉到的生涯（不带牧场状态） */
         onRanchCareer(accountId: string, career: any): void {

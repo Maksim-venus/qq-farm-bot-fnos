@@ -35,6 +35,12 @@ const ratioText = computed(() => {
   const percent = steal.value / harvest.value * 100
   return `${percent.toFixed(1).replace(/\.0$/, '')}%`
 })
+// [fnos-fork] 农场生涯卡片（tiles）：游戏生涯接口的累计收获 / 累计偷菜 / 收偷比
+const farmMetrics = computed(() => [
+  { label: '累计收获', value: harvest.value.toLocaleString('zh-CN'), icon: 'i-carbon-wheat text-green-500', title: '农场生涯累计收获' },
+  { label: '累计偷菜', value: steal.value.toLocaleString('zh-CN'), icon: 'i-carbon-run text-orange-500', title: '农场生涯累计偷菜' },
+  { label: '收偷比', value: ratioText.value, icon: 'i-carbon-chart-relationship text-sky-500', title: '累计偷菜 / 累计收获' },
+])
 const ranchMetrics = computed(() => [
   {
     label: '累计产物',
@@ -65,12 +71,12 @@ const ranchMetrics = computed(() => [
 
 <template>
   <dl
-    v-if="career?.mature !== undefined"
-    :class="variant === 'tiles' ? 'career-tiles' : 'career-inline'"
-    aria-label="牧场生涯"
+    v-if="career?.mature !== undefined || (variant === 'tiles' && career)"
+    :class="variant === 'tiles' ? ['career-tiles', { 'career-tiles--dense': compact }] : 'career-inline'"
+    :aria-label="career?.mature !== undefined ? '牧场生涯' : '农场生涯'"
   >
     <div
-      v-for="stat in ranchMetrics"
+      v-for="stat in (career?.mature !== undefined ? ranchMetrics : farmMetrics)"
       :key="stat.label"
       :class="variant === 'tiles' ? 'career-tile' : 'career-stat'"
       :title="stat.title"
@@ -218,5 +224,25 @@ const ranchMetrics = computed(() => [
   .career-tile__value {
     font-size: clamp(15px, 4.5vw, 18px);
   }
+}
+
+/* [fnos-fork] 首页紧凑版：小字、小边距，数量少时自适应列数 */
+.career-tiles--dense {
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 6px;
+}
+
+.career-tiles--dense .career-tile {
+  gap: 2px;
+  padding: 6px 9px;
+  border-radius: 10px;
+}
+
+.career-tiles--dense .career-tile__label {
+  font-size: 11px;
+}
+
+.career-tiles--dense .career-tile__value {
+  font-size: 14px;
 }
 </style>

@@ -481,6 +481,7 @@ async function runFarmTick(auto: any): Promise<void> {
         // 自己农场的定时任务统一挂在 farm 班次：优先级高于好友任务，低于用户前台操作。
         await runWithRequestClass('farm', async () => {
             if (auto.farm) await checkFarm();
+            void require('../services/fnos-farm-career').refreshFarmCareer(); // [fnos-fork] 概览缓存的农场生涯（节流）
             // [fnos-fork] 2026-11-17 任务 / 礼包是杂项：30 秒内有收获 / 偷菜 / 帮忙到点就留到下一次空闲巡田
             if (!fnosTimetable().miscShouldWait()) {
                 if (auto.task) await checkAndClaimTasks();
