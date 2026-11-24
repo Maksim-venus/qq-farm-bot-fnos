@@ -21,6 +21,9 @@ const { mountFarmRoutes } = require('./farm-routes');
 const { mountFriendRoutes } = require('./friend-routes');
 const { mountActivityCenterRoutes } = require('./activity-center-routes');
 const { mountCommerceRoutes } = require('./commerce-routes');
+// [fnos-fork] 上游 #182/#183 在线更新 / 回滚 / 版本备份接口（system-update-routes）不挂载：飞牛版由应用中心安装 fpk 更新，
+// 安装目录（SEA）只读，不从 GitHub 拉代码、不写入安装目录；/api/system/update/* 在飞牛版返回 404。
+const { readWebBuildInfo } = require('./web-version');
 const { mountWxLoginRoutes } = require('./wx-login-routes');
 const { mountQqLoginRoutes } = require('./qq-login-routes');
 const { mountFnosForkRoutes } = require('./fnos-fork-routes'); // [fnos-fork] 大号/小号、图鉴、偷收比、游戏公告
@@ -91,6 +94,10 @@ function startAdminServer(dataProvider: any): void {
         return [webRoot, ...fallbackRoots];
     };
     const staticMiddlewareCache = new Map<string, any>();
+    const setNoStoreHeaders = (res: any) => {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+    };
     const serveDynamicWeb = (req: any, res: any, next: any) => {
         if (req.path.startsWith('/api') || req.path.startsWith('/game-config') || req.path.startsWith('/socket.io')) return next();
         const dirs = resolveActiveWebDirs();
@@ -104,7 +111,14 @@ function startAdminServer(dataProvider: any): void {
             const dir = dirs[idx++];
             let mw = staticMiddlewareCache.get(dir);
             if (!mw) {
-                mw = express.static(dir);
+                mw = express.static(dir, {
+                    setHeaders: (staticRes: any, filePath: string) => {
+                        const base = path.basename(filePath).toLowerCase();
+                        if (base === 'index.html' || base === 'version.json') {
+                            setNoStoreHeaders(staticRes);
+                        }
+                    },
+                });
                 staticMiddlewareCache.set(dir, mw);
             }
             mw(req, res, step);
@@ -114,11 +128,23 @@ function startAdminServer(dataProvider: any): void {
     const sendDynamicIndex = (res: any, fallbackStatus: number) => {
         for (const dir of resolveActiveWebDirs()) {
             const indexPath = path.join(dir, 'index.html');
-            if (fs.existsSync(indexPath)) return res.sendFile(indexPath);
+            if (fs.existsSync(indexPath)) {
+                setNoStoreHeaders(res);
+                return res.sendFile(indexPath);
+            }
         }
         if (fallbackStatus !== 200) res.status(fallbackStatus);
         res.send('web build not found. Please build the web project.');
     };
+    app.get('/version.json', (_req: any, res: any) => {
+        setNoStoreHeaders(res);
+        const { webRoot } = getWebRootInfo();
+        const info = readWebBuildInfo(webRoot);
+        if (info) {
+            return res.json(info);
+        }
+        return res.json({ buildId: '', appVersion: '', builtAt: 0 });
+    });
     const [webDist] = resolveActiveWebDirs();
     app.use(serveDynamicWeb);
     if (!fs.existsSync(webDist)) {

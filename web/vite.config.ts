@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import process from 'node:process'
 import { fileURLToPath, URL } from 'node:url'
@@ -10,9 +11,13 @@ import viteCompression from 'vite-plugin-compression'
 const webPackageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf-8'))
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const analyzeBuild = mode === 'analyze'
   const compressedBuild = mode === 'compressed'
+  const builtAt = Date.now()
+  const webBuildId = command === 'build'
+    ? `${webPackageJson.version}-${builtAt.toString(36)}-${crypto.randomBytes(4).toString('hex')}`
+    : 'dev'
 
   // 飞牛原生包构建时传入 VITE_BASE=/app/qq-farm-bot/（统一网关前缀），本地开发保持 /
   const rawBase = String(process.env.VITE_BASE || '/').trim() || '/'
@@ -23,6 +28,22 @@ export default defineConfig(({ mode }) => {
     plugins: [
       UnoCSS() as any,
       vue(),
+      {
+        name: 'panel-version-manifest',
+        apply: 'build' as const,
+        generateBundle() {
+          this.emitFile({
+            type: 'asset',
+            fileName: 'version.json',
+            source: JSON.stringify({
+              buildId: webBuildId,
+              inputHash: process.env.TURBO_HASH,
+              appVersion: webPackageJson.version,
+              builtAt,
+            }, null, 2),
+          })
+        },
+      },
       ...(compressedBuild
         ? [viteCompression({
             verbose: true,
@@ -87,6 +108,7 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(webPackageJson.version),
       // 飞牛改动：打包时由 fnos/build.sh 传入 FPK_VERSION（与 manifest version 同值）；本地开发为空 → 侧栏显示「fpk dev」
       __FPK_VERSION__: JSON.stringify(String(process.env.FPK_VERSION || '').trim()),
+      __WEB_BUILD_ID__: JSON.stringify(webBuildId),
     },
     resolve: {
       alias: {

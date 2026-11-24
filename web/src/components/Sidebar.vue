@@ -9,9 +9,11 @@ import api from '@/api'
 import AccountModal from '@/components/AccountModal.vue'
 import RemarkModal from '@/components/RemarkModal.vue'
 import BrandMark from '@/components/ui/BrandMark.vue'
+import { useUnsavedEditGuard } from '@/composables/useUnsavedEditGuard'
 import { getSpaceMenu } from '@/router/menu'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useAppStore } from '@/stores/app'
+import { useAppUpdateStore } from '@/stores/app-update'
 import { useNasUserStore } from '@/stores/nas-user'
 import { useStatusStore } from '@/stores/status'
 
@@ -19,10 +21,12 @@ const accountStore = useAccountStore()
 const statusStore = useStatusStore()
 const appStore = useAppStore()
 const nasUserStore = useNasUserStore()
+const appUpdateStore = useAppUpdateStore()
 const route = useRoute()
 const isDesktop = useMediaQuery('(min-width: 1024px)')
 const { accounts, currentAccount } = storeToRefs(accountStore)
-const { status, realtimeConnected } = storeToRefs(statusStore)
+const { status, realtimeConnected, realtimeReconnectCount } = storeToRefs(statusStore)
+const { reconnecting: panelReconnecting } = storeToRefs(appUpdateStore)
 const { sidebarOpen, sidebarCollapsed } = storeToRefs(appStore)
 const isSidebarCollapsed = computed(() => isDesktop.value && sidebarCollapsed.value)
 const editIconClass = 'i-carbon-edit'
@@ -37,6 +41,7 @@ const sidebarTooltipTheme = {
 const showAccountDropdown = ref(false)
 const showAccountModal = ref(false)
 const showRemarkModal = ref(false)
+useUnsavedEditGuard(computed(() => showAccountModal.value || showRemarkModal.value))
 const accountToEdit = ref<any>(null)
 const wsErrorNotifiedAt = ref<Record<string, number>>({})
 const accountAvatarErrors = ref<Set<string>>(new Set())
@@ -50,7 +55,7 @@ const formattedTime = useDateFormat(now, 'YYYY-MM-DD HH:mm:ss')
 
 async function checkConnection() {
   try {
-    const res = await api.get('/api/ping')
+    const res = await api.get('/api/ping', { skipErrorToast: true } as any)
     systemConnected.value = true
     if (res.data.ok && res.data.data) {
       if (res.data.data.uptime) {
@@ -213,7 +218,22 @@ const displayName = computed(() => {
   return acc.uin
 })
 
+watch(realtimeReconnectCount, (count) => {
+  if (count <= 0)
+    return
+  void checkConnection()
+  void accountStore.fetchAccounts()
+})
+
 const connectionStatus = computed(() => {
+  if (panelReconnecting.value) {
+    return {
+      text: '正在重连',
+      color: 'bg-amber-500',
+      pulse: true,
+    }
+  }
+
   if (!systemConnected.value) {
     return {
       text: '系统离线',

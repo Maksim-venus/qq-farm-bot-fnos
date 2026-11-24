@@ -12,6 +12,7 @@ export {};
 const { version } = require('../../../package.json');
 const { getRuntimeConfig } = require('../../config/config');
 const { getSchedulerRegistrySnapshot } = require('../../services/scheduler');
+const { getActiveWebBuildId } = require('./web-version');
 
 const {
     getAccId,
@@ -21,7 +22,8 @@ const {
 
 function mountSystemRoutes(app: Application, ctx: AdminContext): void {
     app.get('/api/ping', (_req: Request, res: Response) => {
-        res.json({ ok: true, data: { ok: true, uptime: process.uptime(), version } });
+        // [fnos-fork] 上游 #182 在 auth-routes 的 /api/ping 加了 webBuildId（面板版本切换后自动刷新），fork 的 ping 在这里
+        res.json({ ok: true, data: { ok: true, uptime: process.uptime(), version, webBuildId: getActiveWebBuildId() } });
     });
 
     app.get('/api/game-version', (_req: Request, res: Response) => {

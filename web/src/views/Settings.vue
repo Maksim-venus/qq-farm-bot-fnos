@@ -18,7 +18,9 @@ import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
 import BaseSwitch from '@/components/ui/BaseSwitch.vue'
+import { useUnsavedEditGuard } from '@/composables/useUnsavedEditGuard'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
+import { useAppUpdateStore } from '@/stores/app-update'
 import { useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { fnosNormalizeIllustratedAuto } from '@/utils/fnos-illustrated-auto' // [fnos-fork] 图鉴（自动控制）
@@ -41,6 +43,7 @@ const inRanch = computed(() => route.meta.gameSpace === 'ranch')
 const accountStore = useAccountStore()
 const settingStore = useSettingStore()
 const statusStore = useStatusStore()
+const appUpdateStore = useAppUpdateStore()
 
 type SettingsTab = 'account' | 'strategy' | 'automation' | 'fnos-coop' | 'fnos-alt' | 'system' // [fnos-fork] 新增 fnos-coop（大小号协作）、fnos-alt（活动设置）
 const storedTab = localStorage.getItem('settings-active-tab')
@@ -769,6 +772,10 @@ watch(() => [
   }
 }, { immediate: true })
 
+const savedStrategySnapshot = ref('')
+const savedAutomationSnapshot = ref('')
+const savedOfflineSnapshot = ref('')
+
 function syncLocalStrategySettings() {
   if (settings.value) {
     localStrategySettings.value = JSON.parse(JSON.stringify({
@@ -790,6 +797,7 @@ function syncLocalStrategySettings() {
         ...(settings.value.friendQuietHours || {}),
       },
     }))
+    savedStrategySnapshot.value = JSON.stringify(localStrategySettings.value)
   }
 }
 
@@ -802,7 +810,7 @@ async function loadStrategyData(accountId = currentAccountId.value) {
     return
   syncLocalStrategySettings()
   syncLocalAutomationSettings()
-  syncLocalOfflineSettings()
+  syncLocalOfflineSettings(true)
   if (isAccountConnected(accountId))
     await fetchSeedOptions(accountId)
 }
@@ -839,6 +847,9 @@ async function saveStrategySettings() {
 }
 
 watch(currentAccountId, (accountId) => {
+  savedOfflineSnapshot.value = ''
+  savedAutomationSnapshot.value = ''
+  savedStrategySnapshot.value = ''
   strategySaving.value = false
   automationSaving.value = false
   draggingBagSeedId.value = null
@@ -1037,6 +1048,7 @@ function syncLocalAutomationSettings() {
     localAutomationSettings.value.fnosQuietPriority = fnosNormalizeQuietPriority(settings.value.fnosQuietPriority) // [fnos-fork]
     localAutomationSettings.value.fnosRanch = fnosNormalizeRanch(settings.value.fnosRanch) // [fnos-fork] 2026-11-16
     localAutomationSettings.value.fnosGrassLands = fnosNormalizeGrassLands(settings.value.fnosGrassLands) // [fnos-fork] 2026-11-16
+    savedAutomationSnapshot.value = JSON.stringify(localAutomationSettings.value)
   }
 }
 
@@ -1183,7 +1195,9 @@ function openChannelDocs() {
   window.open(url, '_blank', 'noopener,noreferrer')
 }
 
-function syncLocalOfflineSettings() {
+function syncLocalOfflineSettings(force = false) {
+  if (!force && savedOfflineSnapshot.value && JSON.stringify(localOffline.value) !== savedOfflineSnapshot.value)
+    return
   if (settings.value?.offlineReminder) {
     const saved = JSON.parse(JSON.stringify(settings.value.offlineReminder))
     const next = {
@@ -1209,6 +1223,7 @@ function syncLocalOfflineSettings() {
     }
 
     localOffline.value = next
+    savedOfflineSnapshot.value = JSON.stringify(next)
   }
 }
 
@@ -1237,7 +1252,7 @@ function validateDingTalkWebhook(): string {
 }
 
 watch(settings, () => {
-  syncLocalOfflineSettings()
+  syncLocalOfflineSettings(false)
 }, { deep: true })
 
 async function handleSaveOffline() {
@@ -1252,6 +1267,7 @@ async function handleSaveOffline() {
     const res = await settingStore.saveOfflineConfig(localOffline.value)
 
     if (res.ok) {
+      savedOfflineSnapshot.value = JSON.stringify(localOffline.value)
       showAlert('下线提醒设置已保存', 'primary')
     }
     else {
@@ -1292,6 +1308,8 @@ async function handleTestOffline() {
 const systemConfigSaving = ref(false)
 const systemConfigLoading = ref(false)
 const loginSettingsSaving = ref(false)
+const savedSystemConfigSnapshot = ref('')
+const savedLoginSettingsSnapshot = ref('')
 
 const defaultDeviceInfo = {
   os: 'Windows',
@@ -1402,6 +1420,8 @@ async function loadSystemConfig() {
       defaultSystemConfig.value = normalizeSystemConfig(data.data.default, defaultSystemConfig.value)
       localSystemConfig.value = normalizeSystemConfig(data.data.saved || data.data.default, defaultSystemConfig.value)
       localLoginSettings.value = normalizeLoginSettings(data.data.loginSettings)
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
+      savedLoginSettingsSnapshot.value = JSON.stringify(localLoginSettings.value)
     }
   }
   catch (e) {
@@ -1423,6 +1443,7 @@ async function handleSaveLoginSettings() {
     const { data } = await api.post('/api/settings/login-config', localLoginSettings.value)
     if (data?.ok) {
       localLoginSettings.value = normalizeLoginSettings(data.data)
+      savedLoginSettingsSnapshot.value = JSON.stringify(localLoginSettings.value)
     }
     showAlert(data?.ok ? '登录设置已保存' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
   }
@@ -1440,6 +1461,8 @@ async function handleSaveSystemConfig() {
     localSystemConfig.value.clientVersion = localSystemConfig.value.deviceInfo.clientVersion
     localSystemConfig.value.os = localSystemConfig.value.deviceInfo.os
     const { data } = await api.post('/api/settings/system-config', localSystemConfig.value)
+    if (data?.ok)
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
     showAlert(data?.ok ? '系统配置已保存，连接参数在下次登录时生效' : getApiErrorMessage(data, '保存失败'), data?.ok ? 'primary' : 'danger')
   }
   catch (e: any) {
@@ -1457,6 +1480,7 @@ async function handleResetSystemConfig() {
     if (data?.ok) {
       localSystemConfig.value = normalizeSystemConfig(data.data.saved, defaultSystemConfig.value)
       selectedPresetId.value = ''
+      savedSystemConfigSnapshot.value = JSON.stringify(localSystemConfig.value)
       showAlert('系统配置已重置，连接参数在下次登录时生效', 'primary')
     }
     else {
@@ -1470,6 +1494,36 @@ async function handleResetSystemConfig() {
     systemConfigSaving.value = false
   }
 }
+const isSystemConfigDirty = computed(() =>
+  Boolean(savedSystemConfigSnapshot.value)
+  && JSON.stringify(localSystemConfig.value) !== savedSystemConfigSnapshot.value,
+)
+const isLoginSettingsDirty = computed(() =>
+  Boolean(savedLoginSettingsSnapshot.value)
+  && JSON.stringify(localLoginSettings.value) !== savedLoginSettingsSnapshot.value,
+)
+const isOfflineDirty = computed(() =>
+  Boolean(savedOfflineSnapshot.value)
+  && JSON.stringify(localOffline.value) !== savedOfflineSnapshot.value,
+)
+const hasUnsavedSettings = computed(() =>
+  showModal.value
+  || (Boolean(savedStrategySnapshot.value) && JSON.stringify(localStrategySettings.value) !== savedStrategySnapshot.value)
+  || (Boolean(savedAutomationSnapshot.value) && JSON.stringify(localAutomationSettings.value) !== savedAutomationSnapshot.value)
+  || isSystemConfigDirty.value
+  || isLoginSettingsDirty.value
+  || isOfflineDirty.value,
+)
+useUnsavedEditGuard(hasUnsavedSettings)
+
+// [fnos-fork] 上游 #182/#183 的「版本更新」（检查 / 拉取 / 在线更新 / 历史回滚 / 版本备份）在飞牛版去掉：
+// 飞牛版由应用中心安装 fpk 更新，SEA 安装目录只读，不从 GitHub 拉代码、不写入安装目录。
+// 保留上游的面板版本检测：实时连接重连后检查前端构建号，fpk 升级后页面自动刷新到新版。
+watch(() => statusStore.realtimeReconnectCount, (count) => {
+  if (count <= 0)
+    return
+  void appUpdateStore.checkVersionNow(true)
+})
 </script>
 
 <template>
@@ -1981,151 +2035,151 @@ async function handleResetSystemConfig() {
           </h3>
 
           <div class="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
-            <section class="farm-card rounded-lg p-4">
-              <div class="mb-4 flex items-start gap-3">
-                <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/25 dark:text-blue-400">
-                  <span class="i-carbon-settings-adjust text-xl" />
-                </div>
-                <div>
-                  <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
-                    运行环境
-                  </h4>
-                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                    服务器连接、时区与客户端设备参数
-                  </p>
-                </div>
-              </div>
-
-              <div v-if="systemConfigLoading" class="py-8 text-center text-gray-500">
-                <span class="i-svg-spinners-90-ring-with-bg inline-block text-2xl" />
-              </div>
-              <div v-else class="space-y-3">
-                <div v-if="devicePresets.length" class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
-                  <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">设备预设</label>
-                  <div class="flex flex-wrap gap-2">
-                    <NButton
-                      v-for="preset in devicePresets"
-                      :key="preset.id"
-                      size="small"
-                      :type="selectedPresetId === preset.id ? 'primary' : 'default'"
-                      :secondary="selectedPresetId !== preset.id"
-                      :title="preset.description"
-                      @click="applyDevicePreset(preset.id)"
-                    >
-                      {{ preset.name }}
-                    </NButton>
+            <div class="min-w-0 space-y-4">
+              <section class="farm-card rounded-lg p-4">
+                <div class="mb-4 flex items-start gap-3">
+                  <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/25 dark:text-blue-400">
+                    <span class="i-carbon-settings-adjust text-xl" />
                   </div>
-                </div>
-
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <BaseInput
-                    v-model="localSystemConfig.serverUrl"
-                    label="服务器地址"
-                    type="text"
-                    placeholder="wss://..."
-                  />
                   <div>
-                    <BaseSelect
-                      v-model="localSystemConfig.timeZone"
-                      label="系统时区"
-                      :options="timeZoneOptions"
-                    />
-                    <p class="mt-1 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-                      礼包、任务、安静时段和日志均以此时区为准。
+                    <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
+                      运行环境
+                    </h4>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      服务器连接、时区与客户端设备参数
                     </p>
                   </div>
                 </div>
 
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
-                    <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">平台</label>
+                <div v-if="systemConfigLoading" class="py-8 text-center text-gray-500">
+                  <span class="i-svg-spinners-90-ring-with-bg inline-block text-2xl" />
+                </div>
+                <div v-else class="space-y-3">
+                  <div v-if="devicePresets.length" class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                    <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">设备预设</label>
                     <div class="flex flex-wrap gap-2">
                       <NButton
-                        v-for="option in platformOptions"
-                        :key="option.value"
+                        v-for="preset in devicePresets"
+                        :key="preset.id"
                         size="small"
-                        :type="localSystemConfig.platform === option.value ? 'primary' : 'default'"
-                        :secondary="localSystemConfig.platform !== option.value"
-                        @click="localSystemConfig.platform = option.value"
+                        :type="selectedPresetId === preset.id ? 'primary' : 'default'"
+                        :secondary="selectedPresetId !== preset.id"
+                        :title="preset.description"
+                        @click="applyDevicePreset(preset.id)"
                       >
-                        {{ option.label }}
+                        {{ preset.name }}
                       </NButton>
                     </div>
                   </div>
-                  <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
-                    <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">系统</label>
-                    <div class="flex flex-wrap gap-2">
-                      <NButton
-                        v-for="option in osOptions"
-                        :key="option.value"
-                        size="small"
-                        :type="localSystemConfig.deviceInfo.os === option.value ? 'primary' : 'default'"
-                        :secondary="localSystemConfig.deviceInfo.os !== option.value"
-                        @click="localSystemConfig.deviceInfo.os = option.value; localSystemConfig.os = option.value"
-                      >
-                        {{ option.label }}
-                      </NButton>
+
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <BaseInput
+                      v-model="localSystemConfig.serverUrl"
+                      label="服务器地址"
+                      type="text"
+                      placeholder="wss://..."
+                    />
+                    <div>
+                      <BaseSelect
+                        v-model="localSystemConfig.timeZone"
+                        label="系统时区"
+                        :options="timeZoneOptions"
+                      />
+                      <p class="mt-1 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+                        礼包、任务、安静时段和日志均以此时区为准。
+                      </p>
                     </div>
                   </div>
-                </div>
 
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <BaseInput
-                    v-model="localSystemConfig.deviceInfo.clientVersion"
-                    label="QQ 客户端版本"
-                    type="text"
-                    :placeholder="defaultSystemConfig.deviceInfo.clientVersion || '从服务器加载中...'"
-                  />
-                  <BaseInput
-                    v-model="localSystemConfig.wxClientVersion"
-                    label="微信客户端版本"
-                    type="text"
-                    :placeholder="defaultSystemConfig.wxClientVersion || '从服务器加载中...'"
-                  />
-                  <BaseInput
-                    v-model="localSystemConfig.deviceInfo.sysSoftware"
-                    label="系统版本"
-                    type="text"
-                    placeholder="Windows 10"
-                  />
-                  <BaseInput
-                    v-model="localSystemConfig.deviceInfo.deviceId"
-                    label="设备标识"
-                    type="text"
-                    placeholder="DESKTOP-PC<WPC>"
-                  />
-                  <BaseInput
-                    v-model="localSystemConfig.deviceInfo.memory"
-                    label="内存 (MB)"
-                    type="text"
-                    placeholder="16384"
-                  />
-                  <BaseInput
-                    v-model="localSystemConfig.deviceInfo.network"
-                    label="网络"
-                    type="text"
-                    placeholder="wifi"
-                  />
-                  <BaseInput
-                    v-model="localSystemConfig.deviceInfo.userAgent"
-                    label="User-Agent"
-                    type="text"
-                    placeholder="Mozilla/5.0 ..."
-                  />
-                </div>
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                      <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">平台</label>
+                      <div class="flex flex-wrap gap-2">
+                        <NButton
+                          v-for="option in platformOptions"
+                          :key="option.value"
+                          size="small"
+                          :type="localSystemConfig.platform === option.value ? 'primary' : 'default'"
+                          :secondary="localSystemConfig.platform !== option.value"
+                          @click="localSystemConfig.platform = option.value"
+                        >
+                          {{ option.label }}
+                        </NButton>
+                      </div>
+                    </div>
+                    <div class="border border-gray-200 rounded-lg bg-gray-50/70 p-3 dark:border-gray-700 dark:bg-gray-900/30">
+                      <label class="mb-2 block text-sm text-gray-700 font-medium dark:text-gray-300">系统</label>
+                      <div class="flex flex-wrap gap-2">
+                        <NButton
+                          v-for="option in osOptions"
+                          :key="option.value"
+                          size="small"
+                          :type="localSystemConfig.deviceInfo.os === option.value ? 'primary' : 'default'"
+                          :secondary="localSystemConfig.deviceInfo.os !== option.value"
+                          @click="localSystemConfig.deviceInfo.os = option.value; localSystemConfig.os = option.value"
+                        >
+                          {{ option.label }}
+                        </NButton>
+                      </div>
+                    </div>
+                  </div>
 
-                <div class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
-                  <BaseButton variant="secondary" size="sm" :loading="systemConfigSaving" @click="handleResetSystemConfig">
-                    重置
-                  </BaseButton>
-                  <BaseButton variant="primary" size="sm" :loading="systemConfigSaving" @click="handleSaveSystemConfig">
-                    保存运行环境
-                  </BaseButton>
-                </div>
-              </div>
-            </section>
+                  <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.clientVersion"
+                      label="QQ 客户端版本"
+                      type="text"
+                      :placeholder="defaultSystemConfig.deviceInfo.clientVersion || '从服务器加载中...'"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.wxClientVersion"
+                      label="微信客户端版本"
+                      type="text"
+                      :placeholder="defaultSystemConfig.wxClientVersion || '从服务器加载中...'"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.sysSoftware"
+                      label="系统版本"
+                      type="text"
+                      placeholder="Windows 10"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.deviceId"
+                      label="设备标识"
+                      type="text"
+                      placeholder="DESKTOP-PC<WPC>"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.memory"
+                      label="内存 (MB)"
+                      type="text"
+                      placeholder="16384"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.network"
+                      label="网络"
+                      type="text"
+                      placeholder="wifi"
+                    />
+                    <BaseInput
+                      v-model="localSystemConfig.deviceInfo.userAgent"
+                      label="User-Agent"
+                      type="text"
+                      placeholder="Mozilla/5.0 ..."
+                    />
+                  </div>
 
-            <div class="min-w-0 space-y-4">
+                  <div class="flex justify-end gap-2 border-t pt-3 dark:border-gray-700">
+                    <BaseButton variant="secondary" size="sm" :loading="systemConfigSaving" @click="handleResetSystemConfig">
+                      重置
+                    </BaseButton>
+                    <BaseButton variant="primary" size="sm" :loading="systemConfigSaving" @click="handleSaveSystemConfig">
+                      保存运行环境
+                    </BaseButton>
+                  </div>
+                </div>
+              </section>
+
               <section class="farm-card rounded-lg p-4">
                 <div class="mb-4 flex items-start gap-3">
                   <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 dark:bg-violet-900/25 dark:text-violet-400">
@@ -2179,7 +2233,9 @@ async function handleResetSystemConfig() {
                   </BaseButton>
                 </div>
               </section>
+            </div>
 
+            <div class="min-w-0 space-y-4">
               <section class="farm-card rounded-lg p-4">
                 <div class="mb-4 flex items-start gap-3">
                   <div class="h-9 w-9 flex shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600 dark:bg-green-900/25 dark:text-green-400">
