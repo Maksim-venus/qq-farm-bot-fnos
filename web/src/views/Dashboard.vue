@@ -308,11 +308,11 @@ useIntervalFn(() => loadCache(false), 30000)
           </div>
 
           <div class="ov-exps">
-            <div v-for="g in groups" :key="g.space" class="ov-exp">
+            <div v-for="g in groups" :key="g.space" class="ov-exp" :title="`${g.name}经验 ${expText(g.snap)}`">
               <div class="ov-exp__labels">
-                <span>{{ g.name }}经验 <small class="ov-stamp" :class="{ 'is-live': g.stamp.live }">{{ g.stamp.text }}</small></span>
+                <span class="ov-exp__title"><span class="ov-exp__name">{{ g.name }}经验</span><small class="ov-stamp" :class="{ 'is-live': g.stamp.live }" :title="g.stamp.text">{{ g.stamp.text }}</small></span>
                 <span class="ov-exp__value">
-                  {{ expText(g.snap) }}
+                  <span class="ov-exp__num">{{ expText(g.snap) }}</span>
                   <b>{{ g.snap ? Math.floor(expPercent(g.snap)) : 0 }}%</b>
                 </span>
               </div>
@@ -656,7 +656,7 @@ useIntervalFn(() => loadCache(false), 30000)
 
 .ov-exp__labels {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
@@ -665,7 +665,39 @@ useIntervalFn(() => loadCache(false), 30000)
   font-size: 12px;
 }
 
+.ov-exp__title {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.ov-exp {
+  container-type: inline-size;
+}
+
+@container (max-width: 205px) {
+  .ov-exp__num {
+    display: none;
+  }
+}
+
+.ov-exp__name {
+  flex: none;
+}
+
+.ov-exp__title .ov-stamp {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ov-exp__value {
+  flex: none;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
