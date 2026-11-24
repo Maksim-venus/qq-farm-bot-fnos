@@ -15,6 +15,7 @@ require.cache[networkPath] = {
             return next();
         },
         getUserState: () => ({ gid: 1 }),
+        networkEvents: { emit: () => {} }, // 上游 #185：施肥回包经 decodeChangedLands 广播
     },
 };
 require.cache[protoPath] = {
@@ -24,6 +25,7 @@ require.cache[protoPath] = {
                 create: value => value,
                 encode: () => ({ finish: () => Buffer.alloc(0) }),
             },
+            FertilizeReply: { decode: () => ({}) }, // 上游 #185
         },
     },
 };

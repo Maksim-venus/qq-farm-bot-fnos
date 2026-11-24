@@ -37,6 +37,7 @@ const {
 } = require('./application-filter');
 const {
     extractReplyFriends,
+    canScanFriend,
     clearAllInvalidKnownFriendGidCooldowns,
 } = require('./gid-manager');
 const {
@@ -519,7 +520,7 @@ export async function checkFriends(options: CheckFriendsOptions = {}): Promise<b
 
             try {
                 await runExclusiveAutomationTask('friend_visit', async () => {
-                    if (!canContinue() || getFriendBlacklist(accountId).includes(target.gid)) return;
+                    if (!canContinue() || !canScanFriend(target.gid) || getFriendBlacklist(accountId).includes(target.gid)) return;
                     const altVisitOpts = getVisitOptionsForAltCoop(altCoop, target); // [fnos-fork] 大小号协作
                     const allowSteal = target.wantSteal && isAutomationOn('friend_steal');
                     // [fnos-fork] 2026-11-17 按时间表去偷 / 探成熟时间时也顺手帮忙（经验上限、护主犬规则在 visitFriend 里照旧判断）

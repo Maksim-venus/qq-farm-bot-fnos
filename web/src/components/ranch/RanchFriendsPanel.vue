@@ -19,7 +19,7 @@ const ranch = useRanchStore()
 const { state, loading, error } = storeToRefs(ranch)
 const { currentAccountId } = storeToRefs(useAccountStore())
 const toast = useToastStore()
-const { disabled, request } = useRanchActions()
+const { disabled, request, requestDirect } = useRanchActions()
 
 const friends = ref<any[]>([])
 const listLoaded = ref(false)
@@ -164,9 +164,13 @@ const visibleEntries = computed(() => visible.value.map((friend) => {
   const gid = String(friend.gid ?? '')
   const detail = detailOf(gid)
   const blacklisted = blacklistedSet.value.has(Number(gid))
+  const canHelpProduce = detail
+    ? detail.ranches.some((pen: any) => pen.animals.some((animal: any) => animal.canProduce))
+    : friend.canMidwife
   return {
     friend,
     gid,
+    canHelpProduce,
     // [fnos-fork] 标签行总有 fork 的 Lv / 还多久可偷，所以 statusId 一律给出（上游只在有状态标签时给，会把整行标签藏掉）
     statusId: `ranch-friend-status-${gid}`,
     expanded: !blacklisted && expandedGid.value === gid,
@@ -232,7 +236,6 @@ watch(() => state.value?.friendRanch, (live) => {
   if (friend) {
     friend.canHelp = live.cleanableHazards > 0
     friend.helpCount = live.cleanableHazards
-    friend.canMidwife = live.ranches.some((pen: any) => pen.animals.some((animal: any) => animal.canProduce))
     friend.canSteal = live.canSteal
   }
 })
@@ -468,7 +471,7 @@ async function reloadList() {
                 <span v-if="entry.statusId" :id="entry.statusId" class="friend-tags">
                   <span v-if="entry.blacklisted" class="f-tag f-tag--blocked">已拉黑</span>
                   <template v-else>
-                    <span v-if="entry.friend.canMidwife" class="f-tag">
+                    <span v-if="entry.canHelpProduce" class="f-tag">
                       <span class="i-carbon-circle-dash" aria-hidden="true" />可帮生产
                     </span>
                     <span v-if="entry.friend.canSteal" class="f-tag f-tag--steal">
@@ -542,17 +545,30 @@ async function reloadList() {
                     </span>
                     <span class="friend-stat" :class="{ 'is-zero': !entry.detail.strokeRemaining }">
                       <span class="i-carbon-favorite text-rose-500 dark:text-rose-400" aria-hidden="true" />
-                      <span>今日可抚摸 <b>{{ entry.detail.strokeRemaining }}</b> 次</span>
+                      <span>可抚摸 <b>{{ entry.detail.strokeRemaining }}</b> 次</span>
                     </span>
                     <span class="friend-stat" :class="{ 'is-zero': !entry.detail.mosquitoRemaining }">
                       <span class="i-carbon-debug text-amber-600 dark:text-amber-400" aria-hidden="true" />
-                      <span>今日可放蚊子 <b>{{ entry.detail.mosquitoRemaining }}</b> 次</span>
+                      <span>可放蚊子 <b>{{ entry.detail.mosquitoRemaining }}</b> 次</span>
                     </span>
                     <!-- [fnos-fork] 次数用完 / 大小号规则不允许放蚊子时提示 -->
                     <span v-if="!entry.detail.mosquitoRemaining" class="friend-interactions__warn">今日放蚊子次数已用完</span>
                     <span v-if="entry.detail.fnosRules?.putMosquito" class="friend-interactions__warn">{{ entry.detail.fnosRules.putMosquito }}</span>
                   </div>
                   <div class="friend-overview__actions">
+                    <NButton
+                      v-if="entry.canHelpProduce"
+                      size="small"
+                      type="primary"
+                      secondary
+                      :disabled="disabled"
+                      @click="requestDirect('produceFriend', { hostGid: entry.gid })"
+                    >
+                      <template #icon>
+                        <span class="i-carbon-circle-dash" aria-hidden="true" />
+                      </template>
+                      帮忙生产
+                    </NButton>
                     <NButton
                       v-if="entry.detail.feedMachine"
                       size="small"

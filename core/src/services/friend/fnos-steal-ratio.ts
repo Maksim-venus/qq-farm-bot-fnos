@@ -157,11 +157,19 @@ function collectOnlineStealProtectedGids(input: {
  * 下线提醒渠道是 Bark 且填了 Key 时可以推送。
  * 渠道不是 Bark 时发不出去，不推。
  */
-function shouldNotifyOnlineStealDelete(cfg: unknown, reminder: { channel?: string; token?: string } | null | undefined): boolean {
+/** 上游 #188 起推送支持多渠道：优先取已启用的 Bark 渠道，老配置（无 channels）退回主渠道。 */
+function findOnlineStealBarkChannel(reminder: any): { endpoint?: string; token?: string; secret?: string } | null {
+    const list = reminder && Array.isArray(reminder.channels) ? reminder.channels : [];
+    const hit = list.find((e: any) => e && String(e.channel || '').trim().toLowerCase() === 'bark'
+        && e.enabled !== false && String(e.token || '').trim().length > 0);
+    if (hit) return hit;
     const channel = String(reminder && reminder.channel || '').trim().toLowerCase();
     const token = String(reminder && reminder.token || '').trim();
-    const channelReady = channel === 'bark' && token.length > 0;
-    return channelReady;
+    return channel === 'bark' && token.length > 0 ? reminder : null;
+}
+
+function shouldNotifyOnlineStealDelete(cfg: unknown, reminder: { channel?: string; token?: string; channels?: any[] } | null | undefined): boolean {
+    return !!findOnlineStealBarkChannel(reminder);
 }
 
 /**
@@ -452,11 +460,12 @@ async function notifyOnlineStealDeleted(cfg: FnosStealRatioConfig, item: OnlineS
         const when = formatOnlineStealWhen(item.stolenAtSec);
         const title = accountName ? `在线期间偷菜已删除 ${accountName}` : '在线期间偷菜已删除';
         const content = `${item.name}（GID ${item.gid}）于 ${when} ${item.detail}。已删除该好友。原因：${ONLINE_STEAL_DELETE_REASON}。`;
+        const bark = findOnlineStealBarkChannel(reminder) || {};
         const result = await sendPushooMessage({
             channel: 'bark',
-            endpoint: String(reminder.endpoint || ''),
-            token: String(reminder.token || '').trim(),
-            secret: String(reminder.secret || ''),
+            endpoint: String(bark.endpoint || ''),
+            token: String(bark.token || '').trim(),
+            secret: String(bark.secret || ''),
             title,
             content,
             barkCritical: reminder.barkCritical !== false,

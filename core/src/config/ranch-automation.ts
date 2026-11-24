@@ -26,6 +26,7 @@ export const RANCH_AUTOMATION_DEFAULTS = {
     ranch_clean: true,
     ranch_stroke: true,
     ranch_friend_steal: true,
+    ranch_friend_produce: false,
     ranch_friend_clean: true,
     ranch_friend_mosquito: false, // [fnos-fork] 给好友放蚊子默认关（用户 2026-11-16 要求），上游 #145 改为默认开
     ranch_task: true,

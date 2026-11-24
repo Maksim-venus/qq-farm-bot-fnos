@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { PushChannelChange } from '@/stores/setting'
 import { NButton } from 'naive-ui/es/button'
 import { NTab } from 'naive-ui/es/tabs'
 import { NTimePicker } from 'naive-ui/es/time-picker'
@@ -14,6 +15,7 @@ import PageTabs from '@/components/PageTabs.vue'
 import AutomationSettingsForm from '@/components/settings/AutomationSettingsForm.vue'
 import BagSeedPriorityItem from '@/components/settings/BagSeedPriorityItem.vue'
 import FnosForkSettings from '@/components/settings/FnosForkSettings.vue' // [fnos-fork] 大小号协作、活动设置（占位）
+import PushChannelsManager from '@/components/settings/PushChannelsManager.vue'
 import BaseButton from '@/components/ui/BaseButton.vue'
 import BaseInput from '@/components/ui/BaseInput.vue'
 import BaseSelect from '@/components/ui/BaseSelect.vue'
@@ -21,7 +23,7 @@ import BaseSwitch from '@/components/ui/BaseSwitch.vue'
 import { useUnsavedEditGuard } from '@/composables/useUnsavedEditGuard'
 import { getPlatformClass, getPlatformLabel, useAccountStore } from '@/stores/account'
 import { useAppUpdateStore } from '@/stores/app-update'
-import { useSettingStore } from '@/stores/setting'
+import { getPushChannelLabel, normalizeOfflineConfig, useSettingStore } from '@/stores/setting'
 import { useStatusStore } from '@/stores/status'
 import { fnosNormalizeIllustratedAuto } from '@/utils/fnos-illustrated-auto' // [fnos-fork] 图鉴（自动控制）
 import { fnosNormalizeQuietPriority } from '@/utils/fnos-quiet-priority' // [fnos-fork] 自己收菜优先 / 空闲时只保留心跳（自动控制）
@@ -159,6 +161,8 @@ onMounted(async () => {
   }
   if (currentAccountId.value)
     await loadStrategyData(currentAccountId.value)
+  else
+    await settingStore.fetchSettings('')
   await Promise.all([loadSystemConfig(), loadDevicePresets()])
 })
 
@@ -1116,159 +1120,71 @@ async function saveAutomationSettings() {
 const offlineSaving = ref(false)
 const offlineTesting = ref(false)
 
-const localOffline = ref({
-  channel: 'webhook',
-  endpoint: '',
-  token: '',
-  secret: '',
-  title: '',
-  msg: '',
-  offlineDeleteSec: 0,
-  barkCritical: true, // [fnos-fork]
-})
+const localOffline = ref(normalizeOfflineConfig())
+const hasActivePushChannel = computed(() =>
+  localOffline.value.channels.some(c => c.enabled),
+)
+// [fnos-fork] Bark 重要警告开关：配置了 Bark 渠道时显示
+const hasBarkChannel = computed(() =>
+  localOffline.value.channels.some(c => c.channel === 'bark'),
+)
 
-const channelOptions = [
-  { label: 'Webhook(自定义接口)', value: 'webhook' },
-  { label: 'Qmsg 酱', value: 'qmsg' },
-  { label: 'Server 酱', value: 'serverchan' },
-  { label: 'Push Plus', value: 'pushplus' },
-  { label: 'Push Plus Hxtrip', value: 'pushplushxtrip' },
-  { label: '钉钉', value: 'dingtalk' },
-  { label: '企业微信', value: 'wecom' },
-  { label: 'Bark', value: 'bark' },
-  { label: 'Go-cqhttp', value: 'gocqhttp' },
-  { label: 'OneBot', value: 'onebot' },
-  { label: 'Atri', value: 'atri' },
-  { label: 'PushDeer', value: 'pushdeer' },
-  { label: 'iGot', value: 'igot' },
-  { label: 'Telegram', value: 'telegram' },
-  { label: '飞书', value: 'feishu' },
-  { label: 'IFTTT', value: 'ifttt' },
-  { label: '企业微信群机器人', value: 'wecombot' },
-  { label: 'Discord', value: 'discord' },
-  { label: 'WxPusher', value: 'wxpusher' },
-  { label: 'MeoW', value: 'meow' },
-]
-
-const CHANNEL_DOCS: Record<string, string> = {
-  webhook: '',
-  qmsg: 'https://qmsg.zendee.cn/',
-  serverchan: 'https://sct.ftqq.com/',
-  pushplus: 'https://www.pushplus.plus/',
-  pushplushxtrip: 'https://pushplus.hxtrip.com/',
-  dingtalk: 'https://open.dingtalk.com/document/orgapp/customize-robot-security-settings',
-  wecom: 'https://guole.fun/posts/626/',
-  wecombot: 'https://developer.work.weixin.qq.com/document/path/91770',
-  bark: 'https://github.com/Finb/Bark',
-  gocqhttp: 'https://docs.go-cqhttp.org/api/',
-  onebot: 'https://docs.go-cqhttp.org/api/',
-  atri: 'https://blog.tianli0.top/',
-  pushdeer: 'https://www.pushdeer.com/',
-  igot: 'https://push.hellyw.com/',
-  telegram: 'https://core.telegram.org/bots',
-  feishu: 'https://www.feishu.cn/hc/zh-CN/articles/360024984973',
-  ifttt: 'https://ifttt.com/maker_webhooks',
-  discord: 'https://discord.com/developers/docs/resources/webhook#execute-webhook',
-  wxpusher: 'https://wxpusher.zjiecode.com/docs/#/',
-  meow: 'https://www.chuckfang.com/MeoW/api_doc.html',
-}
-
-const offlineChannel = computed(() => String(localOffline.value.channel || '').trim().toLowerCase())
-const isDingTalkChannel = computed(() => offlineChannel.value === 'dingtalk')
-const isMeowChannel = computed(() => offlineChannel.value === 'meow')
-const isBarkChannel = computed(() => offlineChannel.value === 'bark') // [fnos-fork]
-const offlineChannelUsesEndpoint = computed(() => offlineChannel.value === 'webhook' || isDingTalkChannel.value)
-const offlineEndpointLabel = computed(() => isDingTalkChannel.value ? 'Webhook 地址' : '接口地址')
-const offlineEndpointPlaceholder = computed(() => isDingTalkChannel.value
-  ? '从钉钉群机器人设置页复制完整 Webhook'
-  : '接收消息的接口地址')
-const offlineTokenLabel = computed(() => isMeowChannel.value ? '昵称' : 'Token')
-const offlineTokenPlaceholder = computed(() => isMeowChannel.value
-  ? 'MeoW 注册昵称'
-  : '接收端 token')
-const currentChannelDocUrl = computed(() => CHANNEL_DOCS[offlineChannel.value] || '')
-
-function openChannelDocs() {
-  const url = currentChannelDocUrl.value
-  if (!url)
-    return
-  window.open(url, '_blank', 'noopener,noreferrer')
+function getOfflineGeneralSnapshot(cfg = localOffline.value): string {
+  return JSON.stringify({
+    notificationTypes: cfg.notificationTypes,
+    title: cfg.title,
+    msg: cfg.msg,
+    offlineDeleteSec: cfg.offlineDeleteSec,
+    barkCritical: cfg.barkCritical !== false, // [fnos-fork]
+  })
 }
 
 function syncLocalOfflineSettings(force = false) {
-  if (!force && savedOfflineSnapshot.value && JSON.stringify(localOffline.value) !== savedOfflineSnapshot.value)
+  if (!settings.value?.offlineReminder)
     return
-  if (settings.value?.offlineReminder) {
-    const saved = JSON.parse(JSON.stringify(settings.value.offlineReminder))
-    const next = {
-      channel: 'webhook',
-      endpoint: '',
-      token: '',
-      secret: '',
-      title: '',
-      msg: '',
-      offlineDeleteSec: 0,
-      ...saved,
+  const next = normalizeOfflineConfig(settings.value.offlineReminder)
+  if (!force && savedOfflineSnapshot.value && getOfflineGeneralSnapshot(localOffline.value) !== savedOfflineSnapshot.value) {
+    localOffline.value = {
+      ...localOffline.value,
+      channel: next.channel,
+      endpoint: next.endpoint,
+      token: next.token,
+      secret: next.secret,
+      channels: next.channels,
     }
-    next.barkCritical = saved.barkCritical !== false // [fnos-fork] 老配置缺字段视为开启
-
-    if (String(next.channel || '').trim().toLowerCase() === 'dingtalk') {
-      const legacyToken = String(next.token || '').trim()
-      if (!String(next.endpoint || '').trim() && legacyToken) {
-        next.endpoint = /^https?:\/\//i.test(legacyToken)
-          ? legacyToken
-          : `https://oapi.dingtalk.com/robot/send?access_token=${encodeURIComponent(legacyToken)}`
-      }
-      next.token = ''
-    }
-
-    localOffline.value = next
-    savedOfflineSnapshot.value = JSON.stringify(next)
+    return
   }
-}
-
-function validateDingTalkWebhook(): string {
-  if (!isDingTalkChannel.value)
-    return ''
-
-  const endpoint = String(localOffline.value.endpoint || '').trim()
-  if (!endpoint)
-    return '请填写钉钉机器人设置页提供的完整 Webhook 地址'
-
-  try {
-    const url = new URL(endpoint)
-    const isOfficialWebhook = url.protocol === 'https:'
-      && url.hostname.toLowerCase() === 'oapi.dingtalk.com'
-      && url.pathname === '/robot/send'
-      && !!url.searchParams.get('access_token')
-    if (!isOfficialWebhook)
-      return '钉钉 Webhook 地址格式不正确，请从群机器人设置页重新复制'
-  }
-  catch {
-    return '钉钉 Webhook 地址格式不正确，请从群机器人设置页重新复制'
-  }
-
-  return ''
+  localOffline.value = next
+  savedOfflineSnapshot.value = getOfflineGeneralSnapshot(next)
 }
 
 watch(settings, () => {
   syncLocalOfflineSettings(false)
 }, { deep: true })
 
-async function handleSaveOffline() {
-  const validationError = validateDingTalkWebhook()
-  if (validationError) {
-    showAlert(validationError, 'danger')
-    return
-  }
-
+async function handleSaveChannel(change: PushChannelChange, onDone: (ok: boolean) => void) {
   offlineSaving.value = true
   try {
-    const res = await settingStore.saveOfflineConfig(localOffline.value)
+    const result = await settingStore.saveOfflineConfig(change)
+    if (!result.ok)
+      showAlert(`保存推送渠道失败: ${result.error || '未知错误'}`, 'danger')
+    onDone(result.ok)
+  }
+  finally {
+    offlineSaving.value = false
+  }
+}
+
+async function handleSaveOffline() {
+  offlineSaving.value = true
+  try {
+    const { title, msg, offlineDeleteSec, notificationTypes, barkCritical } = localOffline.value
+    const res = await settingStore.saveOfflineConfig({ title, msg, offlineDeleteSec, notificationTypes, barkCritical: barkCritical !== false /* [fnos-fork] */ })
 
     if (res.ok) {
-      savedOfflineSnapshot.value = JSON.stringify(localOffline.value)
-      showAlert('下线提醒设置已保存', 'primary')
+      localOffline.value = normalizeOfflineConfig(settingStore.settings.offlineReminder)
+      savedOfflineSnapshot.value = getOfflineGeneralSnapshot(localOffline.value)
+      showAlert('通知设置已保存', 'primary')
     }
     else {
       showAlert(`保存失败: ${res.error || '未知错误'}`, 'danger')
@@ -1280,17 +1196,25 @@ async function handleSaveOffline() {
 }
 
 async function handleTestOffline() {
-  const validationError = validateDingTalkWebhook()
-  if (validationError) {
-    showAlert(validationError, 'danger')
+  if (!hasActivePushChannel.value) {
+    showAlert('请先配置并启用至少一个推送渠道', 'danger')
     return
   }
 
   offlineTesting.value = true
   try {
-    const { data } = await api.post('/api/settings/offline-reminder/test', localOffline.value)
+    const { data } = await api.post('/api/settings/offline-reminder/test', {
+      title: localOffline.value.title,
+      msg: localOffline.value.msg,
+      barkCritical: localOffline.value.barkCritical !== false, // [fnos-fork] 测试也按当前开关走 Bark 重要警告
+    })
     if (data?.ok) {
-      showAlert('测试消息发送成功', 'primary')
+      const failed = Array.isArray(data.data) ? data.data.filter((item: { ok: boolean }) => !item.ok) : []
+      const message = data.message || '测试消息发送成功'
+      if (failed.length)
+        showAlert(`${message}。${failed.map((item: { channel: string, msg: string }) => `${getPushChannelLabel(item.channel)}：${item.msg}`).join('；')}`, 'danger')
+      else
+        showAlert(message, 'primary')
     }
     else {
       showAlert(`测试失败: ${getApiErrorMessage(data, '未知错误')}`, 'danger')
@@ -1504,7 +1428,7 @@ const isLoginSettingsDirty = computed(() =>
 )
 const isOfflineDirty = computed(() =>
   Boolean(savedOfflineSnapshot.value)
-  && JSON.stringify(localOffline.value) !== savedOfflineSnapshot.value,
+  && getOfflineGeneralSnapshot(localOffline.value) !== savedOfflineSnapshot.value,
 )
 const hasUnsavedSettings = computed(() =>
   showModal.value
@@ -2243,75 +2167,54 @@ watch(() => statusStore.realtimeReconnectCount, (count) => {
                   </div>
                   <div>
                     <h4 class="text-base text-gray-900 font-bold dark:text-gray-100">
-                      下线提醒
+                      通知设置
                     </h4>
                     <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                      配置账号离线后的通知与清理
+                      商人提醒需在对应账号的「自动控制」中开启。
                     </p>
                   </div>
                 </div>
 
-                <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <div class="min-w-0 flex flex-col gap-1.5">
-                    <div class="min-h-6 flex items-center justify-between gap-2">
-                      <span class="text-sm text-gray-700 font-medium dark:text-gray-300">推送渠道</span>
-                      <BaseButton
-                        variant="text"
-                        size="sm"
-                        :disabled="!currentChannelDocUrl"
-                        @click="openChannelDocs"
-                      >
-                        官方文档
-                      </BaseButton>
+                <fieldset v-if="localOffline.notificationTypes" class="mb-4 min-w-0">
+                  <legend class="notification-type-label mb-3">
+                    通知类型
+                  </legend>
+                  <div class="flex flex-wrap gap-2">
+                    <div class="notification-type-option">
+                      <BaseSwitch v-model="localOffline.notificationTypes.offline" label="账号下线" />
                     </div>
-                    <BaseSelect
-                      v-model="localOffline.channel"
-                      :options="channelOptions"
-                    />
+                    <div class="notification-type-option flex-wrap justify-between gap-x-3 gap-y-2" role="group" aria-labelledby="notification-merchant-label">
+                      <span id="notification-merchant-label" class="notification-type-label">神秘商人</span>
+                      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <BaseSwitch v-model="localOffline.notificationTypes.mysteryArrival" label="到货" />
+                        <BaseSwitch v-model="localOffline.notificationTypes.mysteryPurchase" label="自动购买" />
+                      </div>
+                    </div>
                   </div>
+                </fieldset>
 
-                  <BaseInput
-                    v-if="offlineChannelUsesEndpoint"
-                    v-model="localOffline.endpoint"
-                    :label="offlineEndpointLabel"
-                    type="text"
-                    :placeholder="offlineEndpointPlaceholder"
+                <PushChannelsManager
+                  :config="localOffline"
+                  :saving="offlineSaving || settingStore.supportsPushChannels === null"
+                  :supports-channels="settingStore.supportsPushChannels !== false"
+                  @save-channel="handleSaveChannel"
+                />
+
+                <!-- [fnos-fork] Bark 重要警告 -->
+                <div v-if="hasBarkChannel" class="mt-3 flex flex-col gap-1">
+                  <BaseSwitch
+                    v-model="localOffline.barkCritical"
+                    label="Bark 下线提醒静音也提醒（重要警告）"
                   />
+                  <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
+                    开启后 Bark 渠道的下线提醒以「重要警告」发送（音量 5、铃声持续约 30 秒），手机静音或勿扰时也会响铃；「测试已启用渠道」同样按此设置发送；其他通知类型和其他渠道不受影响。需在 iPhone「设置 → 通知 → Bark」里允许「重要警告」。改动后点「保存通知设置」生效。
+                  </p>
+                </div>
 
-                  <BaseInput
-                    v-if="!isDingTalkChannel"
-                    v-model="localOffline.token"
-                    :label="offlineTokenLabel"
-                    type="text"
-                    :placeholder="offlineTokenPlaceholder"
-                  />
-
-                  <template v-else>
-                    <BaseInput
-                      v-model="localOffline.secret"
-                      label="加签密钥（可选）"
-                      type="password"
-                      placeholder="仅在机器人开启加签时填写 SEC..."
-                    />
-                    <p class="text-xs text-gray-500 leading-relaxed sm:col-span-2 dark:text-gray-400">
-                      从群机器人的设置页复制完整 Webhook；只有开启“加签”时才需要填写加签密钥。
-                    </p>
-                  </template>
-
-                  <!-- [fnos-fork] Bark 重要警告 -->
-                  <div v-if="isBarkChannel" class="flex flex-col gap-1 sm:col-span-2">
-                    <BaseSwitch
-                      v-model="localOffline.barkCritical"
-                      label="静音也提醒（重要警告）"
-                    />
-                    <p class="text-xs text-gray-500 leading-relaxed dark:text-gray-400">
-                      开启后下线提醒以 Bark「重要警告」发送（音量 5、铃声持续约 30 秒），手机静音或勿扰时也会响铃；「测试通知」同样按此设置发送。需在 iPhone「设置 → 通知 → Bark」里允许「重要警告」。
-                    </p>
-                  </div>
-
+                <div class="grid grid-cols-1 mt-3 gap-3 sm:grid-cols-2">
                   <BaseInput
                     v-model="localOffline.title"
-                    label="标题"
+                    label="下线通知标题"
                     type="text"
                     placeholder="提醒标题"
                   />
@@ -2324,7 +2227,7 @@ watch(() => statusStore.realtimeReconnectCount, (count) => {
                   />
                   <BaseInput
                     v-model="localOffline.msg"
-                    label="内容"
+                    label="下线通知内容"
                     type="text"
                     placeholder="提醒内容"
                     class="sm:col-span-2"
@@ -2336,19 +2239,19 @@ watch(() => statusStore.realtimeReconnectCount, (count) => {
                     variant="secondary"
                     size="sm"
                     :loading="offlineTesting"
-                    :disabled="offlineSaving"
+                    :disabled="offlineSaving || !hasActivePushChannel"
                     @click="handleTestOffline"
                   >
-                    测试通知
+                    测试已启用渠道
                   </BaseButton>
                   <BaseButton
                     variant="primary"
                     size="sm"
                     :loading="offlineSaving"
-                    :disabled="offlineTesting"
+                    :disabled="offlineTesting || settingStore.supportsPushChannels === null"
                     @click="handleSaveOffline"
                   >
-                    保存下线提醒设置
+                    保存通知设置
                   </BaseButton>
                 </div>
               </section>
@@ -2370,3 +2273,24 @@ watch(() => statusStore.realtimeReconnectCount, (count) => {
     />
   </div>
 </template>
+
+<style scoped>
+.notification-type-option {
+  display: flex;
+  min-width: 0;
+  min-height: 42px;
+  flex: 1 1 auto;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius-control);
+  background: color-mix(in srgb, var(--ui-surface-strong) 58%, transparent);
+}
+
+.notification-type-label {
+  color: var(--ui-ink);
+  font-size: 13px;
+  font-weight: var(--fw-600);
+  line-height: 20px;
+}
+</style>

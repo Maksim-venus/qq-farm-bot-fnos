@@ -17,7 +17,7 @@ const logs = [];
 const user = { gid: 1001, gold: 0, level: 30 };
 const realUtils = require('../dist/utils/utils');
 mock('utils/utils', { ...realUtils, log: (tag, msg) => logs.push(`${tag}|${msg}`), logWarn: (tag, msg) => logs.push(`${tag}|WARN|${msg}`) });
-mock('utils/network', { getUserState: () => user, getWsErrorState: () => ({}), getWs: () => null, invalidateGameScene: () => {} });
+mock('utils/network', { networkEvents: new (require('node:events'))(), getUserState: () => user, getWsErrorState: () => ({}), getWs: () => null, invalidateGameScene: () => {} });
 
 const store = require('../dist/models/store');
 const ranch = require('../dist/services/ranch/fnos-ranch');
@@ -199,7 +199,7 @@ test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清
                 case 'animals': return { ranches: ranchView() };
                 case 'opTimes': return { ops: [{ op_id: 11003, remaining_times: world.remaining }, { op_id: 11008, remaining_times: 20 }, { op_id: 11009, remaining_times: 0 }] };
                 case 'clean': { const rows = world.hazards.map(h => ({ facility_inst_id: '10001', kind: 3, target_id: h.hazard_id, costs: [], rewards: [{ id: 1102, count: 5 }] })); world.hazards = []; return { op_results: rows }; }
-                case 'produce': world.animals = [{ ...world.animals[0], can_deliver: false }]; return { ranches: ranchView(), op_results: [{ kind: 1, target_id: 1, rewards: [{ id: 1102, count: 5 }] }] };
+                case 'produce': world.animals = [{ ...world.animals[0], can_deliver: false }]; return { ranches: ranchView(), op_results: [{ facility_inst_id: '10001', kind: 1, target_id: 1, costs: [], rewards: [{ id: 1102, count: 5 }] }] };
                 case 'steal': world.shelves[0].lots[0].stealers = [1001]; return { op_results: [{ facility_inst_id: '10001', kind: 2, target_id: 1, costs: [], rewards: [{ id: 1060001, count: 1 }] }] };
                 case 'putMosquito': world.put++; world.remaining--; world.hazards = [...world.hazards, { hazard_id: 100 + world.put, owner: 1001, hazard_type: 1 }]; return { actual_count: 1, remaining_times: world.remaining, hazards: world.hazards, rewards: [{ id: 1102, count: 5 }] };
                 case 'addGrass': return { detail: { feed_count: 100 } };
@@ -211,7 +211,8 @@ test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清
     const fr = require('../dist/services/ranch/fnos-ranch');
     const friends = require('../dist/services/ranch/friends');
     fr.beginFriendPhase({ gold: 48929 });
-    const all = () => true;
+    // 上游 #185 自带「帮忙生产」开关（ranch_friend_produce，默认关）：这里先按默认关闭，只验证 fork 的帮好友生产
+    const all = a => a !== 'produceFriend';
     // 1）大号 3
     world = fresh();
     let r = await friends.automateFriend(3, fr.wrapFriendWanted(3, all));
@@ -235,6 +236,14 @@ test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清
     await friends.automateFriend(9, fr.wrapFriendWanted(9, a => a === 'steal'));
     writes = sent.filter(([x]) => ['clean', 'produce', 'steal', 'putMosquito', 'addGrass'].includes(x)).map(([x]) => x);
     assert.deepEqual(writes, ['steal']);
+    // 4）上游「帮忙生产」开关打开：只走上游一次 produce，fork 的帮好友生产跳过，不重复请求
+    apply({ fnosRanch: { friendHelpProduce: true, friendFeed: false } });
+    sent.length = 0;
+    world = fresh();
+    r = await friends.automateFriend(9, fr.wrapFriendWanted(9, a => a === 'produceFriend'));
+    writes = sent.filter(([x]) => ['clean', 'produce', 'steal', 'putMosquito', 'addGrass'].includes(x)).map(([x]) => x);
+    assert.deepEqual(writes, ['produce']);
+    assert.ok(r.results.some(o => o.action === 'produceFriend') && !r.results.some(o => o.action === 'fnosHelpProduce'));
     apply({ fnosAltAccount: { enabled: false, skipStealMaster: false, badOnlyMaster: false } });
 });
 

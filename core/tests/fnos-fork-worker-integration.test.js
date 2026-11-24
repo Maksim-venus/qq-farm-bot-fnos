@@ -30,7 +30,8 @@ require.cache[dist('services/farm/api')] = {
             if (landsQueue.length) lastLands = landsQueue.shift();
             return { lands: lastLands };
         },
-        harvest: async (landIds, options = {}) => {
+        harvest: async (landIds, isAll = true) => { // 上游 #185 起第二个参数为 isAll 布尔值
+            const options = { isAll };
             harvestCalls.push({ landIds: [...landIds], isAll: options.isAll !== false });
             return { land: [] };
         },

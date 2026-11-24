@@ -46,6 +46,7 @@ mock('services/warehouse', {
     getBagSeeds: async () => st.bag.filter(v => !v.locked && gameConfig.getPlantBySeedId(v.id)).map(v => ({ seedId: v.id, name: gameConfig.getPlantBySeedId(v.id).name, count: v.count, plantSize: 1 })),
 });
 mock('services/farm/api', {
+    decodeChangedLands: (type, body) => type.decode(body), // 上游 #185
     getAllLands: async () => ({ lands: st.lands }),
     getShopInfo: async () => ({ goods_list: [] }),
     buyGoods: async () => { throw new Error('不应走商店购买'); },

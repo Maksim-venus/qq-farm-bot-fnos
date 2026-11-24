@@ -9,7 +9,7 @@ const { getLevelExpProgress, loadConfigs } = require('../config/gameConfig');
 const { getAutomation, getPreferredSeed, getConfigSnapshot, applyConfigSnapshot } = require('../models/store');
 const { checkAndClaimEmails, configureEmailClaim, getEmailDailyState } = require('../services/email');
 const { checkFarm, startFarmCheckLoop, stopFarmCheckLoop, refreshFarmCheckLoop, getLandsDetail, getAvailableSeeds, purchaseSeed, runFarmOperation, runFertilizerByConfig, fertilizeOwnLand } = require('../services/farm');
-const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendsListCacheOnly, getFriendLandsDetail, doFriendOperation, deleteFriend } = require('../services/friend');
+const { checkFriends, startFriendCheckLoop, stopFriendCheckLoop, refreshFriendCheckLoop, getFriendsList, getFriendsListCacheOnly, isFriendsListPartial, getFriendLandsDetail, doFriendOperation, deleteFriend } = require('../services/friend');
 const { getInteractRecords } = require('../services/interact');
 const { processInviteCodes } = require('../services/invite');
 const { autoBuyFertilizer, checkAndBuyFertilizerBoth, buyFreeGifts, getFreeGiftDailyState } = require('../services/mall');
@@ -820,8 +820,8 @@ function runMysteryShopTick(): Promise<void> {
     } = require('../services/mystery-shop-auto');
     if (!isMysteryShopWatchEnabled(getAutomation())) return Promise.resolve();
     return checkMysteryShopTick().then((result: any) => {
-        if (result?.push?.title && result?.push?.content) {
-            sendToMaster({ type: 'push_notify', title: result.push.title, content: result.push.content });
+        if (result.notifications?.length) {
+            sendToMaster({ type: 'push_notify', candidates: result.notifications });
         }
     });
 }
@@ -1275,9 +1275,11 @@ async function handleApiCall(msg: any): Promise<void> {
                     break;
                 case 'getFriends':
                     result = await getFriendsList(args[0] === true, 'normal', args[1] === true);
+                    if (args[2]) result = { data: result, partial: isFriendsListPartial() };
                     break;
                 case 'getFriendsCache':
                     result = getFriendsListCacheOnly();
+                    if (args[0]) result = { data: result, partial: isFriendsListPartial() };
                     break;
                 case 'clearFriendsCache':
                     require('../services/friend').clearFriendsListCache();

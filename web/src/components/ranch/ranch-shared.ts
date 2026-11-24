@@ -24,6 +24,7 @@ export interface RanchPending {
 }
 
 type RanchItemAmount = Pick<RanchItem, 'id' | 'count'>
+type DirectRanchAction = 'feed' | 'produce' | 'harvest' | 'clean' | 'produceFriend'
 
 export interface RanchPurchaseTerms {
   costItems: RanchItemAmount[]
@@ -42,7 +43,7 @@ export interface RanchActions {
   /** 读取、报价或执行中，或确认框打开时，所有写入按钮都不可用。 */
   disabled: ComputedRef<boolean>
   request: (action: string, input?: Record<string, unknown>, acceptedTerms?: RanchPurchaseTerms) => Promise<void>
-  requestDirect: (action: 'feed' | 'produce' | 'harvest' | 'clean', input?: Record<string, unknown>) => Promise<void>
+  requestDirect: (action: DirectRanchAction, input?: Record<string, unknown>) => Promise<void>
   confirm: () => Promise<void>
   cancel: () => void
 }
@@ -67,7 +68,7 @@ export function provideRanchActions(): RanchActions {
       await ranch.reload(chosen.accountId, hostGid ? { hostGid } : undefined)
   }
 
-  async function requestDirect(action: 'feed' | 'produce' | 'harvest' | 'clean', input: Record<string, unknown> = {}) {
+  async function requestDirect(action: DirectRanchAction, input: Record<string, unknown> = {}) {
     const accountId = String(currentAccountId.value || '')
     if (!accountId || disabled.value)
       return
@@ -94,7 +95,7 @@ export function provideRanchActions(): RanchActions {
         toast.success(message)
     }
     else {
-      const labels = { feed: '喂养完成', produce: '已开始生产', harvest: '收获完成', clean: '清理完成' }
+      const labels = { feed: '喂养完成', produce: '已开始生产', harvest: '收获完成', clean: '清理完成', produceFriend: '已帮好友开始生产' }
       toast.success(result.notice || labels[action])
     }
     if (result.refreshRequired)

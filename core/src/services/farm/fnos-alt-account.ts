@@ -460,6 +460,16 @@ async function filterHarvestForAltAccount(
 }
 
 /** 只收部分地块时逐块收获（is_all=false），返回合并回包与成功地块。 */
+// [fnos-fork] 当前账号是否处于「小号且成熟作物先留给大号偷」模式（上游 #185 推送直收需绕开）
+function isAltHoldActive(): boolean {
+    try {
+        const config = getConfigForCurrentAccount();
+        return !!config.enabled && config.masterGid > 0 && config.holdForMaster !== false;
+    } catch {
+        return false;
+    }
+}
+
 async function harvestSelectedLands(landIds: number[]): Promise<{ reply: any; harvested: number[] }> {
     const { harvest } = require('./api');
     const { logWarn, randomDelay } = require('../../utils/utils');
@@ -468,7 +478,7 @@ async function harvestSelectedLands(landIds: number[]): Promise<{ reply: any; ha
     let lastError: any = null;
     for (const landId of landIds) {
         try {
-            const r = await harvest([landId], { isAll: false });
+            const r = await harvest([landId], false);
             if (!reply) reply = { land: [] };
             if (r && Array.isArray(r.land)) reply.land.push(...r.land);
             harvested.push(landId);
@@ -484,6 +494,7 @@ async function harvestSelectedLands(landIds: number[]): Promise<{ reply: any; ha
 
 module.exports = {
     harvestSelectedLands,
+    isAltHoldActive,
     DEFAULT_FNOS_ALT_ACCOUNT,
     normalizeFnosAltAccount,
     decodeStealerGids,

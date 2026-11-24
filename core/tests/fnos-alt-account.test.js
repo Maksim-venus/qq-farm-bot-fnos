@@ -17,7 +17,8 @@ const logs = [];
 require.cache[dist('services/farm/api')] = {
     exports: {
         getAllLands: async () => ({ lands: currentLands }),
-        harvest: async (landIds, options = {}) => {
+        harvest: async (landIds, isAll = true) => { // 上游 #185 起第二个参数为 isAll 布尔值
+            const options = { isAll };
             harvestCalls.push({ landIds: [...landIds], isAll: options.isAll !== false });
             return { land: [] };
         },
@@ -322,4 +323,17 @@ test('runFarmOperation: [fnos-fork] holdForMaster 显式打开 / 缺省（旧配
         assert.deepEqual(harvestCalls, [{ landIds: [1], isAll: false }]);
         assert.ok(logs.some(l => l.includes('暂不收获 1 块')), logs.join('\n'));
     }
+});
+
+// [fnos-fork] 上游 #185 推送直收：小号「先留给大号偷」时必须绕开，统一读地后按留菜规则过滤
+test('isAltHoldActive：只有「小号 + 已选大号 + 先留给大号偷」时为真', () => {
+    const { isAltHoldActive } = require('../dist/services/farm/fnos-alt-account');
+    altConfig = { enabled: true, masterGid: MASTER, masterName: '大号', timeoutMinutes: 10 };
+    assert.equal(isAltHoldActive(), true);
+    altConfig = { enabled: true, masterGid: MASTER, masterName: '大号', timeoutMinutes: 10, holdForMaster: false };
+    assert.equal(isAltHoldActive(), false);
+    altConfig = { enabled: true, masterGid: 0, masterName: '', timeoutMinutes: 10 };
+    assert.equal(isAltHoldActive(), false);
+    altConfig = { enabled: false, masterGid: MASTER, masterName: '大号', timeoutMinutes: 10 };
+    assert.equal(isAltHoldActive(), false);
 });

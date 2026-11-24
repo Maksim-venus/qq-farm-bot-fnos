@@ -1,3 +1,4 @@
+import type { NotificationTypes } from '../config/notification-types';
 import type { RanchAutomationConfig } from '../config/ranch-automation';
 export {};
 export type PlantingStrategy =
@@ -145,7 +146,17 @@ export interface AccountConfig {
   fnosGrassLands?: import('../services/farm/fnos-grass-lands').FnosGrassLandsConfig;
 }
 
+export interface OfflineReminderChannel {
+  channel: string;
+  enabled: boolean;
+  endpoint: string;
+  token: string;
+  secret: string;
+}
+
 export interface OfflineReminder {
+  notificationTypes: NotificationTypes;
+  channels: OfflineReminderChannel[];
   channel: string;
   endpoint: string;
   token: string;
