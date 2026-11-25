@@ -560,7 +560,7 @@ async function run(options: { farmDeadline?: () => number; sliceMs?: number; can
             await phase('friends', async () => {
                 // [fnos-fork] 2026-11-17 没有到点的好友牧场、常规轮巡也没到间隔、也没有要探的好友牧场：这一轮不碰好友（省掉次数查询和好友列表）
                 if (!fnosDueRanch.length && !pendingFriend && Date.now() < fnosNextRegularFriendsAt && !fnosRanchProbePending()) return;
-                if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled() || Object.keys(FRIEND_CONTROLS).some(canInteract)) { // [fnos-fork] 帮好友生产 / 给好友加牧草
+                if (Object.values(FRIEND_CONTROLS).some(enabled) || fnosRanch.friendExtrasEnabled() || Object.keys(FRIEND_CONTROLS).some(canInteract)) { // [fnos-fork] 给好友加牧草
                     fnosRanch.beginFriendPhase({ gold: Number(available(1007)), grass: Number(available(7001)) }); // [fnos-fork] 2026-11-17 给好友加牧草默认用仓库牧草
                     checkpoint();
                     patrolFriends ??= await getRanchFriendList(completedBatch => {

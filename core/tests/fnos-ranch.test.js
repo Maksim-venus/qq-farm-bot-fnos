@@ -28,13 +28,13 @@ test.after(() => fs.rmSync(DATA_DIR, { recursive: true, force: true }));
 test('normalize：默认值与范围夹取、旧字段（被上游取代）丢弃；真实 store 默认带 fnosRanch', () => {
     const d = ranch.normalizeFnosRanch(undefined);
     assert.deepEqual(d, { altHold: true, altHoldFallbackMinutes: 60, illustratedAutoClaim: true, illustratedAutoComplete: false, mugeAutoClaim: true,
-        friendHelpProduce: false, friendFeed: false, friendFeedSource: 'warehouse', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 });
-    const c = ranch.normalizeFnosRanch({ altHoldFallbackMinutes: 1, friendFeedPerTime: 0, friendFeedGoldKeep: -5, friendHelpProduce: 1,
+        friendFeed: false, friendFeedSource: 'warehouse', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 });
+    const c = ranch.normalizeFnosRanch({ altHoldFallbackMinutes: 1, friendFeedPerTime: 0, friendFeedGoldKeep: -5, friendHelpProduce: true,
         rotation: false, friendSteal: true, friendPutMosquito: true, friendFeedKeep: 200 });
     assert.equal(c.altHoldFallbackMinutes, 5);
     assert.equal(c.friendFeedPerTime, 1);
     assert.equal(c.friendFeedGoldKeep, 0);
-    assert.equal(c.friendHelpProduce, true);
+    assert.equal('friendHelpProduce' in c, false); // 2026-11-25 并入上游 ranch_friend_produce，旧字段丢弃
     for (const k of ranch.REMOVED_FNOS_RANCH_KEYS) assert.equal(k in c, false, k);
     assert.deepEqual(store.getConfigSnapshot('7').fnosRanch, d);
 });
@@ -108,7 +108,7 @@ test('fnosRanch 持久化：新进程读回；磁盘上的旧字段启动时清�
     };
     run(`const s=require('./dist/models/store');
         s.applyConfigSnapshot({ fnosIllustratedAuto: { autoClaimRewards: true } }, { accountId: 'a1' });
-        s.applyConfigSnapshot({ fnosRanch: { friendFeed: true, friendFeedPerTime: 3, friendHelpProduce: true } }, { accountId: 'a1' });
+        s.applyConfigSnapshot({ fnosRanch: { friendFeed: true, friendFeedPerTime: 3 } }, { accountId: 'a1' });
         s.applyConfigSnapshot({ fnosGrassLands: { count: 4, autoBuy: false } }, { accountId: 'a1' });
         console.log('{}');`);
     // 模拟草稿版写过的旧字段
@@ -124,7 +124,7 @@ test('fnosRanch 持久化：新进程读回；磁盘上的旧字段启动时清�
         console.log(JSON.stringify({ r: c.fnosRanch, g: c.fnosGrassLands, ill: c.fnosIllustratedAuto, or: o.fnosRanch, og: o.fnosGrassLands }));`);
     assert.equal(out.r.friendFeed, true);
     assert.equal(out.r.friendFeedPerTime, 3);
-    assert.equal(out.r.friendHelpProduce, true);
+    assert.equal('friendHelpProduce' in out.r, false);
     assert.equal('rotation' in out.r, false);
     assert.equal('friendSteal' in out.r, false);
     assert.deepEqual(out.g, { count: 4, autoBuy: false });
@@ -161,9 +161,9 @@ test('friendActionAllowed：上游好友互动的大小号规则（类比农场�
     assert.equal(allow(3, 'stroke', bad), true);
 });
 
-test('好友额外动作纯函数：可帮生产、加牧草按金币保留值和容量', () => {
-    assert.equal(ranch.helpableAnimals([{ animals: [{ can_deliver: true }, { can_deliver: true }, { can_feed: true }] }]), 2);
-    assert.equal(ranch.helpableAnimals([{}]), 0);
+test('好友额外动作纯函数：加牧草按金币保留值和容量', () => {
+    assert.equal(ranch.helpableAnimals, undefined); // 2026-11-25 fork 帮忙生产已删除
+    assert.equal(ranch.helpFriendProduce, undefined);
     const cfg = { friendFeedPerTime: 10, friendFeedGoldKeep: 10000 };
     assert.equal(ranch.FEED_GOLD_PER_UNIT, 60);
     assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 97 }, 48929, cfg), 3); // 1116-7 #172：97/100 → 加 3
@@ -175,10 +175,10 @@ test('好友额外动作纯函数：可帮生产、加牧草按金币保留值�
     assert.deepEqual(ranch.friendFeedMachine(entry), { id: '10002', capacity: 100, feedCount: 97 });
 });
 
-test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清只放蚊子；其他好友先偷再清、再帮生产；加牧草扣金币', async () => {
+test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清只放蚊子；其他好友先偷、再帮生产（只走上游 produceFriend）、再清；加牧草扣金币', async () => {
     ranch.resetFnosRanchRuntime();
     apply({ fnosAltAccount: { enabled: true, masterGid: 3, masterName: '大号', holdForMaster: false, skipStealMaster: true, badOnlyMaster: true },
-        fnosRanch: { friendHelpProduce: true, friendFeed: true, friendFeedSource: 'gold', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 } });
+        fnosRanch: { friendFeed: true, friendFeedSource: 'gold', friendFeedPerTime: 10, friendFeedGoldKeep: 10000 } });
     const sent = [];
     let world;
     const fresh = () => ({
@@ -211,33 +211,33 @@ test('上游 automateFriend + [fnos-fork]：大号（小号视角）不偷不清
     const fr = require('../dist/services/ranch/fnos-ranch');
     const friends = require('../dist/services/ranch/friends');
     fr.beginFriendPhase({ gold: 48929 });
-    // 上游 #185 自带「帮忙生产」开关（ranch_friend_produce，默认关）：这里先按默认关闭，只验证 fork 的帮好友生产
-    const all = a => a !== 'produceFriend';
+    // 2026-11-25 帮忙生产只剩上游「自动帮忙生产」（ranch_friend_produce → produceFriend）
+    const all = () => true;
     // 1）大号 3
     world = fresh();
     let r = await friends.automateFriend(3, fr.wrapFriendWanted(3, all));
     let writes = sent.filter(([x]) => ['clean', 'produce', 'steal', 'putMosquito', 'addGrass'].includes(x)).map(([x]) => x);
     assert.deepEqual(writes, ['produce', 'putMosquito', 'putMosquito', 'addGrass']); // 已有 1 只别人的蚊子 → 上限 3 还能放 2
-    assert.deepEqual(sent.find(([x]) => x === 'produce')[1], { host_gid: '3' });
+    assert.deepEqual(sent.find(([x]) => x === 'produce')[1], { host_gid: '3', targets: [] }); // 上游 produceFriend：只指定主人，由服务端挑就绪动物
     assert.deepEqual(sent.find(([x]) => x === 'addGrass')[1], { instance_id: '10002', add_count: 3, use_gold: true, host_gid: '3' });
-    assert.ok(r.results.some(o => o.action === 'fnosHelpProduce') && r.results.some(o => o.action === 'fnosFeedFriend'));
+    assert.ok(r.results.some(o => o.action === 'produceFriend') && r.results.some(o => o.action === 'fnosFeedFriend'));
+    assert.ok(!r.results.some(o => o.action === 'fnosHelpProduce'));
     assert.equal(fr._rt.wallet.gold, 48929 - 180);
-    // 2）普通好友 9：上游 #157 先偷再清理，然后帮生产，不放蚊子
+    // 2）普通好友 9：上游 #185/#187 先偷、再帮生产、再清理，不放蚊子
     sent.length = 0;
     world = fresh();
     r = await friends.automateFriend(9, fr.wrapFriendWanted(9, all));
     writes = sent.filter(([x]) => ['clean', 'produce', 'steal', 'putMosquito', 'addGrass'].includes(x)).map(([x]) => x);
-    assert.deepEqual(writes, ['steal', 'clean', 'produce', 'addGrass']);
+    assert.deepEqual(writes, ['steal', 'produce', 'clean', 'addGrass']);
     assert.ok(sent.findIndex(([x]) => x === 'steal') < sent.findIndex(([x]) => x === 'produce'));
-    // 3）额外动作开关关着 → 不发
-    apply({ fnosRanch: { friendHelpProduce: false, friendFeed: false } });
+    // 3）上游帮忙生产、加牧草都关着 → 不发（旧 fork 字段即使带上也不再生效）
+    apply({ fnosRanch: { friendHelpProduce: true, friendFeed: false } });
     sent.length = 0;
     world = fresh();
     await friends.automateFriend(9, fr.wrapFriendWanted(9, a => a === 'steal'));
     writes = sent.filter(([x]) => ['clean', 'produce', 'steal', 'putMosquito', 'addGrass'].includes(x)).map(([x]) => x);
     assert.deepEqual(writes, ['steal']);
-    // 4）上游「帮忙生产」开关打开：只走上游一次 produce，fork 的帮好友生产跳过，不重复请求
-    apply({ fnosRanch: { friendHelpProduce: true, friendFeed: false } });
+    // 4）上游「帮忙生产」开关打开：只走上游一次 produce
     sent.length = 0;
     world = fresh();
     r = await friends.automateFriend(9, fr.wrapFriendWanted(9, a => a === 'produceFriend'));
@@ -287,7 +287,7 @@ test('[fnos-fork] 2026-11-17 给好友加牧草来源：默认仓库牧草 7001�
     assert.equal(ranch.planFriendFeed({ capacity: 100, feedCount: 0 }, { gold: 999999, grass: 0 }, cfg), 0);
     assert.equal(ranch.GRASS_ITEM_ID, 7001);
 
-    apply({ fnosAltAccount: { enabled: false }, fnosRanch: { friendHelpProduce: false, friendFeed: true, friendFeedSource: 'warehouse', friendFeedPerTime: 3 } });
+    apply({ fnosAltAccount: { enabled: false }, fnosRanch: { friendFeed: true, friendFeedSource: 'warehouse', friendFeedPerTime: 3 } });
     const sent = [];
     let feedCount = 0;
     mock('services/ranch/operation-state', { forCurrentAccount: () => ({ spend: (_p, fn) => fn(), reserved: () => 0 }) });
@@ -330,4 +330,54 @@ test('[fnos-fork] 2026-11-17 给好友加牧草来源：默认仓库牧草 7001�
     assert.equal(logs.filter(l => /剩 0 份/.test(l)).length, 1, '同样的提示只记一次');
     assert.ok(!sent.some(([x, input]) => x === 'addGrass' && input.use_gold));
     apply({ fnosRanch: { friendFeed: false } });
+});
+
+test('[fnos-fork] 2026-11-25 帮忙生产并入上游：旧 friendHelpProduce=true 且上游开关未设置 → ranch_friend_produce 打开，旧字段丢弃', () => {
+    // 纯函数
+    assert.deepEqual(ranch.migrateFnosHelpProduce({ fnosRanch: { friendHelpProduce: true } }), { ranch_friend_produce: true });
+    assert.deepEqual(ranch.migrateFnosHelpProduce({ automation: { ranch_harvest: false }, fnosRanch: { friendHelpProduce: true } }), { ranch_harvest: false, ranch_friend_produce: true });
+    assert.deepEqual(ranch.migrateFnosHelpProduce({ automation: { ranch_friend_produce: false }, fnosRanch: { friendHelpProduce: true } }), { ranch_friend_produce: false });
+    assert.deepEqual(ranch.migrateFnosHelpProduce({ automation: { ranch_harvest: true }, fnosRanch: { friendHelpProduce: false } }), { ranch_harvest: true });
+    assert.equal(ranch.migrateFnosHelpProduce({ fnosRanch: {} }), undefined);
+    assert.equal(ranch.migrateFnosHelpProduce(undefined), undefined);
+
+    // 磁盘上的旧配置：新进程读回
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fnos-help-produce-'));
+    const env = { ...process.env, QQ_FARM_DATA_DIR: dir };
+    delete env.FARM_ACCOUNT_ID;
+    const run = script => {
+        const r = spawnSync(process.execPath, ['-e', script], { cwd: path.join(__dirname, '..'), env, encoding: 'utf8' });
+        assert.equal(r.status, 0, r.stderr);
+        return JSON.parse(r.stdout.trim().split('\n').pop());
+    };
+    run(`const s=require('./dist/models/store');
+        for (const id of ['m1','m2','m3']) s.applyConfigSnapshot({ fnosRanch: { friendFeed: true } }, { accountId: id });
+        console.log('{}');`);
+    const fileOf = id => path.join(dir, 'account-configs', `id-${Buffer.from(id).toString('hex')}.json`);
+    const patch = (id, edit) => {
+        const file = fileOf(id);
+        assert.ok(fs.existsSync(file), id);
+        const j = JSON.parse(fs.readFileSync(file, 'utf8'));
+        const holder = j.fnosRanch ? j : (j.config || j);
+        edit(holder);
+        fs.writeFileSync(file, JSON.stringify(j));
+    };
+    // m1：旧版只开着 fork 开关，上游字段不存在 → 迁移为开
+    patch('m1', h => { h.fnosRanch.friendHelpProduce = true; if (h.automation) delete h.automation.ranch_friend_produce; });
+    // m2：fork 开着，但上游已显式关 → 尊重上游
+    patch('m2', h => { h.fnosRanch.friendHelpProduce = true; h.automation = { ...(h.automation || {}), ranch_friend_produce: false }; });
+    // m3：fork 关着 → 上游保持默认关
+    patch('m3', h => { h.fnosRanch.friendHelpProduce = false; if (h.automation) delete h.automation.ranch_friend_produce; });
+    const out = run(`const s=require('./dist/models/store');const g=id=>s.getConfigSnapshot(id);
+        console.log(JSON.stringify(['m1','m2','m3'].map(id => ({ p: g(id).automation.ranch_friend_produce, r: g(id).fnosRanch }))));`);
+    assert.deepEqual(out.map(o => o.p), [true, false, false]);
+    for (const o of out) { assert.equal('friendHelpProduce' in o.r, false); assert.equal(o.r.friendFeed, true); }
+    // 保存一次后旧字段从磁盘清掉，迁移结果写成显式上游开关
+    run(`const s=require('./dist/models/store'); s.applyConfigSnapshot({ fnosRanch: { friendFeedPerTime: 5 } }, { accountId: 'm1' }); console.log('{}');`);
+    const raw = fs.readFileSync(fileOf('m1'), 'utf8');
+    const m1 = run(`const s=require('./dist/models/store');const c=s.getConfigSnapshot('m1');console.log(JSON.stringify({ p: c.automation.ranch_friend_produce, n: c.fnosRanch.friendFeedPerTime }));`);
+    assert.deepEqual(m1, { p: true, n: 5 });
+    assert.equal(raw.includes('friendHelpProduce'), false);
+    assert.match(raw, /"ranch_friend_produce": true/);
+    fs.rmSync(dir, { recursive: true, force: true });
 });

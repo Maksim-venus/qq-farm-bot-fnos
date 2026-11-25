@@ -19,14 +19,15 @@ export {};
  *    - 清理：小号开了「只给大号放捣乱」（badOnlyMaster）不帮大号清，留给大号自己清；
  *    - 放蚊子：小号开了「只给大号放捣乱」→ 只给大号放；其余情况不给自己的大号 / 小号 / 同一大号下的其它小号放。
  * 4. 上游好友牧场自动化里的额外动作（上游没有）：
- *    - 帮好友生产 friendHelpProduce：好友动物 can_deliver 时 AnimalService.TriggerProduce {host_gid}（1116-6 #161）；
+ *    - 帮好友生产：2026-11-25 起删除 fork 的 friendHelpProduce，统一用上游 #185/#187「自动帮忙生产」（automation.ranch_friend_produce）；
+ *      旧配置开着 fork 开关且上游开关未设置时，读配置时迁移成上游开关打开（migrateFnosHelpProduce），旧字段丢弃；
  *    - 给好友加牧草 friendFeed：FeedMachineService.AddFeed {instance_id, add_count, use_gold, host_gid}；每次最多 friendFeedPerTime，不超过好友牧草机剩余容量。
  *      2026-11-17 起「加草来源」friendFeedSource：
  *        warehouse（默认）= 用农场仓库的牧草（物品 7001），use_gold 不带（=false），每份扣 1 个 7001（1117-grass #70/#104：
  *          {1: 10002, 2: 1, 4: host_gid}，ItemNotify 7001 −1，回包 detail.feed_count）；仓库不够时只加够库存的份数，停下写日志，不改用金币；
  *        gold = 原来的 use_gold:true，扣金币约 60/份（1116-7 #172），自己金币低于 friendFeedGoldKeep 不加。
  *      好友牧草机 instance_id 从好友牧场 facilities 里取（feed_machine 那一格），不写死。
- *    这两项不占 GetRanchOpTimes 次数（抓包前后不变），请求报次数类错误或无效果时当天停止。
+ *    这项不占 GetRanchOpTimes 次数（抓包前后不变），请求报次数类错误或无效果时当天停止。
  */
 
 const BOOK_INTERVAL_MS = 30 * 60 * 1000;
@@ -44,8 +45,6 @@ export interface FnosRanchConfig {
     illustratedAutoComplete: boolean;
     /** [fnos-fork] 牧歌初启 成长手册奖励（每个已完成任务 + 积分档位）自动领取，默认开 */
     mugeAutoClaim: boolean;
-    /** 帮好友生产（TriggerProduce，好友动物 can_deliver 时） */
-    friendHelpProduce: boolean;
     /** 给好友加牧草（AddFeed） */
     friendFeed: boolean;
     /** [fnos-fork] 2026-11-17 加草来源：warehouse = 农场仓库牧草 7001（默认，use_gold:false）；gold = 金币（约 60/份） */
@@ -69,7 +68,6 @@ const DEFAULT_FNOS_RANCH: FnosRanchConfig = {
     illustratedAutoClaim: true, // [fnos-fork] 2026-11-17 牧场图鉴 / 巨大图鉴奖励自动领取默认开启（老配置一次性迁移见 fnos-claim-default-migration）
     illustratedAutoComplete: false,
     mugeAutoClaim: true, // [fnos-fork] 牧歌初启成长手册奖励自动领取默认开
-    friendHelpProduce: false,
     friendFeed: false,
     friendFeedSource: 'warehouse',
     friendFeedPerTime: 10,
@@ -82,7 +80,19 @@ function clampInt(value: any, min: number, max: number, fallback: number): numbe
     return Math.max(min, Math.min(max, n));
 }
 
-/** 只输出当前字段（旧字段自然丢弃，下次保存即从配置文件清掉）。 */
+/**
+ * [fnos-fork] 2026-11-25 帮忙生产合并成上游一个开关：旧配置 fnosRanch.friendHelpProduce=true 且 automation.ranch_friend_produce
+ * 未设置时，返回把上游开关设为开的 automation；其余情况原样返回（不改入参）。旧字段由 normalizeFnosRanch 丢弃。
+ */
+function migrateFnosHelpProduce(src: Record<string, any> | null | undefined): Record<string, any> | undefined {
+    const automation = src && src.automation && typeof src.automation === 'object' && !Array.isArray(src.automation) ? src.automation : undefined;
+    const ranch = src && src.fnosRanch && typeof src.fnosRanch === 'object' && !Array.isArray(src.fnosRanch) ? src.fnosRanch : undefined;
+    if (!ranch || ranch.friendHelpProduce !== true) return automation;
+    if (automation && automation.ranch_friend_produce !== undefined) return automation;
+    return { ...(automation || {}), ranch_friend_produce: true };
+}
+
+/** 只输出当前字段（旧字段自然丢弃，下次保存即从配置文件清掉；friendHelpProduce 2026-11-25 起丢弃，见 migrateFnosHelpProduce）。 */
 function normalizeFnosRanch(input: unknown, fallback: FnosRanchConfig = DEFAULT_FNOS_RANCH): FnosRanchConfig {
     const base = { ...DEFAULT_FNOS_RANCH, ...(fallback || {}) };
     const src = (input && typeof input === 'object' && !Array.isArray(input)) ? input as Record<string, any> : {};
@@ -94,7 +104,6 @@ function normalizeFnosRanch(input: unknown, fallback: FnosRanchConfig = DEFAULT_
         illustratedAutoClaim: bool('illustratedAutoClaim'),
         illustratedAutoComplete: bool('illustratedAutoComplete'),
         mugeAutoClaim: bool('mugeAutoClaim'),
-        friendHelpProduce: bool('friendHelpProduce'),
         friendFeed: bool('friendFeed'),
         // [fnos-fork] 2026-11-17 旧配置没有此字段 → 默认仓库牧草
         friendFeedSource: FRIEND_FEED_SOURCES.includes(src.friendFeedSource) ? src.friendFeedSource : (FRIEND_FEED_SOURCES.includes(base.friendFeedSource) ? base.friendFeedSource : 'warehouse'),
@@ -113,7 +122,7 @@ const rt = {
     uncollectedProducts: null as Set<number> | null,
     dayKey: '',
     lastLog: {} as Record<string, string>,
-    exhausted: {} as { feed?: string; help?: string },
+    exhausted: {} as { feed?: string },
     wallet: { gold: 0, grass: 0 },
     relatedCache: { at: 0, gids: [] as number[] },
 };
@@ -345,7 +354,7 @@ function hasForkWork(nowMs: number = Date.now()): boolean {
     try {
         const { ranch } = readConfigs();
         // [fnos-fork] 2026-11-17 图鉴只在到期时算「有活」，避免只开了图鉴领取也每轮巡查都进牧场
-        return ((ranch.illustratedAutoClaim || ranch.illustratedAutoComplete) && nowMs >= rt.nextBookAt) || (ranch.mugeAutoClaim && nowMs >= rt.nextMugeAt) || ranch.friendHelpProduce || ranch.friendFeed;
+        return ((ranch.illustratedAutoClaim || ranch.illustratedAutoComplete) && nowMs >= rt.nextBookAt) || (ranch.mugeAutoClaim && nowMs >= rt.nextMugeAt) || ranch.friendFeed;
     } catch { return false; }
 }
 
@@ -468,7 +477,7 @@ function wrapFriendWanted(hostGid: unknown, wanted: (action: string) => boolean)
 
 // ============ 4. 上游好友牧场自动化里的额外动作 ============
 function friendExtrasEnabled(): boolean {
-    try { const { ranch } = readConfigs(); return ranch.friendHelpProduce || ranch.friendFeed; } catch { return false; }
+    try { const { ranch } = readConfigs(); return ranch.friendFeed; } catch { return false; }
 }
 
 /** 上游 friends 阶段开始时调用：记下可用金币、仓库牧草（含预留扣减）。 */
@@ -477,11 +486,6 @@ function beginFriendPhase(input: { gold: number; grass?: number }): void {
     if (rt.dayKey !== today) { rt.dayKey = today; rt.exhausted = {}; }
     rt.wallet = { gold: Math.max(0, num(input.gold)), grass: Math.max(0, num(input.grass)) };
     if (rt.wallet.grass > 0) rt.lastLog['feed-grass-out'] = ''; // [fnos-fork] 仓库又有牧草了，下次用完再提示
-}
-
-/** 纯函数：好友牧场里可以「帮忙生产」的动物数（can_deliver，与上游自己牧场「触发生产」同一字段）。 */
-function helpableAnimals(ranches: any[]): number {
-    return (ranches || []).reduce((sum: number, r: any) => sum + (r?.animals || []).filter((a: any) => a && a.can_deliver).length, 0);
 }
 
 /**
@@ -510,33 +514,11 @@ function friendFeedMachine(entry: any): { id: string; capacity: number; feedCoun
     return null;
 }
 
-function markExhaustedIfLimit(action: 'feed' | 'help', e: any): void {
+function markExhaustedIfLimit(action: 'feed', e: any): void {
     const msg = String(e && e.message || '');
     if (/次数|上限|已达|用完|limit/i.test(msg)) {
         rt.exhausted[action] = rt.dayKey;
-        log(`好友牧场：${action === 'feed' ? '给好友加牧草' : '帮忙生产'}今日停止（${msg}）`, { event: 'fnos好友牧场', result: 'limit' });
-    }
-}
-
-/**
- * 帮好友生产：AnimalService.TriggerProduce {host_gid}（1116-6 #161，不带 targets = 全部 can_deliver 动物）。
- * 回包 op_results[{kind:1, target_id: animal_inst_id, rewards: 1102×5}]。返回上游 results 形状的 outcome。
- */
-async function helpFriendProduce(host: string, ranches: any[]): Promise<any | null> {
-    const { ranch } = readConfigs();
-    if (!ranch.friendHelpProduce || rt.exhausted.help === rt.dayKey || !helpableAnimals(ranches)) return null;
-    const { rpc } = require('./transport');
-    const { sumItems } = require('./model');
-    try {
-        const reply: any = await rpc('produce', { host_gid: host }, true);
-        const rows = (reply?.op_results || []).filter((row: any) => num(row.kind) === 1);
-        if (!rows.length) { rt.exhausted.help = rt.dayKey; log('好友牧场：帮忙生产没有生效，今日不再帮忙生产', { event: 'fnos好友牧场', result: 'limit' }); return null; }
-        const items = sumItems(rows.flatMap((row: any) => row.rewards || []));
-        return { action: 'fnosHelpProduce', status: 'confirmed', completed: rows.length, rewards: items,
-            notice: `帮忙生产 ${rows.length} 只${items.length ? `，获得 ${items.map((item: any) => `${item.name} ×${item.count}`).join('、')}` : ''}` };
-    } catch (e: any) {
-        markExhaustedIfLimit('help', e);
-        throw e;
+        log(`好友牧场：给好友加牧草今日停止（${msg}）`, { event: 'fnos好友牧场', result: 'limit' });
     }
 }
 
@@ -599,10 +581,9 @@ module.exports = {
     wrapFriendWanted,
     friendExtrasEnabled,
     beginFriendPhase,
-    helpableAnimals,
     planFriendFeed,
     friendFeedMachine,
-    helpFriendProduce,
+    migrateFnosHelpProduce,
     feedFriend,
     _rt: rt,
 };

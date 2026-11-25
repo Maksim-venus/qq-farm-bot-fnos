@@ -302,7 +302,6 @@ export interface FnosRanch {
   friendFeedSource: 'warehouse' | 'gold'
   friendFeedPerTime: number
   friendFeedGoldKeep: number
-  friendHelpProduce: boolean
 }
 
 const FNOS_RANCH_DEFAULT: FnosRanch = {
@@ -315,7 +314,6 @@ const FNOS_RANCH_DEFAULT: FnosRanch = {
   friendFeedSource: 'warehouse',
   friendFeedPerTime: 10,
   friendFeedGoldKeep: 10000,
-  friendHelpProduce: false,
 }
 
 const RANGES: Partial<Record<keyof FnosRanch, [number, number]>> = {
