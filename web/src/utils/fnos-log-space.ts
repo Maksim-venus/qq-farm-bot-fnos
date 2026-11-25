@@ -33,7 +33,7 @@ export const FNOS_RANCH_EVENT_OPTIONS: Option[] = [
   { label: '放蚊子', value: 'ranch_putMosquito,ranch_fnosBad' },
   { label: '清理好友牧场', value: 'ranch_cleanFriend' },
   { label: '抚摸', value: 'ranch_stroke' },
-  { label: '帮好友生产', value: 'ranch_fnosHelpProduce' },
+  { label: '帮好友生产', value: 'ranch_produceFriend,ranch_fnosHelpProduce' },
   { label: '给好友加牧草', value: 'ranch_fnosFeedFriend' },
   { label: '拜访好友 / 大小号规则', value: 'ranch_friend,ranch_friend_leave,fnos好友牧场' },
   { label: '等大号', value: 'fnos牧场等大号' },
@@ -48,7 +48,7 @@ export const FNOS_RANCH_EVENT_OPTIONS: Option[] = [
 export const FNOS_RANCH_SCOPE_OPTIONS: Option[] = [
   { label: '全部范围', value: '' },
   { label: '自己牧场', value: 'ranch_automation,ranch_scene_restore,fnos牧场轮次,ranch_harvest,ranch_produce,ranch_feed,ranch_useCan,ranch_addGrass,ranch_buy,ranch_place,ranch_clean,ranch_sell,ranch_upgrade,ranch_completeUpgrade,fnos牧场等大号,fnos牧场图鉴,ranch_claimIllustrated,fnos牧场' },
-  { label: '好友牧场', value: 'ranch_steal,ranch_putMosquito,ranch_fnosBad,ranch_cleanFriend,ranch_stroke,ranch_fnosHelpProduce,ranch_fnosFeedFriend,ranch_friend,ranch_friend_leave,fnos好友牧场' },
+  { label: '好友牧场', value: 'ranch_steal,ranch_putMosquito,ranch_fnosBad,ranch_cleanFriend,ranch_stroke,ranch_produceFriend,ranch_fnosHelpProduce,ranch_fnosFeedFriend,ranch_friend,ranch_friend_leave,fnos好友牧场' },
   { label: '任务与礼包', value: 'ranch_task_claim,ranch_daily_share,ranch_daily_benefit' },
 ]
 

@@ -86,7 +86,8 @@ const SUMMARY_COUNTERS: Record<string, keyof FnosRanchDaySummary> = {
     ranch_putMosquito: 'putMosquito',
     ranch_fnosBad: 'putMosquito',
     ranch_stroke: 'stroke',
-    ranch_fnosHelpProduce: 'helpProduce',
+    ranch_produceFriend: 'helpProduce', // [fnos-fork] 2026-11-25 帮忙生产只剩上游 produceFriend
+    ranch_fnosHelpProduce: 'helpProduce', // 旧版 fork 帮忙生产（历史日志）
     ranch_fnosFeedFriend: 'feedFriend',
 };
 

@@ -26,12 +26,12 @@ test('fnosRanch：缺字段补默认、数值夹取', () => {
   const r = m.fnosNormalizeRanch({ altHoldFallbackMinutes: 1, friendFeedPerTime: 9999, friendHelpProduce: 1, altHold: false, rotation: true, friendSteal: true })
   assert.equal(r.altHoldFallbackMinutes, 5)
   assert.equal(r.friendFeedPerTime, 500)
-  assert.equal(r.friendHelpProduce, true)
+  assert.equal('friendHelpProduce' in r, false) // 2026-11-25 并入上游「自动帮忙生产」
   assert.equal(r.altHold, false)
   // 2026.11.16.1 起被上游取代的旧字段读到即丢弃
   assert.equal('rotation' in r, false)
   assert.equal('friendSteal' in r, false)
-  assert.equal(m.FNOS_RANCH_DEFAULT.friendHelpProduce, false)
+  assert.equal('friendHelpProduce' in m.FNOS_RANCH_DEFAULT, false)
   assert.equal(m.fnosNormalizeRanch({}).friendFeedGoldKeep, 10000)
 })
 
@@ -50,7 +50,9 @@ test('设置页：牧场空间自动控制有「飞牛增强」卡片；农场�
   assert.match(form, /settings\.fnosRanch\.friendFeedGoldKeep/)
   assert.match(form, /金币（约 60\/份）/) // [fnos-fork] 2026-11-17 加草来源可选金币
   assert.doesNotMatch(form, /friendFeedKeep/)
-  assert.match(form, /settings\.fnosRanch\.friendHelpProduce" label="好友牧场：帮忙生产" \/>/)
+  // 2026-11-25 帮忙生产只剩上游「自动帮忙生产」一个开关
+  assert.doesNotMatch(form, /fnosRanch\.friendHelpProduce/)
+  assert.match(form, /\['ranch_friend_produce', '自动帮忙生产'\]/)
   assert.doesNotMatch(form, /待抓包/)
   assert.match(form, /data-testid="fnos-grass-lands"/)
   assert.match(form, /settings\.fnosGrassLands\.count/)

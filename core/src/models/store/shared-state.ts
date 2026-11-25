@@ -373,13 +373,15 @@ function normalizeFertilizerMode(value: unknown, fallback: FertilizerMode): Fert
 function normalizeAccountConfig(input: unknown, fallback: AccountConfig = accountFallbackConfig): AccountConfig {
     const src: Record<string, any> = (input && typeof input === 'object') ? input as Record<string, any> : {};
     const cfg = cloneAccountConfig(fallback || DEFAULT_ACCOUNT_CONFIG);
+    // [fnos-fork] 2026-11-25 fork「好友牧场：帮忙生产」并入上游 ranch_friend_produce（旧开关开着且上游未设置 → 上游开）
+    const srcAutomation = require('../../services/ranch/fnos-ranch').migrateFnosHelpProduce(src);
 
-    if (src.automation && typeof src.automation === 'object') {
+    if (srcAutomation && typeof srcAutomation === 'object') {
         // 旧账号同时关闭补栏与金券升级时保留手动解锁。
-        if (src.automation.ranch_activate_shed === undefined && src.automation.ranch_upgrade === false && src.automation.ranch_buy === false) {
+        if (srcAutomation.ranch_activate_shed === undefined && srcAutomation.ranch_upgrade === false && srcAutomation.ranch_buy === false) {
             cfg.automation.ranch_activate_shed = false;
         }
-        for (const [k, v] of Object.entries(migrateRanchMarketAutomation(src.automation))) {
+        for (const [k, v] of Object.entries(migrateRanchMarketAutomation(srcAutomation))) {
             if (!ALLOWED_AUTOMATION_KEYS.has(k)) continue;
             if (k === 'fertilizer') {
                 cfg.automation.fertilizer = normalizeFertilizerMode(v, cfg.automation.fertilizer);

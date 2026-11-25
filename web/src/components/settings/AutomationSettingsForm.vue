@@ -195,7 +195,7 @@ const ranchFeedStages = [
                 飞牛增强
               </h4>
               <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                小号等大号；牧场图鉴；好友牧场帮忙生产、加牧草
+                小号等大号；牧场图鉴；给好友加牧草
               </p>
             </div>
           </div>
@@ -218,9 +218,6 @@ const ranchFeedStages = [
               <BaseSwitch v-model="settings.fnosRanch.mugeAutoClaim" label="牧歌初启成长手册奖励自动领取" title="成长手册里所有已完成任务的奖励和积分档位奖励；约 30 分钟随牧场巡查检查一次，活动未开始 / 已结束 / 已领完时静默" />
             </div>
             <div class="automation-setting-item">
-              <BaseSwitch v-model="settings.fnosRanch.friendHelpProduce" label="好友牧场：帮忙生产" />
-            </div>
-            <div class="automation-setting-item">
               <BaseSwitch v-model="settings.fnosRanch.friendFeed" label="给好友加牧草" />
             </div>
             <!-- [fnos-fork] 2026-11-17 加草来源：默认用农场仓库牧草（7001），可改金币 -->
@@ -236,7 +233,7 @@ const ranchFeedStages = [
           </div>
           <p class="mt-3 text-xs text-gray-500 leading-relaxed dark:text-gray-400">
             小号等大号沿用「大小号协作」的大号和超时设置，作用于上面的「自动收获」：有货架在等大号偷时只收成熟动物，不收货架。
-            帮忙生产、给好友加牧草挂在上面「好友互动」的好友巡查里（每轮最多 3 位好友，按到期时间给农场让路）；上游自带的「自动帮忙生产」打开时以它为准，这里的帮忙生产自动跳过，不会重复请求；给好友加牧草默认用农场仓库的牧草（每份 1 个牧草，仓库不够时只加够库存的份数并暂停、写日志，不会改用金币）；选「金币」则扣金币（约 60 金币/份），自己金币低于保留值就不加。都不超过每次上限和好友牧草机剩余容量。
+            给好友加牧草挂在上面「好友互动」的好友巡查里（每轮最多 3 位好友，按到期时间给农场让路），帮忙生产用「好友互动」里的「自动帮忙生产」；加牧草默认用农场仓库的牧草（每份 1 个牧草，仓库不够时只加够库存的份数并暂停、写日志，不会改用金币）；选「金币」则扣金币（约 60 金币/份），自己金币低于保留值就不加。都不超过每次上限和好友牧草机剩余容量。
             好友互动的大小号规则与农场一致：小号开了「不偷大号的菜」时不偷大号；开了「只给大号放捣乱」时只给大号放蚊子、不帮大号清理；其余情况不给自己的大号、小号放蚊子。日志标签「牧场」。
           </p>
         </section>

@@ -380,7 +380,6 @@ export interface FriendPatrolProgress {
     produceChecked?: boolean;
     cleanChecked?: boolean;
     pending?: FriendInteraction[];
-    helpProduceChecked?: boolean; // [fnos-fork]
     feedChecked?: boolean; // [fnos-fork]
 }
 
@@ -443,23 +442,6 @@ async function automateFriend(
                 }
             }
             progress[checked] = true;
-        }
-        // [fnos-fork] 帮好友生产（开关 fnosRanch.friendHelpProduce）。上游 #185 起自带「帮忙生产」（ranch_friend_produce），
-        // 上游开关打开时以上游为准，这里跳过，避免同一位好友重复请求
-        if (!progress.helpProduceChecked && !enabled('produceFriend')) {
-            if (ranchesChanged) {
-                if (pause()) return { results, times, yielded: true };
-                ranches = (await rpc('animals', { host_gid: host })).ranches;
-                ranchesChanged = false;
-            }
-            const helped = await require('./fnos-ranch').helpFriendProduce(host, ranches);
-            progress.helpProduceChecked = true;
-            if (helped) {
-                results.push(helped);
-                acted = true;
-                if (pause()) return { results, times, yielded: true };
-                ranches = (await rpc('animals', { host_gid: host })).ranches;
-            }
         }
         if (enabled('stroke') || enabled('putMosquito')) {
             if (!progress.pending) {
